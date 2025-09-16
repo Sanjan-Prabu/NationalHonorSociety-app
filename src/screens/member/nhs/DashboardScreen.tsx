@@ -5,10 +5,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import ProgressBar from 'common/components/ProgressBar';
-
+import BottomNavigator, { useBottomNav } from 'components/commons/member/BottomNavigator'; // Adjust import path as needed
 
 const Colors = {
-  LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'],
+  LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
   primaryBlue: '#4A90E2',
   solidBlue: '#2B5CE6',
   textDark: '#1A202C',
@@ -17,17 +17,25 @@ const Colors = {
   white: '#FFFFFF',
   cardBackground: '#FFFFFF',
   dividerColor: '#D1D5DB',
-  lightBlue: '#EBF8FF',
+  lightBlue: '#EBF8FF', 
 };
 
-const DashboardScreen = () => {
+const DashboardScreen = ({ navigation }: any) => {
+  // Use the bottom nav hook to set the active tab
+  const { setActiveTab } = useBottomNav();
+
+  // Set this screen as active when it mounts
+  useEffect(() => {
+    setActiveTab('home');
+  }, [setActiveTab]);
+
   // Mock user data - in real app, this would come from props/context/API
   const [userData, setUserData] = useState({
     firstName: 'Sarah',
     lastName: 'Johnson',
     role: 'NHS Member',
-    currentHours: 18,
-    requiredHours: 25,
+    currentHours: 7,
+    requiredHours: 10,
     organization: 'NHS',
   });
 
@@ -61,6 +69,13 @@ const DashboardScreen = () => {
     if (upcomingEvent.isToday) return 'Today';
     if (upcomingEvent.isTomorrow) return 'Tomorrow';
     return upcomingEvent.date;
+  };
+
+  const handleTabPress = (tabName: string) => {
+    // Navigate to the appropriate screen based on tabName
+    if (tabName !== 'home') {
+      navigation.navigate(tabName);
+    }
   };
 
   return (
@@ -150,33 +165,8 @@ const DashboardScreen = () => {
             <View style={styles.bottomSpacer} />
           </ScrollView>
 
-          {/* Bottom Navigation */}
-          <View style={styles.bottomNavContainer}>
-            <TouchableOpacity style={styles.navItem}>
-              <Icon name="home" size={moderateScale(24)} color={Colors.solidBlue} />
-              <Text style={[styles.navText, { color: Colors.solidBlue }]}>Home</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.navItem}>
-              <Icon name="notifications" size={moderateScale(24)} color={Colors.textLight} />
-              <Text style={styles.navText}>Announcements</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.navItem}>
-              <Icon name="access-time" size={moderateScale(24)} color={Colors.textLight} />
-              <Text style={styles.navText}>Log Hours</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.navItem}>
-              <Icon name="event" size={moderateScale(24)} color={Colors.textLight} />
-              <Text style={styles.navText}>Events</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.navItem}>
-              <Icon name="how-to-reg" size={moderateScale(24)} color={Colors.textLight} />
-              <Text style={styles.navText}>Attendance</Text>
-            </TouchableOpacity>
-          </View>
+          {/* Bottom Navigation - Using the reusable component */}
+          <BottomNavigator onTabPress={handleTabPress} />
         </SafeAreaView>
       </LinearGradient>
     </SafeAreaProvider>
@@ -357,38 +347,6 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: verticalScale(100),
-  },
-  bottomNavContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingVertical: verticalScale(12),
-    paddingHorizontal: scale(8),
-    backgroundColor: Colors.white,
-    borderTopWidth: 1,
-    borderTopColor: Colors.dividerColor,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: verticalScale(-2) },
-    shadowOpacity: 0.1,
-    shadowRadius: moderateScale(8),
-    elevation: 8,
-  },
-  navItem: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: verticalScale(8),
-    paddingHorizontal: scale(4),
-    minWidth: scale(60),
-  },
-  navText: {
-    fontSize: moderateScale(10),
-    color: Colors.textLight,
-    marginTop: verticalScale(4),
-    textAlign: 'center',
   },
 });
 

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import {
   View,
@@ -9,6 +9,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  RefreshControl,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
@@ -27,8 +28,17 @@ const Colors = {
   dividerColor: '#D1D5DB',
 };
 
-
 const NHSLoginScreen = () => {
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    // Simulate API call or refresh operation
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 1000);
+  };
+
   return (
     <SafeAreaProvider>
       <LinearGradient
@@ -37,7 +47,7 @@ const NHSLoginScreen = () => {
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
       >
-        <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
+        <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
           <KeyboardAvoidingView
             style={styles.keyboardAvoidingView}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -46,6 +56,8 @@ const NHSLoginScreen = () => {
             <ScrollView
               contentContainerStyle={styles.scrollContainer}
               keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
             >
               {/* Header with NHS logo in blue circle */}
               <View style={styles.header}>
@@ -64,27 +76,32 @@ const NHSLoginScreen = () => {
                 <Text style={styles.welcomeSubtitle}>Log in to your NHS account</Text>
               </View>
 
-              {/* Login form */}
+              {/* Login form - Now properly centered with full width */}
               <View style={styles.formContainer}>
-                <Text style={styles.inputLabel}>Email</Text>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Enter Email"
-                  placeholderTextColor={Colors.textLight}
-                />
-                {/* Password label and forgot password link on same line */}
-                <View style={styles.passwordHeader}>
-                  <Text style={styles.inputLabel}>Password</Text>
-                  <TouchableOpacity>
-                    <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-                  </TouchableOpacity>
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputLabel}>Email</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Enter Email"
+                    placeholderTextColor={Colors.textLight}
+                  />
                 </View>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Enter Password"
-                  placeholderTextColor={Colors.textLight}
-                  secureTextEntry
-                />
+
+                <View style={styles.inputContainer}>
+                  {/* Password label and forgot password link on same line */}
+                  <View style={styles.passwordHeader}>
+                    <Text style={styles.inputLabel}>Password</Text>
+                    <TouchableOpacity>
+                      <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Enter Password"
+                    placeholderTextColor={Colors.textLight}
+                    secureTextEntry
+                  />
+                </View>
 
                 <TouchableOpacity style={styles.loginButton}>
                   <Text style={styles.loginButtonText}>Login</Text>
@@ -102,11 +119,11 @@ const NHSLoginScreen = () => {
               <View style={styles.spacer} />
             </ScrollView>
 
-            {/* Bottom navigation with single divider line */}
+            {/* Bottom navigation with proper styling */}
             <View style={styles.bottomNavContainer}>
-              <TouchableOpacity style={styles.SignupButton}>
-                <Icon name="pencil" size={moderateScale(24)} color={Colors.solidBlue} />
-                <Text style={styles.SignupText}>Sign Up</Text>
+              <TouchableOpacity style={styles.navItem}>
+                <Icon name="edit" size={moderateScale(20)} color={Colors.solidBlue} />
+                <Text style={[styles.navText, { color: Colors.solidBlue }]}>Sign Up</Text>
               </TouchableOpacity>
             </View>
           </KeyboardAvoidingView>
@@ -128,18 +145,19 @@ const styles = StyleSheet.create({
   },
   scrollContainer: {
     flexGrow: 1,
-    paddingHorizontal: scale(20),
-    paddingBottom: verticalScale(70),
+    paddingHorizontal: scale(24), // Increased from 20 to give more breathing room
+    paddingBottom: verticalScale(20), // Reduced to prevent over-extension
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: verticalScale(24),
+    marginBottom: verticalScale(32), // Increased spacing
     marginTop: verticalScale(16),
   },
   backButton: {
     padding: scale(8),
+    minWidth: scale(40), // Ensure consistent sizing
   },
   backButtonText: {
     fontSize: moderateScale(24),
@@ -147,16 +165,11 @@ const styles = StyleSheet.create({
   },
   nhsLogoContainer: {
     backgroundColor: Colors.solidBlue,
-    borderRadius: moderateScale(100), // Large value for perfect circle
+    borderRadius: scale(55), // Use scale for consistent sizing
     justifyContent: 'center',
     alignItems: 'center',
-    // Use aspectRatio: 1 to force perfect circle
-    aspectRatio: 1,
-    // Calculate size based on text + padding
-    padding: scale(30), // 30px padding on all sides
-    // Or use fixed size if you prefer
-    width: scale(110), // Fixed size for perfect circle
-    height: scale(110), // Fixed size for perfect circle
+    width: scale(110),
+    height: scale(110),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: verticalScale(2) },
     shadowOpacity: 0.2,
@@ -164,7 +177,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   nhsLogoText: {
-    fontSize: moderateScale(24), // Slightly larger to balance the bigger circle
+    fontSize: moderateScale(28), // Increased slightly for better proportion
     fontWeight: 'bold',
     color: Colors.white,
     includeFontPadding: false,
@@ -174,14 +187,16 @@ const styles = StyleSheet.create({
     width: scale(40),
   },
   welcomeContainer: {
-    marginBottom: verticalScale(15),
+    marginBottom: verticalScale(40), // Increased spacing
     alignItems: 'center',
+    paddingHorizontal: scale(20), // Add horizontal padding
   },
   welcomeTitle: {
     fontSize: moderateScale(32),
     fontWeight: 'bold',
     color: Colors.textDark,
     marginBottom: verticalScale(8),
+    textAlign: 'center',
   },
   welcomeSubtitle: {
     fontSize: moderateScale(16),
@@ -190,9 +205,13 @@ const styles = StyleSheet.create({
     lineHeight: moderateScale(24),
   },
   formContainer: {
-    backgroundColor: 'transparent',
-    borderRadius: moderateScale(16),
-    padding: scale(10),
+    flex: 1, // Allow form to take available space
+    width: '100%', // Ensure full width
+    paddingHorizontal: scale(8), // Add small horizontal padding
+  },
+  inputContainer: {
+    width: '100%', // Ensure inputs take full width
+    marginBottom: verticalScale(20),
   },
   inputLabel: {
     fontSize: moderateScale(16),
@@ -201,31 +220,36 @@ const styles = StyleSheet.create({
     marginBottom: verticalScale(8),
   },
   textInput: {
+    width: '100%', // Explicit full width
     borderWidth: 1,
     borderColor: Colors.inputBorder,
-    borderRadius: moderateScale(8),
+    borderRadius: moderateScale(12), // Increased border radius
     padding: scale(16),
     fontSize: moderateScale(16),
-    marginBottom: verticalScale(24),
     backgroundColor: Colors.inputBackground,
+    minHeight: verticalScale(50), // Ensure consistent height
   },
   passwordHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: verticalScale(8),
+    width: '100%',
   },
   forgotPasswordText: {
     fontSize: moderateScale(14),
     color: Colors.solidBlue,
     fontWeight: '500',
+    paddingBottom: scale(4),
   },
   loginButton: {
+    width: '100%', // Explicit full width
     backgroundColor: Colors.solidBlue,
-    borderRadius: moderateScale(8),
+    borderRadius: moderateScale(12), // Increased border radius
     paddingVertical: verticalScale(16),
     alignItems: 'center',
-    marginBottom: verticalScale(16),
+    marginBottom: verticalScale(24), // Increased spacing
+    marginTop: verticalScale(8),
   },
   loginButtonText: {
     color: Colors.white,
@@ -234,11 +258,13 @@ const styles = StyleSheet.create({
   },
   helpLink: {
     alignSelf: 'center',
+    marginBottom: verticalScale(20),
   },
   helpText: {
     fontSize: moderateScale(14),
     color: Colors.textDark,
     fontWeight: '500',
+    textAlign: 'center',
   },
   helpLinkText: {
     color: Colors.solidBlue,
@@ -246,22 +272,38 @@ const styles = StyleSheet.create({
   },
   spacer: {
     flex: 1,
+    minHeight: verticalScale(20), // Minimum spacer height
   },
   bottomNavContainer: {
-    paddingVertical: verticalScale(2),
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(8),
+    backgroundColor: Colors.white,
     borderTopWidth: 1,
     borderTopColor: Colors.dividerColor,
-    backgroundColor: Colors.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: verticalScale(-2) },
+    shadowOpacity: 0.1,
+    shadowRadius: moderateScale(8),
+    elevation: 8,
   },
-  SignupButton: {
+  navItem: {
     alignItems: 'center',
-    padding: verticalScale(3),
+    justifyContent: 'center',
+    paddingVertical: verticalScale(8),
+    paddingHorizontal: scale(16),
   },
-  SignupText: {
-    fontSize: moderateScale(14),
-    color: Colors.solidBlue,
-    fontWeight: '600',
-    marginTop: verticalScale(5),
+  navText: {
+    fontSize: moderateScale(10),
+    color: Colors.textLight,
+    marginTop: verticalScale(4),
+    textAlign: 'center',
   },
 });
 

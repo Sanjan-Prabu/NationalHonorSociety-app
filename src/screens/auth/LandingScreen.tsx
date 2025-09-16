@@ -1,4 +1,5 @@
-import React from 'react';
+
+import React, { useState } from 'react';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import {
   View,
@@ -8,6 +9,7 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  RefreshControl
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
@@ -52,17 +54,27 @@ const LandingScreen = () => {
   const handleNHSALogin = () => {
     console.log('Member Login pressed');
   };
-
+   const [refreshing, setRefreshing] = useState(false);
+ const onRefresh = () => {
+      setRefreshing(true);
+      // Simulate API call or refresh operation
+      setTimeout(() => {
+        setRefreshing(false);
+      }, 1000);
+    };
   return (
+    <SafeAreaProvider>
     <LinearGradient
       colors={Colors.LandingScreenGradient}
       style={styles.gradientContainer}
       start={{ x: 0.5, y: 0 }}
       end={{ x: 0.5, y: 1 }}
     >
-      <SafeAreaProvider>
-        <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
-          <ScrollView contentContainerStyle={styles.scrollContainer}>
+      
+        <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+          <ScrollView contentContainerStyle={styles.scrollContainer}
+           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+           >
             {/* Logo and Title Section */}
             <View style={styles.headerSection}>
               <StackedDiamondsLogo />
@@ -96,13 +108,14 @@ const LandingScreen = () => {
 
             {/* Footer */}
             <View style={styles.footer}>
-              <Text style={styles.footerText}>© 2025 Honor Society Hub</Text>
+              <Text style={styles.footerText}>© 2025 National Honor Society </Text>
               <Text style={styles.footerText}>Version 1.0.0</Text>
             </View>
           </ScrollView>
         </SafeAreaView>
+        </LinearGradient>
       </SafeAreaProvider>
-    </LinearGradient>
+    
   );
 };
 

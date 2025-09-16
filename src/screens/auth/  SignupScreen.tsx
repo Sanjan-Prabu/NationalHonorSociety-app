@@ -9,6 +9,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  RefreshControl,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
@@ -43,6 +44,7 @@ const SignupScreen = () => {
   const [verificationCode, setVerificationCode] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
 
   // const handleSignup = async () => {
   //   if (password.length < 6) {
@@ -90,7 +92,14 @@ const SignupScreen = () => {
     const formatted = formatPhoneNumber(text);
     setPhoneNumber(formatted);
   };
-
+ 
+    const onRefresh = () => {
+      setRefreshing(true);
+      // Simulate API call or refresh operation
+      setTimeout(() => {
+        setRefreshing(false);
+      }, 1000);
+    };
   return (
     <SafeAreaProvider>
       <LinearGradient
@@ -109,6 +118,7 @@ const SignupScreen = () => {
               contentContainerStyle={styles.scrollContainer}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
+             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
             >
               {/* Header */}
               <View style={styles.header}>
@@ -323,7 +333,7 @@ const SignupScreen = () => {
                 </Text>
 
                 {/* Create Account Button */}
-                <TouchableOpacity style={styles.createAccountButton} onPress={handleSignup}>
+                <TouchableOpacity style={styles.createAccountButton}>
                   <Text style={styles.createAccountButtonText}>Create Account</Text>
                 </TouchableOpacity>
               </View>
@@ -384,7 +394,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   welcomeTitle: {
-    fontSize: moderateScale(28),
+    fontSize: moderateScale(26.5),
     fontWeight: 'bold',
     color: Colors.solidBlue,
     marginBottom: verticalScale(4),
