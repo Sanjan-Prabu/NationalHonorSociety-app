@@ -1,19 +1,17 @@
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View } from 'react-native';
 import '@/global.css';
+import {SafeAreaView} from 'react-native-safe-area-context';
+import DashboardScreen from 'screens/member/nhs/DashboardScreen';
 
 export default function App() {
   return (
-    
-
-      <View>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
-
-  
+    <SafeAreaView style={styles.container}>
+      <DashboardScreen />
+    </SafeAreaView>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {
