@@ -44,8 +44,11 @@ export const useBottomNav = () => {
   return context;
 };
 
-const BottomNavigator: React.FC<BottomNavigatorProps> = ({ onTabPress }) => {
-  const { activeTab } = useBottomNav();
+const BottomNavigator: React.FC<BottomNavigatorProps> = ({ onTabPress, activeTab: propActiveTab }) => {
+  const { activeTab: contextActiveTab, setActiveTab } = useBottomNav();
+  
+  // Use prop if provided, otherwise use context
+  const currentActiveTab = propActiveTab || contextActiveTab;
   
   const tabs = [
     { id: 'home', icon: 'home', label: 'Home' },
@@ -55,15 +58,20 @@ const BottomNavigator: React.FC<BottomNavigatorProps> = ({ onTabPress }) => {
     { id: 'members', icon: 'group', label: 'Members' },
   ];
 
+  const handleTabPress = (tabId: string) => {
+    setActiveTab(tabId);
+    onTabPress(tabId);
+  };
+
   return (
     <View style={styles.bottomNavContainer}>
       {tabs.map((tab) => {
-        const isActive = activeTab === tab.id;
+        const isActive = currentActiveTab === tab.id;
         return (
           <TouchableOpacity
             key={tab.id}
             style={styles.navItem}
-            onPress={() => onTabPress(tab.id)}
+            onPress={() => handleTabPress(tab.id)}
           >
             <Icon 
               name={tab.icon} 

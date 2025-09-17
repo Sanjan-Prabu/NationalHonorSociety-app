@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
@@ -77,21 +77,27 @@ const DashboardScreen = ({ navigation }: any) => {
       navigation.navigate(tabName);
     }
   };
-
+const insets = useSafeAreaInsets();
   return (
-    <SafeAreaProvider>
+    
+ 
       <LinearGradient
-        colors={Colors.LandingScreenGradient}
-        style={styles.gradientContainer}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
+    colors={Colors.LandingScreenGradient}
+    style={{ flex: 1 }} // gradient covers the whole screen including status bar
+    start={{ x: 0.5, y: 0 }}
+    end={{ x: 0.5, y: 1 }}
+  >
+       <SafeAreaView style={{ flex: 1 }}>
+      <ScrollView
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingTop: insets.top, // content moves below notch/status bar
+          paddingBottom: insets.bottom,
+          paddingHorizontal: scale(16),
+        }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-          <ScrollView
-            contentContainerStyle={styles.scrollContainer}
-            showsVerticalScrollIndicator={false}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          >
             {/* Header */}
             <View style={styles.header}>
               <View style={styles.headerLeft}>
@@ -168,8 +174,9 @@ const DashboardScreen = ({ navigation }: any) => {
           {/* Bottom Navigation - Using the reusable component */}
           <BottomNavigator onTabPress={handleTabPress} />
         </SafeAreaView>
-      </LinearGradient>
-    </SafeAreaProvider>
+ 
+    </LinearGradient>
+
   );
 };
 

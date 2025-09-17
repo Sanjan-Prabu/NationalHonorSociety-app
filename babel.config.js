@@ -17,7 +17,6 @@ module.exports = function (api) {
         'module-resolver',
         {
           root: ['./'],
-
           alias: {
             '@': './',
             'tailwind.config': './tailwind.config.js',
@@ -25,6 +24,15 @@ module.exports = function (api) {
         },
       ],
       'react-native-reanimated/plugin',
+      [
+        'module:react-native-dotenv',
+        {
+          moduleName: '@env', // this is how you will import
+          path: '.env',       // path to the .env file at project root
+          safe: false,
+          allowUndefined: true,
+        },
+      ],
     ],
   };
 };

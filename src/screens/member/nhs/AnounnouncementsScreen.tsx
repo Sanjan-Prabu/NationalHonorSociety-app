@@ -109,7 +109,7 @@ const AnnouncementsScreen = ({ navigation }: any) => {
           </ScrollView>
 
           {/* Bottom Navigation - No need to pass activeTab prop */}
-          <BottomNavigator onTabPress={handleTabPress} />
+          <BottomNavigator onTabPress={handleTabPress} activeTab="announcements" />
         </SafeAreaView>
       </LinearGradient>
     </SafeAreaProvider>
