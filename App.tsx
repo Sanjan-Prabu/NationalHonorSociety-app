@@ -12,7 +12,7 @@ import TestConnection from 'screens/auth/TestConnection';
 export default function App() {
   return (
   <SafeAreaProvider>
-    <TestConnection />
+    <SignupScreen />
   </SafeAreaProvider>
       
 

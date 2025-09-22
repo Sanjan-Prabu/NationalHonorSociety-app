@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { View, Text } from 'react-native';
-import { supabase } from 'api/supabaseClient';
+import { supabase } from 'lib/supabaseClient';
 
 const TestConnection = () => {
   useEffect(() => {

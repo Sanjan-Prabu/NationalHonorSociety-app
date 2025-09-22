@@ -6,7 +6,8 @@
     "baseUrl": "./src",
     "paths": {
       "@/*": ["./*"]
-    }
+    },
+     "lib": ["ESNext"]
   },
   "include": [
     "src/**/*.ts",
@@ -14,5 +15,5 @@
     "App.tsx",
     "nativewind-env.d.ts",
     "env.d.ts"
-  ]
+, "appConfig.ts"  ]
 }
