@@ -17,6 +17,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import DropDownPicker from 'react-native-dropdown-picker';
 import { Alert } from 'react-native';
 import { supabase } from 'lib/supabaseClient';
+import { EXPO_PUBLIC_SUPABASE_URL } from '@env';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -134,7 +135,7 @@ const SignupScreen = () => {
     newErrors.password = 'Password must be at least 8 characters long';
   } else if (!/(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?])/.test(password)) {
     newErrors.password = 'Password must contain at least one special character';
-  }
+  } 
 
   // Confirm password
  if (!confirmPassword) {
@@ -147,82 +148,67 @@ const SignupScreen = () => {
   return Object.keys(newErrors).length === 0;
 };
 
-  const handleSignup = async () => {
-    if (!validateForm()) return;
+const handleSignup = async () => {
+  // Validate client-side first
+  if (!validateForm()) {
+    Alert.alert("Validation Error", "Please fill out all required fields correctly.");
+    return;
+  }
 
-    if (!verificationCode) {
-      Alert.alert("Verification Required", "Please enter a verification code to create an account.");
+  try {
+    // Build request payload
+    const payload = {
+      email: email.trim().toLowerCase(),
+      password,
+      first_name: firstName.trim(),
+      last_name: lastName.trim(),
+      phone_number: phoneNumber || null,
+      student_id: studentId || null,
+      grade: grade || null,
+      organization: organization.trim(),
+      code: verificationCode,
+    };
+
+    // Get the Edge Function URL from environment
+    const fnUrl = `${EXPO_PUBLIC_SUPABASE_URL}/functions/v1/signupPublic`;
+    
+    if (!EXPO_PUBLIC_SUPABASE_URL) {
+      Alert.alert("Configuration Error", "Please set EXPO_PUBLIC_SUPABASE_URL in your .env file.");
+      console.error("Missing Supabase URL in .env file");
       return;
     }
 
-    try {
-      console.log("🔹 Step 1: Verifying code:", verificationCode);
+    console.log("🔹 Calling Edge Function:", fnUrl);
+    console.log("🔹 Supabase URL:", EXPO_PUBLIC_SUPABASE_URL);
+    console.log("📤 Payload:", payload);
 
-      const { data: codeCheck, error: codeError } = await supabase
-        .from('verification_codes')
-        .select('*')
-        .eq('code', verificationCode)
-        .is('used_by', null)
-        .single();
+    const resp = await fetch(fnUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
 
-      if (codeError || !codeCheck) {
-        console.error("❌ Invalid verification code:", codeError);
-        Alert.alert("Invalid Code", "The verification code is invalid or has already been used.");
-        return;
-      }
+    const resJson = await resp.json();
 
-      console.log("✅ Verification code is valid");
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: email.trim().toLowerCase(),
-        password
-      });
-
-      if (authError) {
-        console.error("Signup error:", authError);
-        Alert.alert("Signup Failed", authError.message);
-        return;
-      }
-
-      if (!authData?.user?.id) {
-        console.error("Signup succeeded but no user returned:", authData);
-        Alert.alert("Signup Failed", "No user ID returned from Supabase.");
-        return;
-      }
-
-      const userId = authData.user.id;
-
-      const profileData = {
-        id: userId,
-        email: email.trim().toLowerCase(),
-        first_name: firstName.trim(),
-        last_name: lastName.trim(),
-        phone_number: phoneNumber || null,
-        student_id: studentId || null,
-        grade: grade || null,
-        organization: organization || null,
-        verification_code: verificationCode,
-        is_verified: false
-      };
-
-      const { data: profileResult, error: profileError } = await supabase
-        .from('profiles')
-        .insert(profileData)
-        .select();
-
-      if (profileError) {
-        console.error("Profile creation failed:", profileError);
-        Alert.alert("Profile Creation Failed", profileError.message);
-        return;
-      }
-
-      console.log("✅ Profile created:", profileResult);
-      Alert.alert(" ✅ Account has been created!");
-
-    } catch (err: any) {
-      console.error("❌ Unexpected error:", err);
-      Alert.alert("Signup Failed", `Unexpected error: ${err.message}`);
+    if (!resp.ok || !resJson.success) {
+      console.error("Signup function returned error", resJson);
+      Alert.alert("Signup Failed", resJson.error || "Unknown error from server");
+      return;
     }
-  };
+
+    // Success — function returned user_id
+    console.log("✅ Created user:", resJson.user_id);
+    Alert.alert("Success", "Your account has been created successfully!");
+    // optionally navigate to login or home
+
+  } catch (err: any) {
+    console.error("Signup client error", err);
+    Alert.alert("Signup Failed", err.message || "Unknown client error");
+  }
+};
+
 
   const formatPhoneNumber = (text: string): string => {
     const cleaned = text.replace(/\D/g, '');

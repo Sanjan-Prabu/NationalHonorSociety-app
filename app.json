@@ -25,10 +25,7 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.sanjan.prabu.NationalHonorSociety"
     },
-    "extra": {
-      "SUPABASE_URL": "https://yourproject.supabase.co",
-      "SUPABASE_ANON_KEY": "your-anon-public-key"
-    },
+    "extra": {},
     "plugins": [
       "expo-secure-store"
     ]

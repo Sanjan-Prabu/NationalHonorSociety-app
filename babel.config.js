@@ -2,37 +2,34 @@ module.exports = function (api) {
   api.cache(true);
 
   return {
-    presets: [
-      [
-        'babel-preset-expo',
-        {
-          jsxImportSource: 'nativewind',
-        },
-      ],
-      'nativewind/babel',
-    ],
-
+    // 1. Reverted to a standard Expo preset
+    presets: ['babel-preset-expo'], 
+    
     plugins: [
+      // 2. Removed the 'tailwind.config' alias
       [
         'module-resolver',
         {
           root: ['./'],
           alias: {
             '@': './',
-            'tailwind.config': './tailwind.config.js',
           },
         },
       ],
-      'react-native-reanimated/plugin',
+
+      // 3. Environment variables setup (kept to address your error)
       [
         'module:react-native-dotenv',
         {
-          moduleName: '@env', // this is how you will import
-          path: '.env',       // path to the .env file at project root
+          moduleName: '@env', 
+          path: '.env',       
           safe: false,
           allowUndefined: true,
         },
       ],
+
+      // 4. Reanimated must always be the last plugin
+      'react-native-reanimated/plugin',
     ],
   };
 };
