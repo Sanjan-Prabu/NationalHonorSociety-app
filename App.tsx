@@ -8,15 +8,20 @@ import LoginScreen from 'screens/auth/ LoginScreen';
 import LandingScreen from 'screens/auth/LandingScreen';
 import AnnouncementsScreen from 'screens/member/nhs/AnounnouncementsScreen';
 import LogHoursScreen from 'screens/member/nhs/LogHoursScreen'; // Needs fixing
-import TestConnection from 'screens/auth/TestConnection';
-
+import { ToastProvider } from 'components/ui/ToastProvider';
+import VolunteerHoursForm from 'screens/member/nhs/VolunteerHoursForm';
+import AttendanceScreen from 'screens/member/nhs/AttendanceScreen';
+import OfficerDashboard from 'screens/officer/nhs/OfficerDashboard';
+import OfficerAttendance from 'screens/officer/nhs/OfficerAttendance';
+import OfficerVerifyHours from 'screens/officer/nhs/OfficerVerifyHours';
 export default function App() {
   return (
 
-      <SafeAreaProvider>
-        <SignupScreen />
-      </SafeAreaProvider>
-
+<ToastProvider>
+   <SafeAreaProvider>
+        <OfficerVerifyHours/>
+   </SafeAreaProvider>
+</ToastProvider>
       
 
   );

@@ -34,7 +34,7 @@ const DashboardScreen = ({ navigation }: any) => {
     firstName: 'Sarah',
     lastName: 'Johnson',
     role: 'NHS Member',
-    currentHours: 7,
+    currentHours: 5,
     requiredHours: 10,
     organization: 'NHS',
   });

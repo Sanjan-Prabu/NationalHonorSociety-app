@@ -4,6 +4,7 @@ module.exports = function (api) {
   return {
     // 1. Reverted to a standard Expo preset
     presets: ['babel-preset-expo'], 
+    plugins: ["nativewind/babel"],
     
     plugins: [
       // 2. Removed the 'tailwind.config' alias

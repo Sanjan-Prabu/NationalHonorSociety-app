@@ -139,6 +139,13 @@ console.log("Code verified successfully");
     console.log("Auth user created:", userId);
 
     // 🔹 3. Insert profile (no org lookup needed)
+    let Organization;
+    if(organization=="NHS"){
+       Organization = "NationalHonorSociety";
+    }
+    else{
+      Organization = "NationalHonorSocietyAssociates"
+    }
     const { error: profileError } = await supabase.from("profiles").insert({
       id: userId,
       email: email.toLowerCase(),
@@ -147,7 +154,7 @@ console.log("Code verified successfully");
       phone_number,
       student_id,
       grade,
-      organization: organization.trim(),
+      organization: Organization,
       username: `${first_name.trim().toLowerCase()}.${last_name
         .trim()
         .toLowerCase()}`,

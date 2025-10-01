@@ -15,9 +15,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import DropDownPicker from 'react-native-dropdown-picker';
-import { Alert } from 'react-native';
 import { supabase } from 'lib/supabaseClient';
 import { EXPO_PUBLIC_SUPABASE_URL } from '@env';
+import { useToast } from 'components/ui/ToastProvider'; // Adjust path as needed
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -34,6 +34,8 @@ const Colors = {
 };
 
 const SignupScreen = () => {
+  const { showError, showSuccess, showValidationError } = useToast();
+  
   const gradeOptions = [
     { label: 'Select Grade', value: '' },
     { label: '9th Grade', value: '9' },
@@ -59,156 +61,154 @@ const SignupScreen = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const validateForm = () => {
-  const newErrors: Record<string, string> = {};
+    const newErrors: Record<string, string> = {};
 
-  // First name
-  if (!firstName.trim()) {
-    newErrors.firstName = 'First name is required';
-  } else if (firstName.length > 50) {
-    newErrors.firstName = 'First name must be less than 50 characters';
-  }
-
-  // Last name
-  if (!lastName.trim()) {
-    newErrors.lastName = 'Last name is required';
-  } else if (lastName.length > 50) {
-    newErrors.lastName = 'Last name must be less than 50 characters';
-  }
-
-  // Email
-  if (!email.trim()) {
-    newErrors.email = 'Email is required';
-  } else if (!/\S+@\S+\.\S+/.test(email)) {
-    newErrors.email = 'Email is invalid';
-  }
-
-  // Phone number (exactly 10 digits, required)
-  if (!phoneNumber) {
-    newErrors.phoneNumber = 'Phone number is required';
-  } else {
-    const phoneDigits = phoneNumber.replace(/\D/g, '');
-    if (phoneDigits.length !== 10) {
-      newErrors.phoneNumber = 'Phone number must be exactly 10 digits';
+    // First name
+    if (!firstName.trim()) {
+      newErrors.firstName = 'First name is required';
+    } else if (firstName.length > 50) {
+      newErrors.firstName = 'First name must be less than 50 characters';
     }
-  }
 
-  // Student ID (exactly 7 digits, required)
-  if (!studentId) {
-  newErrors.studentId = 'Student ID is required';
-} else if (!/^\d+$/.test(studentId)) {
-  newErrors.studentId = 'Student ID must contain only numbers';
-} else if (studentId.length !== 7) {
-  newErrors.studentId = 'Student ID must be 7 digits long';
-}
-
-
-  // Organization (must be NHS or NHSA, required)
-  if (!organization) {
-    newErrors.organization = 'Organization is required';
-  } else {
-    const orgUpper = organization.trim().toUpperCase();
-    if (orgUpper !== 'NHS' && orgUpper !== 'NHSA') {
-      newErrors.organization = 'Organization must be NHS or NHSA';
-    } else if (organization.length > 50) {
-      newErrors.organization = 'Organization must be less than 50 characters';
+    // Last name
+    if (!lastName.trim()) {
+      newErrors.lastName = 'Last name is required';
+    } else if (lastName.length > 50) {
+      newErrors.lastName = 'Last name must be less than 50 characters';
     }
-  }
 
-  // Grade
-  if (!grade) {
-    newErrors.grade = 'Grade level is required';
-  }
+    // Email
+    if (!email.trim()) {
+      newErrors.email = 'Email is required';
+    } else if (!/\S+@\S+\.\S+/.test(email)) {
+      newErrors.email = 'Email is invalid';
+    }
 
-  // Verification code (exactly 8 digits, required)
-  if (!verificationCode) {
-    newErrors.verificationCode = 'Verification code is required';
-  } else if (!/^\d+$/.test(verificationCode)) {
-    newErrors.verificationCode = 'Verification code must contain only numbers';
-  } else if (verificationCode.length !== 8) {
-    newErrors.verificationCode = 'Verification code must be 8 digits long';
-  }
+    // Phone number (exactly 10 digits, required)
+    if (!phoneNumber) {
+      newErrors.phoneNumber = 'Phone number is required';
+    } else {
+      const phoneDigits = phoneNumber.replace(/\D/g, '');
+      if (phoneDigits.length !== 10) {
+        newErrors.phoneNumber = 'Phone number must be exactly 10 digits';
+      }
+    }
 
-  // Password
-  if (!password) {
-    newErrors.password = 'Password is required';
-  } else if (password.length < 8) {
-    newErrors.password = 'Password must be at least 8 characters long';
-  } else if (!/(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?])/.test(password)) {
-    newErrors.password = 'Password must contain at least one special character';
-  } 
+    // Student ID (exactly 7 digits, required)
+    if (!studentId) {
+      newErrors.studentId = 'Student ID is required';
+    } else if (!/^\d+$/.test(studentId)) {
+      newErrors.studentId = 'Student ID must contain only numbers';
+    } else if (studentId.length !== 7) {
+      newErrors.studentId = 'Student ID must be 7 digits long';
+    }
 
-  // Confirm password
- if (!confirmPassword) {
-  newErrors.confirmPassword = 'Confirm password is required';
-} else if (password !== confirmPassword) {
-  newErrors.confirmPassword = 'Passwords do not match';
-}
+    // Organization (must be NHS or NHSA, required)
+    if (!organization) {
+      newErrors.organization = 'Organization is required';
+    } else {
+      const orgUpper = organization.trim().toUpperCase();
+      if (orgUpper !== 'NHS' && orgUpper !== 'NHSA') {
+        newErrors.organization = 'Organization must be NHS or NHSA';
+      } else if (organization.length > 50) {
+        newErrors.organization = 'Organization must be less than 50 characters';
+      }
+    }
 
-  setErrors(newErrors);
-  return Object.keys(newErrors).length === 0;
-};
+    // Grade
+    if (!grade) {
+      newErrors.grade = 'Grade level is required';
+    }
 
-const handleSignup = async () => {
-  // Validate client-side first
-  if (!validateForm()) {
-    Alert.alert("Validation Error", "Please fill out all required fields correctly.");
-    return;
-  }
+    // Verification code (exactly 8 digits, required)
+    if (!verificationCode) {
+      newErrors.verificationCode = 'Verification code is required';
+    } else if (!/^\d+$/.test(verificationCode)) {
+      newErrors.verificationCode = 'Verification code must contain only numbers';
+    } else if (verificationCode.length !== 8) {
+      newErrors.verificationCode = 'Verification code must be 8 digits long';
+    }
 
-  try {
-    // Build request payload
-    const payload = {
-      email: email.trim().toLowerCase(),
-      password,
-      first_name: firstName.trim(),
-      last_name: lastName.trim(),
-      phone_number: phoneNumber || null,
-      student_id: studentId || null,
-      grade: grade || null,
-      organization: organization.trim(),
-      code: verificationCode,
-    };
+    // Password
+    if (!password) {
+      newErrors.password = 'Password is required';
+    } else if (password.length < 8) {
+      newErrors.password = 'Password must be at least 8 characters long';
+    } else if (!/(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?])/.test(password)) {
+      newErrors.password = 'Password must contain at least one special character';
+    } 
 
-    // Get the Edge Function URL from environment
-    const fnUrl = `${EXPO_PUBLIC_SUPABASE_URL}/functions/v1/signupPublic`;
-    
-    if (!EXPO_PUBLIC_SUPABASE_URL) {
-      Alert.alert("Configuration Error", "Please set EXPO_PUBLIC_SUPABASE_URL in your .env file.");
-      console.error("Missing Supabase URL in .env file");
+    // Confirm password
+    if (!confirmPassword) {
+      newErrors.confirmPassword = 'Confirm password is required';
+    } else if (password !== confirmPassword) {
+      newErrors.confirmPassword = 'Passwords do not match';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSignup = async () => {
+    // Validate client-side first
+    if (!validateForm()) {
+      showValidationError('Validation Error', 'Please fill out all required fields correctly.');
       return;
     }
 
-    console.log("🔹 Calling Edge Function:", fnUrl);
-    console.log("🔹 Supabase URL:", EXPO_PUBLIC_SUPABASE_URL);
-    console.log("📤 Payload:", payload);
+    try {
+      // Build request payload
+      const payload = {
+        email: email.trim().toLowerCase(),
+        password,
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        phone_number: phoneNumber || null,
+        student_id: studentId || null,
+        grade: grade || null,
+        organization: organization.trim(),
+        code: verificationCode,
+      };
 
-    const resp = await fetch(fnUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
+      // Get the Edge Function URL from environment
+      const fnUrl = `${EXPO_PUBLIC_SUPABASE_URL}/functions/v1/signupPublic`;
+      
+      if (!EXPO_PUBLIC_SUPABASE_URL) {
+        showError('Configuration Error', 'Please set EXPO_PUBLIC_SUPABASE_URL in your .env file.');
+        console.error("Missing Supabase URL in .env file");
+        return;
+      }
 
-    const resJson = await resp.json();
+      console.log("🔹 Calling Edge Function:", fnUrl);
+      console.log("🔹 Supabase URL:", EXPO_PUBLIC_SUPABASE_URL);
+      console.log("📤 Payload:", payload);
 
-    if (!resp.ok || !resJson.success) {
-      console.error("Signup function returned error", resJson);
-      Alert.alert("Signup Failed", resJson.error || "Unknown error from server");
-      return;
+      const resp = await fetch(fnUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const resJson = await resp.json();
+
+      if (!resp.ok || !resJson.success) {
+        console.error("Signup function returned error", resJson);
+        showError("Signup Failed", resJson.error || "Unknown error from server");
+        return;
+      }
+
+      // Success — function returned user_id
+      console.log("✅ Created user:", resJson.user_id);
+      showSuccess("Account Created", "Your account has been created successfully!");
+      // optionally navigate to login or home
+
+    } catch (err: any) {
+      console.error("Signup client error", err);
+      showError("Signup Failed", err.message || "Unknown client error");
     }
-
-    // Success — function returned user_id
-    console.log("✅ Created user:", resJson.user_id);
-    Alert.alert("Success", "Your account has been created successfully!");
-    // optionally navigate to login or home
-
-  } catch (err: any) {
-    console.error("Signup client error", err);
-    Alert.alert("Signup Failed", err.message || "Unknown client error");
-  }
-};
-
+  };
 
   const formatPhoneNumber = (text: string): string => {
     const cleaned = text.replace(/\D/g, '');
@@ -330,7 +330,6 @@ const handleSignup = async () => {
                 />
                 {errors.email && <Text style={styles.errorText}>{errors.email}</Text>}
 
-              
                 {/* Phone Number */}
                 <Text style={styles.inputLabel}>Phone Number</Text>
                 <TextInput
@@ -348,18 +347,18 @@ const handleSignup = async () => {
 
                 {/* Student ID */}
                 <Text style={styles.inputLabel}>School Student ID</Text>
-                  <TextInput
-                    style={[styles.textInput, errors.studentId && styles.inputError]}
-                    placeholder="Enter 7-digit student ID"
-                    placeholderTextColor={Colors.textLight}
-                    keyboardType="number-pad"
-                    maxLength={7}
-                    value={studentId}
-                    onChangeText={setStudentId}
-                    autoComplete="off"
-                    textContentType="none"
-                  />
-                  {errors.studentId && <Text style={styles.errorText}>{errors.studentId}</Text>}
+                <TextInput
+                  style={[styles.textInput, errors.studentId && styles.inputError]}
+                  placeholder="Enter 7-digit student ID"
+                  placeholderTextColor={Colors.textLight}
+                  keyboardType="number-pad"
+                  maxLength={7}
+                  value={studentId}
+                  onChangeText={setStudentId}
+                  autoComplete="off"
+                  textContentType="none"
+                />
+                {errors.studentId && <Text style={styles.errorText}>{errors.studentId}</Text>}
 
                 {/* Organization and Grade */}
                 <View style={styles.rowContainer}>
@@ -377,37 +376,36 @@ const handleSignup = async () => {
                     />
                     {errors.organization && <Text style={styles.errorText}>{errors.organization}</Text>}
                   </View>
-                 <View style={styles.halfInputContainer}>
-                  <Text style={styles.inputLabel}>Grade</Text>
-                  <View style={[styles.gradeDropdownWrapper, errors.grade && styles.inputError]}>
-                    <DropDownPicker
-                      open={gradeDropdownOpen}
-                      value={grade}
-                      items={gradeOptions}
-                      setOpen={setGradeDropdownOpen}
-                      setValue={setGrade}
-                      setItems={() => {}}
-                      placeholder="Select Grade"
-                      style={styles.textInput}
-                      textStyle={styles.gradeDropdownText}
-                      placeholderStyle={styles.gradeDropdownPlaceholder}
-                      dropDownContainerStyle={styles.gradeDropdownContainer}
-                      arrowIconStyle={styles.gradeDropdownArrow}
-                      tickIconStyle={styles.gradeDropdownTick}
-                      labelStyle={styles.gradeDropdownLabel}
-                      showArrowIcon={true}
-                      showTickIcon={false}
-                      closeAfterSelecting={true}
-                      searchable={false}
-                      listMode="SCROLLVIEW"
-                      scrollViewProps={{
-                        nestedScrollEnabled: true,
-                      }}
-                    />
+                  <View style={styles.halfInputContainer}>
+                    <Text style={styles.inputLabel}>Grade</Text>
+                    <View style={[styles.gradeDropdownWrapper, errors.grade && styles.inputError]}>
+                      <DropDownPicker
+                        open={gradeDropdownOpen}
+                        value={grade}
+                        items={gradeOptions}
+                        setOpen={setGradeDropdownOpen}
+                        setValue={setGrade}
+                        setItems={() => {}}
+                        placeholder="Select Grade"
+                        style={styles.textInput}
+                        textStyle={styles.gradeDropdownText}
+                        placeholderStyle={styles.gradeDropdownPlaceholder}
+                        dropDownContainerStyle={styles.gradeDropdownContainer}
+                        arrowIconStyle={styles.gradeDropdownArrow}
+                        tickIconStyle={styles.gradeDropdownTick}
+                        labelStyle={styles.gradeDropdownLabel}
+                        showArrowIcon={true}
+                        showTickIcon={false}
+                        closeAfterSelecting={true}
+                        searchable={false}
+                        listMode="SCROLLVIEW"
+                        scrollViewProps={{
+                          nestedScrollEnabled: true,
+                        }}
+                      />
+                    </View>
+                    {errors.grade && <Text style={styles.errorText}>{errors.grade}</Text>}
                   </View>
-                  {errors.grade && <Text style={styles.errorText}>{errors.grade}</Text>}
-                </View>
-
                 </View>
 
                 {/* Verification Code */}
@@ -506,6 +504,7 @@ const handleSignup = async () => {
   );
 };
 
+// Your existing styles remain exactly the same...
 const styles = StyleSheet.create({
   gradientContainer: {
     flex: 1,
@@ -592,13 +591,11 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(14),
     color: Colors.textDark,
   },
-inputError: {
-  borderWidth: 1,
-  borderColor: Colors.errorRed,
-  borderRadius: scale(8), // same as your textInput style
-},
-
-
+  inputError: {
+    borderWidth: 1,
+    borderColor: Colors.errorRed,
+    borderRadius: scale(8),
+  },
   errorText: {
     color: Colors.errorRed,
     fontSize: moderateScale(12),
@@ -611,7 +608,6 @@ inputError: {
     borderColor: Colors.inputBorder,
     borderRadius: moderateScale(8),
     backgroundColor: Colors.white,
-    // marginBottom: verticalScale(6),
     height: verticalScale(52),
   },
   passwordInput: {
@@ -663,7 +659,6 @@ inputError: {
     width: moderateScale(22),
     height: moderateScale(22),
     tintColor: Colors.textDark,
-
   },
   gradeDropdownTick: {
     width: moderateScale(16),
