@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import ProgressBar from 'common/components/ProgressBar';
-import BottomNavigator, { useBottomNav } from 'components/commons/member/BottomNavigator'; // Adjust import path as needed
+import BottomNavigator, { useBottomNav } from 'components/ui/BottomNavigator'; // Adjust import path as needed
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,

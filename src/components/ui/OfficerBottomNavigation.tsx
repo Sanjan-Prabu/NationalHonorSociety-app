@@ -36,7 +36,7 @@ export const BottomNavProvider: React.FC<{children: React.ReactNode}> = ({ child
 };
 
 // Hook to use the bottom navigation context
-export const useBottomNav = () => {
+export const useOfficerBottomNav = () => {
   const context = React.useContext(BottomNavContext);
   if (!context) {
     throw new Error('useBottomNav must be used within a BottomNavProvider');
@@ -44,18 +44,18 @@ export const useBottomNav = () => {
   return context;
 };
 
-const BottomNavigator: React.FC<BottomNavigatorProps> = ({ onTabPress, activeTab: propActiveTab }) => {
-  const { activeTab: contextActiveTab, setActiveTab } = useBottomNav();
+const OfficerBottomNavigator: React.FC<BottomNavigatorProps> = ({ onTabPress, activeTab: propActiveTab }) => {
+  const { activeTab: contextActiveTab, setActiveTab } = useOfficerBottomNav();
   
   // Use prop if provided, otherwise use context
   const currentActiveTab = propActiveTab || contextActiveTab;
   
   const tabs = [
     { id: 'home', icon: 'home', label: 'Home' },
+    { id: 'attendance', icon: 'book', label: 'Attendance' },
     { id: 'announcements', icon: 'notifications', label: 'Announcements' },
-    { id: 'log-hours', icon: 'access-time', label: 'Log Hours' },
+    { id: 'verify-hours', icon: 'access-time', label: 'Verify Hours' },
     { id: 'events', icon: 'event', label: 'Events' },
-    { id: 'members', icon: 'group', label: 'Members' },
   ];
 
   const handleTabPress = (tabId: string) => {
@@ -94,14 +94,14 @@ const BottomNavigator: React.FC<BottomNavigatorProps> = ({ onTabPress, activeTab
 const styles = StyleSheet.create({
   bottomNavContainer: {
     position: 'absolute',
-    bottom: 0,
+    bottom: 5,
     left: 0,
     right: 0,
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    paddingVertical: verticalScale(12),
-    paddingHorizontal: scale(8),
+    paddingVertical: verticalScale(8),
+    paddingHorizontal: scale(1),
     backgroundColor: Colors.white,
     borderTopWidth: 1,
     borderTopColor: Colors.dividerColor,
@@ -125,4 +125,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default BottomNavigator;
+export default OfficerBottomNavigator;

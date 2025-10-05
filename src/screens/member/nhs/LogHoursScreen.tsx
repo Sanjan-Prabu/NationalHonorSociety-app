@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import ProgressBar from 'common/components/ProgressBar';
-import BottomNavigator, { useBottomNav } from 'components/commons/member/BottomNavigator';
+import BottomNavigator, { useBottomNav } from 'components/ui/BottomNavigator';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -83,7 +83,7 @@ const LogHoursScreen = ({ navigation }: any) => {
 
   // Mock data - can be replaced with actual data from API
   const [userData, setUserData] = useState({
-    totalHours: 18,
+    totalHours: 15,
     requiredHours: 25,
     pendingHours: 3,
   });

@@ -4,7 +4,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } 
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import BottomNavigator, { useBottomNav } from 'components/commons/member/BottomNavigator';
+import BottomNavigator, { useBottomNav } from 'components/ui/BottomNavigator';
 import { useToast } from 'components/ui/ToastProvider';
 
 const Colors = {
