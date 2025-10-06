@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import {
   View,
@@ -10,14 +10,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import DropDownPicker from 'react-native-dropdown-picker';
-import { supabase } from 'lib/supabaseClient';
-import { EXPO_PUBLIC_SUPABASE_URL } from '@env';
-import { useToast } from 'components/ui/ToastProvider'; // Adjust path as needed
+import { SignupScreenProps } from '../../types/navigation';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -33,9 +32,10 @@ const Colors = {
   errorRed: '#E53E3E',
 };
 
-const SignupScreen = () => {
-  const { showError, showSuccess, showValidationError } = useToast();
-  
+const SignupScreen = ({ route, navigation }: SignupScreenProps) => {
+
+  const role = route.params.role;
+
   const gradeOptions = [
     { label: 'Select Grade', value: '' },
     { label: '9th Grade', value: '9' },
@@ -55,10 +55,12 @@ const SignupScreen = () => {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [studentId, setStudentId] = useState('');
   const [verificationCode, setVerificationCode] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -129,6 +131,15 @@ const SignupScreen = () => {
       newErrors.verificationCode = 'Verification code must be 8 digits long';
     }
 
+    // Invite code (required for officers)
+    if (role === 'officer') {
+      if (!inviteCode.trim()) {
+        newErrors.inviteCode = 'Officer invite code is required';
+      } else if (inviteCode.length < 6) {
+        newErrors.inviteCode = 'Invite code must be at least 6 characters';
+      }
+    }
+
     // Password
     if (!password) {
       newErrors.password = 'Password is required';
@@ -136,7 +147,7 @@ const SignupScreen = () => {
       newErrors.password = 'Password must be at least 8 characters long';
     } else if (!/(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?])/.test(password)) {
       newErrors.password = 'Password must contain at least one special character';
-    } 
+    }
 
     // Confirm password
     if (!confirmPassword) {
@@ -152,61 +163,73 @@ const SignupScreen = () => {
   const handleSignup = async () => {
     // Validate client-side first
     if (!validateForm()) {
-      showValidationError('Validation Error', 'Please fill out all required fields correctly.');
+      Alert.alert('Validation Error', 'Please fill out all required fields correctly.');
       return;
     }
 
+    setLoading(true);
     try {
-      // Build request payload
-      const payload = {
+      // Debug logging
+      console.log('Signup URL:', `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/signupPublic`);
+      console.log('Auth Key exists:', !!process.env.EXPO_PUBLIC_SUPABASE_KEY);
+      console.log('Auth Key length:', process.env.EXPO_PUBLIC_SUPABASE_KEY?.length);
+
+      const requestBody = {
         email: email.trim().toLowerCase(),
         password,
         first_name: firstName.trim(),
         last_name: lastName.trim(),
-        phone_number: phoneNumber || null,
-        student_id: studentId || null,
-        grade: grade || null,
-        organization: organization.trim(),
+        organization: organization.trim().toUpperCase(), // Ensure NHS or NHSA
+        role,
         code: verificationCode,
+        invite_code: role === 'officer' ? inviteCode.trim() : undefined,
+        phone_number: phoneNumber || undefined,
+        student_id: studentId || undefined,
+        grade: grade || undefined,
       };
 
-      // Get the Edge Function URL from environment
-      const fnUrl = `${EXPO_PUBLIC_SUPABASE_URL}/functions/v1/signupPublic`;
-      
-      if (!EXPO_PUBLIC_SUPABASE_URL) {
-        showError('Configuration Error', 'Please set EXPO_PUBLIC_SUPABASE_URL in your .env file.');
-        console.error("Missing Supabase URL in .env file");
-        return;
-      }
+      console.log('Request body:', JSON.stringify(requestBody, null, 2));
 
-      console.log("🔹 Calling Edge Function:", fnUrl);
-      console.log("🔹 Supabase URL:", EXPO_PUBLIC_SUPABASE_URL);
-      console.log("📤 Payload:", payload);
-
-      const resp = await fetch(fnUrl, {
-        method: "POST",
+      // Call the secure Edge Function for signup
+      const response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/signupPublic`, {
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_KEY}`,
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(requestBody),
       });
 
-      const resJson = await resp.json();
+      console.log('Response status:', response.status);
+      console.log('Response headers:', response.headers);
 
-      if (!resp.ok || !resJson.success) {
-        console.error("Signup function returned error", resJson);
-        showError("Signup Failed", resJson.error || "Unknown error from server");
+      const responseText = await response.text();
+      console.log('Raw response:', responseText);
+
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('Failed to parse response as JSON:', parseError);
+        Alert.alert('Signup Failed', 'Invalid response from server');
         return;
       }
 
-      // Success — function returned user_id
-      console.log("✅ Created user:", resJson.user_id);
-      showSuccess("Account Created", "Your account has been created successfully!");
-      // optionally navigate to login or home
+      console.log('Parsed response:', data);
+
+      if (data.success) {
+        Alert.alert('Signup Successful', 'Account created successfully! Please log in with your credentials.');
+        navigation.navigate('Login', { role, signupSuccess: true });
+      } else {
+        console.error('Signup failed with error:', data.error);
+        Alert.alert('Signup Failed', data.error || data.message || 'Unknown error occurred.');
+      }
 
     } catch (err: any) {
       console.error("Signup client error", err);
-      showError("Signup Failed", err.message || "Unknown client error");
+      Alert.alert('Signup Failed', err.message || 'An unexpected error occurred.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -233,7 +256,7 @@ const SignupScreen = () => {
     const numericText = text.replace(/[^0-9]/g, '');
     setVerificationCode(numericText);
   };
- 
+
   const onRefresh = () => {
     setRefreshing(true);
     setErrors({});
@@ -261,7 +284,7 @@ const SignupScreen = () => {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
               refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-              nestedScrollEnabled={true} 
+              nestedScrollEnabled={true}
             >
               {/* Header */}
               <View style={styles.header}>
@@ -273,11 +296,15 @@ const SignupScreen = () => {
 
               {/* Welcome Title */}
               <View style={styles.welcomeContainer}>
-                <Text style={styles.welcomeTitle}>Welcome to our community</Text>
+                <Text style={styles.welcomeTitle}>
+                  {role === 'officer' ? 'Join as Officer' : 'Welcome to our community'}
+                </Text>
                 {firstName ? (
                   <Text style={styles.animatedName}>{firstName.slice(0, 50)}!</Text>
                 ) : (
-                  <Text style={styles.welcomeSubtitle}>Create your account to get started</Text>
+                  <Text style={styles.welcomeSubtitle}>
+                    Create your {role} account to get started
+                  </Text>
                 )}
               </View>
 
@@ -385,7 +412,7 @@ const SignupScreen = () => {
                         items={gradeOptions}
                         setOpen={setGradeDropdownOpen}
                         setValue={setGrade}
-                        setItems={() => {}}
+                        setItems={() => { }}
                         placeholder="Select Grade"
                         style={styles.textInput}
                         textStyle={styles.gradeDropdownText}
@@ -422,6 +449,24 @@ const SignupScreen = () => {
                   textContentType="none"
                 />
                 {errors.verificationCode && <Text style={styles.errorText}>{errors.verificationCode}</Text>}
+
+                {/* Officer Invite Code (only show for officers) */}
+                {role === 'officer' && (
+                  <>
+                    <Text style={styles.inputLabel}>Officer Invite Code *</Text>
+                    <TextInput
+                      style={[styles.textInput, errors.inviteCode && styles.inputError]}
+                      placeholder="Enter officer invite code"
+                      placeholderTextColor={Colors.textLight}
+                      value={inviteCode}
+                      onChangeText={setInviteCode}
+                      autoCapitalize="none"
+                      autoComplete="off"
+                      textContentType="none"
+                    />
+                    {errors.inviteCode && <Text style={styles.errorText}>{errors.inviteCode}</Text>}
+                  </>
+                )}
 
                 {/* Password */}
                 <Text style={styles.inputLabel}>Password *</Text>
@@ -482,8 +527,14 @@ const SignupScreen = () => {
                 </Text>
 
                 {/* Create Account Button */}
-                <TouchableOpacity style={styles.createAccountButton} onPress={handleSignup}>
-                  <Text style={styles.createAccountButtonText}>Create Account</Text>
+                <TouchableOpacity
+                  style={[styles.createAccountButton, loading && styles.createAccountButtonDisabled]}
+                  onPress={handleSignup}
+                  disabled={loading}
+                >
+                  <Text style={styles.createAccountButtonText}>
+                    {loading ? 'Creating Account...' : 'Create Account'}
+                  </Text>
                 </TouchableOpacity>
               </View>
 
@@ -493,7 +544,7 @@ const SignupScreen = () => {
             {/* Bottom navigation */}
             <View style={styles.bottomNavContainer}>
               <Text style={styles.bottomNavText}>Already have an account?</Text>
-              <TouchableOpacity>
+              <TouchableOpacity onPress={() => navigation.navigate('Login', { role })}>
                 <Text style={styles.bottomNavLink}>Login</Text>
               </TouchableOpacity>
             </View>
@@ -697,6 +748,9 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: moderateScale(16),
     fontWeight: '600',
+  },
+  createAccountButtonDisabled: {
+    opacity: 0.6,
   },
   spacer: {
     flex: 1,

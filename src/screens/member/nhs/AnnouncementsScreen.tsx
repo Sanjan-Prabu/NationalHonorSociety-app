@@ -4,7 +4,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } 
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import BottomNavigator, { useBottomNav } from 'components/ui/BottomNavigator';
+import ProfileButton from '../../../components/ui/ProfileButton';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -39,13 +39,9 @@ const AnnouncementsScreen = ({ navigation }: any) => {
     },
   ]);
 
-  // Use the bottom nav hook to set the active tab
-  const { setActiveTab } = useBottomNav();
+  // Removed useBottomNav - navigation is handled by the main navigator
 
-  // Set this screen as active when it mounts
-  useEffect(() => {
-    setActiveTab('announcements');
-  }, [setActiveTab]);
+  // Removed setActiveTab - navigation is handled by the main navigator
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -55,12 +51,7 @@ const AnnouncementsScreen = ({ navigation }: any) => {
     }, 1000);
   };
 
-  const handleTabPress = (tabName: string) => {
-    // Navigate to the appropriate screen based on tabName
-    if (tabName !== 'announcements') {
-      navigation.navigate(tabName);
-    }
-  };
+  // Removed handleTabPress - navigation is handled by the main navigator
 
   return (
     <SafeAreaProvider>
@@ -82,9 +73,10 @@ const AnnouncementsScreen = ({ navigation }: any) => {
                 <Text style={styles.headerTitle}>Announcements</Text>
                 <Text style={styles.headerSubtitle}>NHS Updates</Text>
               </View>
-              <TouchableOpacity style={styles.profileButton}>
-                <Icon name="person" size={moderateScale(24)} color={Colors.solidBlue} />
-              </TouchableOpacity>
+              <ProfileButton 
+                color={Colors.solidBlue}
+                size={moderateScale(28)}
+              />
             </View>
 
             {/* Announcements List */}
@@ -108,8 +100,7 @@ const AnnouncementsScreen = ({ navigation }: any) => {
             <View style={styles.bottomSpacer} />
           </ScrollView>
 
-          {/* Bottom Navigation - No need to pass activeTab prop */}
-          <BottomNavigator onTabPress={handleTabPress} activeTab="announcements" />
+          {/* Navigation is handled by the main MemberBottomNavigator */}
         </SafeAreaView>
       </LinearGradient>
     </SafeAreaProvider>

@@ -13,7 +13,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import Tag from 'components/ui/Tag';
-import OfficerBottomNavigator, { useOfficerBottomNav } from 'components/ui/OfficerBottomNavigation';
+import { withRoleProtection } from '../../../components/hoc/withRoleProtection';
+import ProfileButton from '../../../components/ui/ProfileButton';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -57,13 +58,10 @@ interface Event {
 }
 
 const OfficerEventScreen = ({ navigation }: any) => {
-  const { setActiveTab } = useOfficerBottomNav();
+  // Removed useOfficerBottomNav - navigation is handled by the main navigator
   const insets = useSafeAreaInsets();
 
-  // Set this screen as active when it mounts
-  useEffect(() => {
-    setActiveTab('events');
-  }, [setActiveTab]);
+  // Removed setActiveTab - navigation is handled by the main navigator
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -130,11 +128,7 @@ const OfficerEventScreen = ({ navigation }: any) => {
     }, 1000);
   };
 
-  const handleTabPress = (tabName: string) => {
-    if (tabName !== 'events') {
-      navigation.navigate(tabName);
-    }
-  };
+  // Removed handleTabPress - navigation is handled by the main navigator
 
   const handleCreateEvent = () => {
     // Navigate to create event screen
@@ -212,9 +206,15 @@ const OfficerEventScreen = ({ navigation }: any) => {
               <Text style={styles.headerTitle}>Create Events</Text>
               <Text style={styles.headerSubtitle}>Manage Volunteer Opportunities</Text>
             </View>
-            <TouchableOpacity style={styles.addButton} onPress={handleCreateEvent}>
-              <Icon name="add" size={moderateScale(24)} color={Colors.solidBlue} />
-            </TouchableOpacity>
+            <View style={styles.headerRight}>
+              <TouchableOpacity style={styles.addButton} onPress={handleCreateEvent}>
+                <Icon name="add" size={moderateScale(24)} color={Colors.solidBlue} />
+              </TouchableOpacity>
+              <ProfileButton 
+                color={Colors.solidBlue}
+                size={moderateScale(28)}
+              />
+            </View>
           </View>
 
           {/* Upcoming Events Section */}
@@ -319,8 +319,7 @@ const OfficerEventScreen = ({ navigation }: any) => {
           <Icon name="add" size={moderateScale(24)} color={Colors.white} />
         </TouchableOpacity>
 
-        {/* Bottom Navigation */}
-        <OfficerBottomNavigator onTabPress={handleTabPress} activeTab="events" />
+        {/* Navigation is handled by the main OfficerBottomNavigator */}
       </SafeAreaView>
     </LinearGradient>
   );
@@ -336,6 +335,11 @@ const styles = StyleSheet.create({
   },
   headerLeft: {
     flex: 1,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(8),
   },
   headerTitle: {
     fontSize: moderateScale(28),
@@ -529,4 +533,7 @@ const styles = StyleSheet.create({
   },
 });
 
-export default OfficerEventScreen;
+export default withRoleProtection(OfficerEventScreen, {
+  requiredRole: 'officer',
+  loadingMessage: 'Verifying officer access...'
+});

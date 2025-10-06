@@ -1,13 +1,13 @@
 // screens/CreateEventScreen.tsx
 import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  StyleSheet, 
-  ScrollView, 
-  KeyboardAvoidingView, 
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+  KeyboardAvoidingView,
   Platform,
   Alert,
   Modal,
@@ -21,6 +21,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useToast } from 'components/ui/ToastProvider';
+import { withRoleProtection } from '../../../components/hoc/withRoleProtection';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -131,7 +132,7 @@ const CreateEventScreen = ({ navigation }: any) => {
     };
 
     console.log('Creating event:', submissionData);
-    
+
     // Here you would typically make an API call to create the event
     showSuccess('Event Created', 'Your event has been created successfully.');
     navigation.goBack();
@@ -179,7 +180,7 @@ const CreateEventScreen = ({ navigation }: any) => {
   const pickImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
+
       if (status !== 'granted') {
         Alert.alert('Permission Required', 'Sorry, we need camera roll permissions to upload images.');
         return;
@@ -215,10 +216,10 @@ const CreateEventScreen = ({ navigation }: any) => {
   };
 
   const formatTime = (time: Date) => {
-    return time.toLocaleTimeString('en-US', { 
-      hour: 'numeric', 
+    return time.toLocaleTimeString('en-US', {
+      hour: 'numeric',
       minute: '2-digit',
-      hour12: true 
+      hour12: true
     });
   };
 
@@ -264,8 +265,8 @@ const CreateEventScreen = ({ navigation }: any) => {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             refreshControl={
-              <RefreshControl 
-                refreshing={refreshing} 
+              <RefreshControl
+                refreshing={refreshing}
                 onRefresh={onRefresh}
                 tintColor={Colors.solidBlue}
                 colors={[Colors.solidBlue]}
@@ -274,7 +275,7 @@ const CreateEventScreen = ({ navigation }: any) => {
           >
             {/* Header with Back Button */}
             <View style={styles.header}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.backButton}
                 onPress={() => navigation.goBack()}
               >
@@ -317,7 +318,7 @@ const CreateEventScreen = ({ navigation }: any) => {
                       ]}
                       onPress={() => setSelectedCategory(category.label)}
                     >
-                      <Text 
+                      <Text
                         style={[
                           styles.categoryText,
                           selectedCategory === category.label && styles.categoryTextActive
@@ -367,9 +368,9 @@ const CreateEventScreen = ({ navigation }: any) => {
                     </Text>
                     <Icon name="access-time" size={moderateScale(20)} color={Colors.textMedium} />
                   </TouchableOpacity>
-                  
+
                   <Text style={styles.timeSeparator}>to</Text>
-                  
+
                   <TouchableOpacity
                     style={[styles.timeInput, errors.endTime && styles.inputError]}
                     onPress={() => setShowEndTimePicker(true)}
@@ -429,13 +430,13 @@ const CreateEventScreen = ({ navigation }: any) => {
               {/* Event Image or Flyer */}
               <View style={styles.inputContainer}>
                 <Text style={styles.inputLabel}>Event Image or Flyer</Text>
-                
+
                 {selectedImage ? (
                   <View style={styles.selectedImageContainer}>
                     <View style={styles.imagePreview}>
                       <Icon name="image" size={moderateScale(40)} color={Colors.textMedium} />
                       <Text style={styles.imagePreviewText}>Image Selected</Text>
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         style={styles.removeImageButton}
                         onPress={removeImage}
                       >
@@ -848,4 +849,7 @@ const styles = StyleSheet.create({
   },
 });
 
-export default CreateEventScreen;
+export default withRoleProtection(CreateEventScreen, {
+  requiredRole: 'officer',
+  loadingMessage: 'Verifying officer access...'
+});

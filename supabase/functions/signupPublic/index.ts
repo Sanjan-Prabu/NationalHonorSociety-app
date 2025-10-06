@@ -161,7 +161,8 @@ console.log("Code verified successfully");
       display_name: first_name.trim(),
       is_verified: true,
       verification_code: code,
-      org_id:orgId
+      org_id: orgId,
+      role: 'member' // Default role for new users
     });
 
     if (profileError) {

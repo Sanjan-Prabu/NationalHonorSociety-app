@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import ProgressBar from 'common/components/ProgressBar';
-import BottomNavigator, { useBottomNav } from 'components/ui/BottomNavigator'; // Adjust import path as needed
+import ProfileButton from '../../../components/ui/ProfileButton';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -21,13 +21,7 @@ const Colors = {
 };
 
 const DashboardScreen = ({ navigation }: any) => {
-  // Use the bottom nav hook to set the active tab
-  const { setActiveTab } = useBottomNav();
-
-  // Set this screen as active when it mounts
-  useEffect(() => {
-    setActiveTab('home');
-  }, [setActiveTab]);
+  // Removed bottom nav hook - navigation is handled by the main navigator
 
   // Mock user data - in real app, this would come from props/context/API
   const [userData, setUserData] = useState({
@@ -71,12 +65,7 @@ const DashboardScreen = ({ navigation }: any) => {
     return upcomingEvent.date;
   };
 
-  const handleTabPress = (tabName: string) => {
-    // Navigate to the appropriate screen based on tabName
-    if (tabName !== 'home') {
-      navigation.navigate(tabName);
-    }
-  };
+  // Removed handleTabPress - navigation is handled by the main navigator
 const insets = useSafeAreaInsets();
   return (
     
@@ -104,9 +93,10 @@ const insets = useSafeAreaInsets();
                 <Text style={styles.headerTitle}>Dashboard</Text>
                 <Text style={styles.headerSubtitle}>{userData.role}</Text>
               </View>
-              <TouchableOpacity style={styles.profileButton}>
-                <Icon name="person" size={moderateScale(24)} color={Colors.solidBlue} />
-              </TouchableOpacity>
+              <ProfileButton 
+                color={Colors.solidBlue}
+                size={moderateScale(28)}
+              />
             </View>
 
             {/* Welcome Section */}
@@ -171,8 +161,7 @@ const insets = useSafeAreaInsets();
             <View style={styles.bottomSpacer} />
           </ScrollView>
 
-          {/* Bottom Navigation - Using the reusable component */}
-          <BottomNavigator onTabPress={handleTabPress} />
+          {/* Navigation is handled by the main MemberBottomNavigator */}
         </SafeAreaView>
  
     </LinearGradient>

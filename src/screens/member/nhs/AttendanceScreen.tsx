@@ -4,7 +4,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } 
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import BottomNavigator, { useBottomNav } from 'components/ui/BottomNavigator';
+import ProfileButton from '../../../components/ui/ProfileButton';
 import { useToast } from 'components/ui/ToastProvider';
 
 const Colors = {
@@ -23,14 +23,11 @@ const Colors = {
 };
 
 const AttendanceScreen = ({ navigation }: any) => {
-  const { setActiveTab } = useBottomNav();
+  // Removed useBottomNav - navigation is handled by the main navigator
   const { showSuccess } = useToast();
   const insets = useSafeAreaInsets();
 
-  // Set this screen as active when it mounts
-  useEffect(() => {
-    setActiveTab('attendance');
-  }, [setActiveTab]);
+  // Removed setActiveTab - navigation is handled by the main navigator
 
   const [refreshing, setRefreshing] = useState(false);
   const [activeSession, setActiveSession] = useState({
@@ -94,11 +91,7 @@ const AttendanceScreen = ({ navigation }: any) => {
     }, 2000);
   };
 
-  const handleTabPress = (tabName: string) => {
-    if (tabName !== 'attendance') {
-      navigation.navigate(tabName);
-    }
-  };
+  // Removed handleTabPress - navigation is handled by the main navigator
 
   return (
     <LinearGradient
@@ -124,6 +117,10 @@ const AttendanceScreen = ({ navigation }: any) => {
               <Text style={styles.headerTitle}>Attendance</Text>
               <Text style={styles.headerSubtitle}>Meeting Check-in</Text>
             </View>
+            <ProfileButton 
+              color={Colors.solidBlue}
+              size={moderateScale(28)}
+            />
           </View>
 
           {/* Divider */}
@@ -209,8 +206,7 @@ const AttendanceScreen = ({ navigation }: any) => {
           <View style={styles.bottomSpacer} />
         </ScrollView>
 
-        {/* Bottom Navigation */}
-        <BottomNavigator onTabPress={handleTabPress} />
+        {/* Navigation is handled by the main MemberBottomNavigator */}
       </SafeAreaView>
     </LinearGradient>
   );

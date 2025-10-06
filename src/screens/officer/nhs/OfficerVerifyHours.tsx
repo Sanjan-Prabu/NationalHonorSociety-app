@@ -4,8 +4,9 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Image 
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import BottomNavigator, { useBottomNav } from 'components/ui/BottomNavigator';
+import ProfileButton from '../../../components/ui/ProfileButton';
 import { useToast } from 'components/ui/ToastProvider';
+import { withRoleProtection } from '../../../components/hoc/withRoleProtection';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -43,14 +44,11 @@ interface VerificationRequest {
 }
 
 const OfficerVerifyHours = ({ navigation }: any) => {
-  const { setActiveTab } = useBottomNav();
+  // Removed useBottomNav - navigation is handled by the main navigator
   const { showSuccess, showError } = useToast();
   const insets = useSafeAreaInsets();
 
-  // Set this screen as active when it mounts
-  useEffect(() => {
-    setActiveTab('verify');
-  }, [setActiveTab]);
+  // Removed setActiveTab - navigation is handled by the main navigator
 
   const [currentRequestIndex, setCurrentRequestIndex] = useState(0);
   const [rejectionReason, setRejectionReason] = useState('');
@@ -145,11 +143,7 @@ const OfficerVerifyHours = ({ navigation }: any) => {
     setRejectionReason('');
   };
 
-  const handleTabPress = (tabName: string) => {
-    if (tabName !== 'verify') {
-      navigation.navigate(tabName);
-    }
-  };
+  // Removed handleTabPress - navigation is handled by the main navigator
 
   const pendingCount = verificationRequests.filter(req => req.status === 'pending').length;
 
@@ -176,6 +170,10 @@ const OfficerVerifyHours = ({ navigation }: any) => {
               <Text style={styles.headerTitle}>Verify Hours</Text>
               <Text style={styles.headerSubtitle}>Review Member Submissions</Text>
             </View>
+            <ProfileButton 
+              color={Colors.solidBlue}
+              size={moderateScale(28)}
+            />
           </View>
 
           {/* Pending Count Badge */}
@@ -307,8 +305,7 @@ const OfficerVerifyHours = ({ navigation }: any) => {
           <View style={styles.bottomSpacer} />
         </ScrollView>
 
-        {/* Bottom Navigation */}
-        <BottomNavigator onTabPress={handleTabPress} />
+        {/* Navigation is handled by the main OfficerBottomNavigator */}
       </SafeAreaView>
     </LinearGradient>
   );
@@ -553,4 +550,7 @@ const styles = StyleSheet.create({
   },
 });
 
-export default OfficerVerifyHours;
+export default withRoleProtection(OfficerVerifyHours, {
+  requiredRole: 'officer',
+  loadingMessage: 'Verifying officer access...'
+});

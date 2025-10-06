@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
+import { LandingScreenProps } from '../../types/navigation';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const, // readonly tuple for LinearGradient
@@ -46,13 +47,13 @@ const StackedDiamondsLogo = () => {
   );
 };
 
-const LandingScreen = () => {
-  const handleNHSLogin = () => {
-    console.log('Officer Login pressed');
+const LandingScreen = ({ navigation }: LandingScreenProps) => {
+  const handleOfficerLogin = () => {
+    navigation.navigate('Login', { role: 'officer' });
   };
 
-  const handleNHSALogin = () => {
-    console.log('Member Login pressed');
+  const handleMemberLogin = () => {
+    navigation.navigate('Login', { role: 'member' });
   };
    const [refreshing, setRefreshing] = useState(false);
  const onRefresh = () => {
@@ -86,18 +87,18 @@ const LandingScreen = () => {
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>Select your organization</Text>
 
-              {/* NHS Login Button - Solid Blue */}
-              <TouchableOpacity onPress={handleNHSLogin} style={styles.solidButton}>
+              {/* Officer Login Button - Solid Blue */}
+              <TouchableOpacity onPress={handleOfficerLogin} style={styles.solidButton}>
                 <View style={styles.buttonContent}>
-                  <Text style={styles.solidButtonText}>Login as Officer</Text>
+                  <Text style={styles.solidButtonText}>I'm an Officer</Text>
                   <Text style={styles.solidButtonChevron}>&#x276F;</Text>
                 </View>
               </TouchableOpacity>
 
-              {/* NHSA Login Button - Outlined */}
-              <TouchableOpacity onPress={handleNHSALogin} style={styles.outlineButton}>
+              {/* Member Login Button - Outlined */}
+              <TouchableOpacity onPress={handleMemberLogin} style={styles.outlineButton}>
                 <View style={styles.buttonContent}>
-                  <Text style={styles.outlineButtonText}>Login as Member</Text>
+                  <Text style={styles.outlineButtonText}>I'm a Member</Text>
                   <Text style={styles.outlineButtonChevron}>&#x276F;</Text>
                 </View>
               </TouchableOpacity>

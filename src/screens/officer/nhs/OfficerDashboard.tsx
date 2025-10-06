@@ -4,7 +4,8 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } 
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import BottomNavigator, { useBottomNav } from 'components/ui/BottomNavigator';
+import { withRoleProtection } from '../../../components/hoc/withRoleProtection';
+import ProfileButton from '../../../components/ui/ProfileButton';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -24,13 +25,7 @@ const Colors = {
 };
 
 const OfficerDashboard = ({ navigation }: any) => {
-  const { setActiveTab } = useBottomNav();
   const insets = useSafeAreaInsets();
-
-  // Set this screen as active when it mounts
-  useEffect(() => {
-    setActiveTab('home');
-  }, [setActiveTab]);
 
   const [refreshing, setRefreshing] = useState(false);
   
@@ -115,11 +110,7 @@ const OfficerDashboard = ({ navigation }: any) => {
     }, 1000);
   };
 
-  const handleTabPress = (tabName: string) => {
-    if (tabName !== 'home') {
-      navigation.navigate(tabName);
-    }
-  };
+  // Removed handleTabPress - navigation is handled by the main navigator
 
   return (
     <LinearGradient
@@ -150,6 +141,10 @@ const OfficerDashboard = ({ navigation }: any) => {
                 </View>
               </View>
             </View>
+            <ProfileButton 
+              color={Colors.solidBlue}
+              size={moderateScale(28)}
+            />
           </View>
 
           {/* Welcome Section */}
@@ -229,8 +224,7 @@ const OfficerDashboard = ({ navigation }: any) => {
           <View style={styles.bottomSpacer} />
         </ScrollView>
 
-        {/* Bottom Navigation */}
-        <BottomNavigator onTabPress={handleTabPress} />
+        {/* Navigation is handled by the main OfficerBottomNavigator */}
       </SafeAreaView>
     </LinearGradient>
   );
@@ -429,4 +423,7 @@ const styles = StyleSheet.create({
   },
 });
 
-export default OfficerDashboard;
+export default withRoleProtection(OfficerDashboard, {
+  requiredRole: 'officer',
+  loadingMessage: 'Verifying officer access...'
+});

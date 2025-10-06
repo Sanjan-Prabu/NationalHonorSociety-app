@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import {
   View,
@@ -10,10 +10,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import { LoginScreenProps } from '../../types/navigation';
+import { supabase } from '../../lib/supabaseClient';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -28,8 +31,72 @@ const Colors = {
   dividerColor: '#D1D5DB',
 };
 
-const NHSLoginScreen = () => {
+const LoginScreen = ({ route, navigation }: LoginScreenProps) => {
   const [refreshing, setRefreshing] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  
+  const role = route.params?.role ?? 'member';
+  const signupSuccess = route.params?.signupSuccess;
+
+  useEffect(() => {
+    if (signupSuccess) {
+      Alert.alert('Success', 'Account created successfully! Please log in with your credentials.');
+    }
+  }, [signupSuccess]);
+
+  const handleLogin = async () => {
+    if (!email.trim() || !password.trim()) {
+      Alert.alert('Error', 'Please enter both email and password.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Call the secure Edge Function for sign-in
+      const response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/signIn`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_KEY}`,
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Set the session in Supabase client
+        if (data.session) {
+          await supabase.auth.setSession({
+            access_token: data.session.access_token,
+            refresh_token: data.session.refresh_token,
+          });
+        }
+
+        // Navigate to appropriate root based on user role
+        const isOfficer = data.user.role === 'officer';
+        navigation.reset({
+          index: 0,
+          routes: [{ name: isOfficer ? 'OfficerRoot' : 'MemberRoot' }],
+        });
+      } else {
+        Alert.alert('Login Failed', data.error || 'Invalid credentials.');
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Network error. Please check your connection.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignUp = () => {
+    navigation.navigate('Signup', { role });
+  };
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -73,7 +140,9 @@ const NHSLoginScreen = () => {
               {/* Welcome section */}
               <View style={styles.welcomeContainer}>
                 <Text style={styles.welcomeTitle}>Welcome Back</Text>
-                <Text style={styles.welcomeSubtitle}>Log in to your NHS account</Text>
+                <Text style={styles.welcomeSubtitle}>
+                  Log in to your {role === 'officer' ? 'Officer' : 'Member'} account
+                </Text>
               </View>
 
               {/* Login form - Now properly centered with full width */}
@@ -84,6 +153,12 @@ const NHSLoginScreen = () => {
                     style={styles.textInput}
                     placeholder="Enter Email"
                     placeholderTextColor={Colors.textLight}
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoComplete="email"
+                    textContentType="emailAddress"
                   />
                 </View>
 
@@ -99,12 +174,22 @@ const NHSLoginScreen = () => {
                     style={styles.textInput}
                     placeholder="Enter Password"
                     placeholderTextColor={Colors.textLight}
+                    value={password}
+                    onChangeText={setPassword}
                     secureTextEntry
+                    autoComplete="current-password"
+                    textContentType="password"
                   />
                 </View>
 
-                <TouchableOpacity style={styles.loginButton}>
-                  <Text style={styles.loginButtonText}>Login</Text>
+                <TouchableOpacity 
+                  style={[styles.loginButton, loading && styles.loginButtonDisabled]} 
+                  onPress={handleLogin}
+                  disabled={loading}
+                >
+                  <Text style={styles.loginButtonText}>
+                    {loading ? 'Logging in...' : 'Login'}
+                  </Text>
                 </TouchableOpacity>
 
                 {/* Need help link */}
@@ -121,7 +206,7 @@ const NHSLoginScreen = () => {
 
             {/* Bottom navigation with proper styling */}
             <View style={styles.bottomNavContainer}>
-              <TouchableOpacity style={styles.navItem}>
+              <TouchableOpacity style={styles.navItem} onPress={handleSignUp}>
                 <Icon name="edit" size={moderateScale(20)} color={Colors.solidBlue} />
                 <Text style={[styles.navText, { color: Colors.solidBlue }]}>Sign Up</Text>
               </TouchableOpacity>
@@ -256,6 +341,9 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(16),
     fontWeight: '600',
   },
+  loginButtonDisabled: {
+    opacity: 0.6,
+  },
   helpLink: {
     alignSelf: 'center',
     marginBottom: verticalScale(20),
@@ -307,4 +395,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default NHSLoginScreen;
+export default LoginScreen;

@@ -18,7 +18,8 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import * as ImagePicker from 'expo-image-picker';
 import Tag from 'components/ui/Tag';
 import { useToast } from 'components/ui/ToastProvider';
-import OfficerBottomNavigator, { useOfficerBottomNav } from 'components/ui/OfficerBottomNavigation';
+import { withRoleProtection } from '../../../components/hoc/withRoleProtection';
+import ProfileButton from '../../../components/ui/ProfileButton';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -53,12 +54,10 @@ interface Announcement {
 
 const OfficerAnnouncements = ({ navigation }: any) => {
   const { showSuccess, showError, showValidationError } = useToast();
-  const { setActiveTab } = useOfficerBottomNav();
+  // Removed useOfficerBottomNav - navigation is handled by the main navigator
   const insets = useSafeAreaInsets();
 
-  useEffect(() => {
-    setActiveTab('announcements');
-  }, [setActiveTab]);
+  // Removed setActiveTab - navigation is handled by the main navigator
 
   const [selectedTag, setSelectedTag] = useState<TagType | null>(null);
   const [title, setTitle] = useState('');
@@ -269,11 +268,7 @@ const OfficerAnnouncements = ({ navigation }: any) => {
     });
   };
 
-  const handleTabPress = (tabName: string) => {
-    if (tabName !== 'announcements') {
-      navigation.navigate(tabName);
-    }
-  };
+  // Removed handleTabPress - navigation is handled by the main navigator
 
   return (
     <LinearGradient
@@ -305,9 +300,15 @@ const OfficerAnnouncements = ({ navigation }: any) => {
                 <Text style={styles.headerTitle}>Announcements</Text>
                 <Text style={styles.headerSubtitle}>Manage NHS Updates</Text>
               </View>
-              <TouchableOpacity style={styles.addButton}>
-                <Icon name="add" size={moderateScale(24)} color={Colors.solidBlue} />
-              </TouchableOpacity>
+              <View style={styles.headerRight}>
+                <TouchableOpacity style={styles.addButton}>
+                  <Icon name="add" size={moderateScale(24)} color={Colors.solidBlue} />
+                </TouchableOpacity>
+                <ProfileButton 
+                  color={Colors.solidBlue}
+                  size={moderateScale(28)}
+                />
+              </View>
             </View>
 
             {/* Create Announcement Form */}
@@ -495,8 +496,7 @@ const OfficerAnnouncements = ({ navigation }: any) => {
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
-        {/* Bottom Navigation */}
-        <OfficerBottomNavigator onTabPress={handleTabPress} />
+        {/* Navigation is handled by the main OfficerBottomNavigator */}
       </SafeAreaView>
     </LinearGradient>
   );
@@ -519,6 +519,11 @@ const styles = StyleSheet.create({
   },
   headerLeft: {
     flex: 1,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(8),
   },
   headerTitle: {
     fontSize: moderateScale(28),
@@ -770,4 +775,7 @@ const styles = StyleSheet.create({
   },
 });
 
-export default OfficerAnnouncements;
+export default withRoleProtection(OfficerAnnouncements, {
+  requiredRole: 'officer',
+  loadingMessage: 'Verifying officer access...'
+});

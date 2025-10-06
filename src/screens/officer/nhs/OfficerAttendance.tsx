@@ -4,9 +4,10 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Refres
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import BottomNavigator, { useBottomNav } from 'components/ui/BottomNavigator';
+import ProfileButton from '../../../components/ui/ProfileButton';
 import { useToast } from 'components/ui/ToastProvider';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { withRoleProtection } from '../../../components/hoc/withRoleProtection';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -48,7 +49,7 @@ interface ActiveSession {
 }
 
 const OfficerAttendance = ({ navigation }: any) => {
-  const { setActiveTab } = useBottomNav();
+  // Removed useBottomNav - navigation is handled by the main navigator
   const { showSuccess, showError } = useToast();
   const insets = useSafeAreaInsets();
 
@@ -171,11 +172,7 @@ const OfficerAttendance = ({ navigation }: any) => {
     });
   };
 
-  const handleTabPress = (tabName: string) => {
-    if (tabName !== 'attendance') {
-      navigation.navigate(tabName);
-    }
-  };
+  // Removed handleTabPress - navigation is handled by the main navigator
 
   return (
     <LinearGradient
@@ -201,6 +198,10 @@ const OfficerAttendance = ({ navigation }: any) => {
               <Text style={styles.headerTitle}>Attendance Host</Text>
               <Text style={styles.headerSubtitle}>Manage Meeting Sessions</Text>
             </View>
+            <ProfileButton 
+              color={Colors.solidBlue}
+              size={moderateScale(28)}
+            />
           </View>
 
           {/* Active Session Section */}
@@ -329,8 +330,7 @@ const OfficerAttendance = ({ navigation }: any) => {
           <View style={styles.bottomSpacer} />
         </ScrollView>
 
-        {/* Bottom Navigation */}
-        <BottomNavigator onTabPress={handleTabPress} />
+        {/* Navigation is handled by the main OfficerBottomNavigator */}
       </SafeAreaView>
     </LinearGradient>
   );
@@ -570,4 +570,7 @@ const styles = StyleSheet.create({
   },
 });
 
-export default OfficerAttendance;
+export default withRoleProtection(OfficerAttendance, {
+  requiredRole: 'officer',
+  loadingMessage: 'Verifying officer access...'
+});

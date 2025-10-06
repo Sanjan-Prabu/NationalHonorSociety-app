@@ -13,7 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import Tag from 'components/ui/Tag';
-import BottomNavigator, { useBottomNav } from 'components/ui/BottomNavigator';
+import ProfileButton from '../../../components/ui/ProfileButton';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -54,13 +54,10 @@ interface Event {
 }
 
 const EventScreen = ({ navigation }: any) => {
-  const { setActiveTab } = useBottomNav();
+  // Removed useBottomNav - navigation is handled by the main navigator
   const insets = useSafeAreaInsets();
 
-  // Set this screen as active when it mounts
-  useEffect(() => {
-    setActiveTab('events');
-  }, [setActiveTab]);
+  // Removed setActiveTab - navigation is handled by the main navigator
 
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<'Upcoming' | 'This Week' | 'This Month'>('Upcoming');
@@ -146,11 +143,7 @@ const EventScreen = ({ navigation }: any) => {
     }, 1000);
   };
 
-  const handleTabPress = (tabName: string) => {
-    if (tabName !== 'events') {
-      navigation.navigate(tabName);
-    }
-  };
+  // Removed handleTabPress - navigation is handled by the main navigator
 
   const handleRSVP = (eventId: string) => {
     // TODO: Replace with your database update
@@ -254,6 +247,10 @@ const EventScreen = ({ navigation }: any) => {
               <Text style={styles.headerTitle}>Events</Text>
               <Text style={styles.headerSubtitle}>Volunteer Opportunities</Text>
             </View>
+            <ProfileButton 
+              color={Colors.solidBlue}
+              size={moderateScale(28)}
+            />
           </View>
 
           {/* Filter Tabs */}
@@ -364,8 +361,7 @@ const EventScreen = ({ navigation }: any) => {
           </View>
         </ScrollView>
 
-        {/* Bottom Navigation */}
-        <BottomNavigator onTabPress={handleTabPress} />
+        {/* Navigation is handled by the main MemberBottomNavigator */}
       </SafeAreaView>
     </LinearGradient>
   );

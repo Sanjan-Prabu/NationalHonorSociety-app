@@ -2,140 +2,137 @@
 
 ## Introduction
 
-This specification defines the complete navigation architecture for the National Honor Society / National Honor Society Associated (NHS/NHSA) React Native app. The navigation system must provide role-based access control, seamless user experience across member and officer views, and maintain consistency with the existing app architecture using React Navigation, NativeWind styling, and the current project dependencies.
+This specification defines the complete role-based authentication and navigation architecture for the National Honor Society / National Honor Society Associated (NHS/NHSA) React Native app. The system must implement a comprehensive auth flow starting with a landing screen that routes users to role-specific login/signup flows, followed by separate bottom tab navigators for officers and members.
 
-The navigation system will replace any existing navigation structure and provide a production-ready, scalable foundation that supports both NHS and NHSA organizations with distinct member and officer experiences while maintaining code reusability and type safety.
+The navigation system will replace any existing navigation structure and provide a production-ready, scalable foundation that supports both NHS and NHSA organizations with distinct member and officer experiences. The implementation must use only dependencies already present in package.json (@react-navigation/native, @react-navigation/native-stack, @expo/vector-icons, react-native-vector-icons) and follow the FRC 2658 navigation patterns while integrating with the existing Supabase authentication and NativeWind styling.
 
 ## Requirements
 
-### Requirement 1: Core Navigation Architecture
+### Requirement 1: Landing Screen and Role Selection
 
-**User Story:** As a developer, I want a well-structured navigation system that follows React Navigation best practices, so that the app is maintainable and extensible.
-
-#### Acceptance Criteria
-
-1. WHEN the navigation system is implemented THEN it SHALL use only dependencies already present in package.json (@react-navigation/native, @react-navigation/native-stack, @react-native-vector-icons)
-2. WHEN creating navigation components THEN the system SHALL follow the FRC 2658 pattern with createNativeStackNavigator() for feature stacks and createBottomTabNavigator() for main navigation
-3. WHEN organizing navigation files THEN all navigators SHALL be placed in src/navigation/ directory with clear naming conventions
-4. WHEN implementing navigation THEN it SHALL use TypeScript with proper type definitions for navigation params and routes
-5. WHEN navigation is complete THEN it SHALL include a comprehensive README.md explaining the navigation structure and how to extend it
-
-### Requirement 2: Role-Based Access Control
-
-**User Story:** As a user, I want to see only the navigation options relevant to my role (member or officer), so that the interface is clean and appropriate for my permissions.
+**User Story:** As a user opening the app, I want to see a landing screen with clear options to identify myself as either a member or officer, so that I can access the appropriate authentication flow.
 
 #### Acceptance Criteria
 
-1. WHEN a user logs in THEN the navigation SHALL display tabs and screens based on their role (member vs officer)
-2. WHEN implementing role checks THEN the system SHALL use a centralized Roles enum and roleHierarchy mapping
-3. WHEN an officer accesses the app THEN they SHALL see all member features plus additional officer-only features
-4. WHEN a member accesses the app THEN they SHALL NOT see any officer-only navigation options or screens
-5. WHEN role-based navigation is implemented THEN it SHALL use a RoleBasedHeaderButton component for conditional header actions
-6. WHEN roles change THEN the navigation SHALL dynamically update without requiring app restart
+1. WHEN the app opens for the first time THEN it SHALL display a LandingScreen with two buttons: "I'm a Member" and "I'm an Officer"
+2. WHEN a user taps "I'm a Member" THEN they SHALL navigate to LoginScreen with { role: 'member' } parameter
+3. WHEN a user taps "I'm an Officer" THEN they SHALL navigate to LoginScreen with { role: 'officer' } parameter
+4. WHEN the landing screen is displayed THEN it SHALL use the existing styling patterns with LinearGradient and NativeWind
+5. WHEN implementing the landing screen THEN it SHALL be accessible with proper screen reader support and touch targets
 
-### Requirement 3: Member Navigation Experience
+### Requirement 2: Shared Authentication Screens
 
-**User Story:** As a member, I want intuitive navigation to core features like attendance, volunteer hours, and announcements, so that I can efficiently complete my NHS/NHSA activities.
-
-#### Acceptance Criteria
-1. When the user opens the app for the first time they are at the landing screen, but if the user has already been detected as a authenicated users then take to the login screen.
-2. WHEN a member logs in to the app THEN they SHALL see a bottom tab navigation with: Home, Attendance, Volunteer, Announcements, Profile
-3. WHEN accessing the Home tab THEN members SHALL see dashboard, events, and quick actions with header navigation to related screens
-4. WHEN accessing the Attendance tab THEN members SHALL see BLE scanning interface, session joining, and personal attendance history
-5. WHEN accessing the Volunteer tab THEN members SHALL see hour submission forms and their volunteer history
-6. WHEN accessing the Announcements tab THEN members SHALL see organization announcements and event notifications
-7. WHEN accessing the Profile tab THEN members SHALL see personal information, settings, and account management
-8. WHEN navigating between screens THEN all transitions SHALL be smooth with consistent header styling (headerTitleAlign: "center")
-
-### Requirement 4: Officer Navigation Experience
-
-**User Story:** As an officer, I want access to management features in addition to member features, so that I can effectively administer NHS/NHSA operations.
+**User Story:** As a user, I want a shared login and signup experience that adapts based on my selected role, so that the authentication process is consistent but role-appropriate.
 
 #### Acceptance Criteria
 
-1. WHEN an officer opens the app they SHALL see the login screens
-1. WHEN an officer opens ththey SHALL see all officver tabs 
-2. WHEN officers access the Attendance tab THEN they SHALL see additional header buttons for "Create Session" and "Manage Attendance"
-3. WHEN officers access the Volunteer tab THEN they SHALL see additional header buttons for "Approve Hours" and "Hour Reports"
-4. WHEN officers access the Announcements tab THEN they SHALL see additional header buttons for "Create Announcement" and "Manage Posts"
-5. WHEN officers access the Officer Dashboard THEN they SHALL see analytics, event creation, user management, and administrative tools
-6. WHEN officers navigate THEN all officer-only features SHALL be clearly distinguished but integrated seamlessly with member features
-7. WHEN implementing officer features THEN they SHALL inherit all member capabilities automatically
+1. WHEN LoginScreen receives a role parameter THEN it SHALL display "Sign up" button that navigates to SignupScreen with the same role
+2. WHEN LoginScreen receives signupSuccess: true parameter THEN it SHALL display a success toast message
+3. WHEN a user successfully logs in THEN the system SHALL fetch their profile from Supabase and navigate to the appropriate root based on their stored role
+4. WHEN login is successful and user role is 'officer' THEN navigation SHALL reset to OfficerRoot
+5. WHEN login is successful and user role is 'member' THEN navigation SHALL reset to MemberRoot
+6. WHEN using navigation.reset() THEN users SHALL NOT be able to navigate back to auth screens after login
 
-### Requirement 5: Authentication and Onboarding Navigation
+### Requirement 3: Signup Flow with Role-Based Security
 
-**User Story:** As a new user, I want clear navigation through authentication and setup processes, so that I can quickly access the app's features.
+**User Story:** As a user signing up, I want a secure registration process that prevents unauthorized officer role assignment, so that only legitimate officers can access administrative features.
 
 #### Acceptance Criteria
 
-1. WHEN a user is not authenticated THEN they SHALL see an AuthNavigator with Login, Register, and Forgot Password screens
-2. WHEN implementing auth navigation THEN it SHALL use bottom tabs for Login and Register, with conditional Forgot Password access
-3. WHEN a user completes authentication THEN they SHALL be automatically redirected to the appropriate role-based navigation
-4. WHEN auth screens are displayed THEN they SHALL use consistent theming and icon styling
-5. WHEN navigation dependencies are missing THEN the system SHALL create fallback components and document required installations
-6. WHEN auth navigation is complete THEN it SHALL handle deep linking and password reset tokens appropriately
+1. WHEN SignupScreen receives role parameter THEN it SHALL create auth user and profile but NOT auto-sign-in the user
+2. WHEN role === 'officer' during signup THEN the system SHALL require an invite-code flow OR create profile with role: 'member' and pending_officer: true
+3. WHEN signup is successful THEN user SHALL navigate back to LoginScreen with { role, signupSuccess: true } parameters
+4. WHEN clients attempt to self-assign officer role THEN the system SHALL prevent this through server-side validation
+5. WHEN implementing officer signup THEN it SHALL use Supabase RPC verify_officer_invite() for secure server-side validation
+6. WHEN signup fails THEN appropriate error messages SHALL be displayed to guide the user
 
-### Requirement 6: Consistent UI and Theming
+### Requirement 4: Root Navigation Structure
 
-**User Story:** As a user, I want consistent visual design across all navigation elements, so that the app feels cohesive and professional.
-
-#### Acceptance Criteria
-
-1. WHEN implementing navigation THEN all components SHALL use NativeWind for styling consistency
-2. WHEN creating header buttons THEN they SHALL use theme-aware colors (light/dark mode support)
-3. WHEN displaying tab icons THEN they SHALL use react-native-vector-icons with consistent sizing and colors
-4. WHEN implementing navigation THEN it SHALL create reusable components (RoleBasedHeaderButton, TabBarIcon) to avoid code duplication
-5. WHEN styling navigation THEN it SHALL follow the existing app's design patterns and color schemes
-6. WHEN navigation is complete THEN it SHALL be fully accessible with proper screen reader support and touch targets
-
-### Requirement 7: Organization Context (NHS vs NHSA)
-
-**User Story:** As a user who belongs to NHS or NHSA, I want the navigation to reflect my organization context, so that I see relevant content and features.
+**User Story:** As a developer, I want a clear navigation architecture that switches between authentication and main app flows, so that the app state is properly managed.
 
 #### Acceptance Criteria
 
-1. WHEN a user belongs to NHS THEN navigation SHALL show NHS-specific content and branding
-2. WHEN a user belongs to NHSA THEN navigation SHALL show NHSA-specific content and branding
-3. WHEN implementing org-specific navigation THEN it SHALL maintain the same navigation structure across both organizations
-4. WHEN users switch between organizations THEN navigation SHALL update context without structural changes
-5. WHEN displaying organization content THEN navigation SHALL filter events, announcements, and features by organization membership
-6. WHEN implementing org context THEN it SHALL support users who may have memberships in both NHS and NHSA
+1. WHEN implementing RootNavigator THEN it SHALL use NavigationContainer with session state management
+2. WHEN user is not authenticated THEN RootNavigator SHALL render auth stack (Landing, Login, Signup screens)
+3. WHEN user is authenticated THEN RootNavigator SHALL render either OfficerRoot or MemberRoot based on user role
+4. WHEN session changes THEN navigation SHALL automatically update without manual intervention
+5. WHEN implementing navigation types THEN it SHALL use TypeScript with RootStackParamList, OfficerTabParamList, and MemberTabParamList
+6. WHEN navigation is complete THEN it SHALL include proper error boundaries and loading states
 
-### Requirement 8: Performance and Scalability
+### Requirement 5: Officer Bottom Tab Navigator
 
-**User Story:** As a user, I want fast navigation and smooth transitions, so that the app feels responsive and professional.
-
-#### Acceptance Criteria
-
-1. WHEN implementing navigation THEN it SHALL use lazy loading for large feature stacks to improve cold start performance
-2. WHEN navigation is complete THEN it SHALL implement proper TypeScript types for all navigation parameters
-3. WHEN creating navigation components THEN they SHALL be optimized for re-rendering and memory usage
-4. WHEN implementing role-based navigation THEN it SHALL cache role checks to avoid repeated computations
-5. WHEN navigation grows THEN it SHALL support easy addition of new tabs, screens, and role-based features
-6. WHEN testing navigation THEN it SHALL include performance benchmarks and load testing for tab switching
-
-### Requirement 9: Error Handling and Fallbacks
-
-**User Story:** As a user, I want the navigation to work reliably even when there are issues, so that I can always access core app features.
+**User Story:** As an officer, I want access to comprehensive management features through a dedicated bottom tab navigation, so that I can efficiently administer NHS/NHSA operations.
 
 #### Acceptance Criteria
 
-1. WHEN navigation dependencies are missing THEN the system SHALL provide clear error messages and fallback components
-2. WHEN role information is unavailable THEN navigation SHALL default to the most restrictive (member) view
-3. WHEN screens fail to load THEN navigation SHALL show appropriate error boundaries and recovery options
-4. WHEN implementing navigation THEN it SHALL handle edge cases like network failures and authentication timeouts
-5. WHEN navigation errors occur THEN they SHALL be logged appropriately for debugging and monitoring
-6. WHEN creating fallback components THEN they SHALL maintain the same interface as full implementations
+1. WHEN an officer logs in THEN they SHALL see OfficerBottomNavigator with tabs: OfficerDashboard, OfficerAnnouncements, OfficerAttendance, OfficerVerifyHours, OfficerEvents
+2. WHEN implementing officer tabs THEN each tab SHALL link to appropriate officer screen files in /screens/officer/nhs/ directory
+3. WHEN officer screens are missing THEN placeholder screens SHALL be created with TODO documentation
+4. WHEN officers navigate THEN all tabs SHALL be accessible and properly themed with @expo/vector-icons
+5. WHEN implementing officer navigation THEN it SHALL use createBottomTabNavigator with headerShown: false
+6. WHEN officer tabs are displayed THEN they SHALL use consistent icon mapping and theme-aware colors
 
-### Requirement 10: Testing and Documentation
+### Requirement 6: Member Bottom Tab Navigator
 
-**User Story:** As a developer, I want comprehensive testing and documentation for the navigation system, so that it can be maintained and extended reliably.
+**User Story:** As a member, I want access to core NHS/NHSA features through an intuitive bottom tab navigation, so that I can efficiently complete my activities.
 
 #### Acceptance Criteria
 
-1. WHEN navigation is implemented THEN it SHALL include unit tests for role-based filtering and navigation logic
-2. WHEN creating navigation components THEN they SHALL include integration tests for user flows and role transitions
-3. WHEN navigation is complete THEN it SHALL include comprehensive documentation explaining architecture and extension patterns
-4. WHEN implementing navigation THEN it SHALL create a migration guide for updating existing navigation code
-5. WHEN navigation testing is complete THEN it SHALL include a test checklist for verifying role-based access and navigation flows
-6. WHEN documentation is created THEN it SHALL include examples of adding new tabs, screens, and role-based features
+1. WHEN a member logs in THEN they SHALL see MemberBottomNavigator with tabs: Dashboard, Announcements, Attendance, LogHours, Events
+2. WHEN implementing member tabs THEN each tab SHALL link to appropriate member screen files in /screens/member/nhs/ directory
+3. WHEN member screens are missing THEN placeholder screens SHALL be created with TODO documentation
+4. WHEN members navigate THEN all tabs SHALL be accessible and properly themed with @expo/vector-icons
+5. WHEN implementing member navigation THEN it SHALL use createBottomTabNavigator with headerShown: false
+6. WHEN member tabs are displayed THEN they SHALL use consistent icon mapping and theme-aware colors
+
+### Requirement 7: Role Protection and Access Control
+
+**User Story:** As a system administrator, I want robust role-based access control that prevents unauthorized access to officer features, so that the app maintains security and proper permissions.
+
+#### Acceptance Criteria
+
+1. WHEN implementing role protection THEN officer-only screens SHALL redirect members to MemberRoot with error toast
+2. WHEN a user attempts to access unauthorized screens THEN they SHALL see "Access denied" message and be redirected appropriately
+3. WHEN implementing role checks THEN the system SHALL use useRequireRole hook or HOC for screen-level protection
+4. WHEN roles are checked THEN the system SHALL always fetch current user profile and store role in app state
+5. WHEN role information is unavailable THEN the system SHALL default to most restrictive (member) permissions
+6. WHEN implementing access control THEN it SHALL be enforced at both navigator-level and individual screen-level
+
+### Requirement 8: Navigation Types and Type Safety
+
+**User Story:** As a developer, I want comprehensive TypeScript types for all navigation parameters and routes, so that the navigation system is type-safe and maintainable.
+
+#### Acceptance Criteria
+
+1. WHEN implementing navigation types THEN it SHALL define RootStackParamList with Landing, Login, Signup, OfficerRoot, and MemberRoot
+2. WHEN creating tab param lists THEN it SHALL define OfficerTabParamList and MemberTabParamList with exact screen names
+3. WHEN implementing screen components THEN they SHALL use NativeStackScreenProps for proper typing
+4. WHEN navigation parameters are passed THEN they SHALL be properly typed and validated
+5. WHEN creating navigation helpers THEN they SHALL use typed navigation props throughout
+6. WHEN types are defined THEN they SHALL be exported from src/types/navigation.ts for reuse across the app
+
+### Requirement 9: Dependency Management and Fallbacks
+
+**User Story:** As a developer, I want the navigation system to work with existing dependencies and provide clear guidance for missing packages, so that implementation is straightforward.
+
+#### Acceptance Criteria
+
+1. WHEN implementing navigation THEN it SHALL use only dependencies present in package.json (@react-navigation/native, @react-navigation/native-stack, @expo/vector-icons, react-native-vector-icons)
+2. WHEN @react-navigation/bottom-tabs is missing THEN system SHALL create fallback tab navigation using TouchableOpacity and state management
+3. WHEN missing dependencies are detected THEN system SHALL create dependency report documenting required installations
+4. WHEN fallback components are created THEN they SHALL maintain same interface as full implementations
+5. WHEN navigation fails THEN it SHALL provide clear error messages and recovery options
+6. WHEN implementing fallbacks THEN they SHALL be documented with TODO comments for future enhancement
+
+### Requirement 10: Integration and Testing
+
+**User Story:** As a developer, I want comprehensive testing procedures and integration guidelines, so that the navigation system works reliably across all user scenarios.
+
+#### Acceptance Criteria
+
+1. WHEN navigation is complete THEN it SHALL include manual test checklist for verifying all user flows
+2. WHEN testing navigation THEN it SHALL verify Landing → role selection → Login → Signup → role-specific navigation flows
+3. WHEN implementing navigation THEN it SHALL include integration with existing Supabase auth and profile fetching
+4. WHEN navigation is deployed THEN it SHALL handle offline scenarios and authentication state persistence
+5. WHEN testing role transitions THEN it SHALL verify proper navigation reset and access control enforcement
+6. WHEN documentation is created THEN it SHALL include troubleshooting guide and common issue resolution

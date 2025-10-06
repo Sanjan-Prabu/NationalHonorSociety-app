@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import ProgressBar from 'common/components/ProgressBar';
-import BottomNavigator, { useBottomNav } from 'components/ui/BottomNavigator';
+import ProfileButton from '../../../components/ui/ProfileButton';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -72,14 +72,11 @@ const StatsCard = ({ title, value, subtitle, style }: {
 };
 
 const LogHoursScreen = ({ navigation }: any) => {
-  const { setActiveTab } = useBottomNav();
+  // Removed useBottomNav - navigation is handled by the main navigator
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
 
-  // Set this screen as active when it mounts
-  useEffect(() => {
-    setActiveTab('log-hours');
-  }, [setActiveTab]);
+  // Removed setActiveTab - navigation is handled by the main navigator
 
   // Mock data - can be replaced with actual data from API
   const [userData, setUserData] = useState({
@@ -130,11 +127,7 @@ const LogHoursScreen = ({ navigation }: any) => {
     }, 1000);
   };
 
-  const handleTabPress = (tabName: string) => {
-    if (tabName !== 'log-hours') {
-      navigation.navigate(tabName);
-    }
-  };
+  // Removed handleTabPress - navigation is handled by the main navigator
 
   const handleAddHours = () => {
     // Navigate to form for adding new hours
@@ -171,9 +164,10 @@ const LogHoursScreen = ({ navigation }: any) => {
                 <Text style={styles.headerTitle}>Log Hours</Text>
                 <Text style={styles.headerSubtitle}>Track your volunteer time</Text>
               </View>
-              <TouchableOpacity style={styles.profileButton}>
-                <Icon name="person" size={moderateScale(24)} color={Colors.solidBlue} />
-              </TouchableOpacity>
+              <ProfileButton 
+                color={Colors.solidBlue}
+                size={moderateScale(28)}
+              />
             </View>
 
             {/* Volunteer Progress Section */}
@@ -247,8 +241,7 @@ const LogHoursScreen = ({ navigation }: any) => {
             <Icon name="add" size={moderateScale(24)} color={Colors.white} />
           </TouchableOpacity>
 
-          {/* Bottom Navigation */}
-          <BottomNavigator onTabPress={handleTabPress} activeTab="log-hours" />
+          {/* Navigation is handled by the main MemberBottomNavigator */}
         </SafeAreaView>
       </LinearGradient>
     </SafeAreaProvider>

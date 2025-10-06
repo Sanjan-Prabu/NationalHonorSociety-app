@@ -1,312 +1,286 @@
 # Implementation Plan
 
-- [ ] 1. Set up navigation foundation and core types
-  - Create TypeScript interfaces for all navigation parameter lists and route definitions
-  - Implement Roles enum, roleHierarchy mapping, and TabNames constants in src/constants/
-  - Set up basic theme context hook if not available, with light/dark mode support
-  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.2, 6.2_
+- [x] 1. Create navigation types and core structure
+  - Create comprehensive TypeScript navigation types (RootStackParamList, OfficerTabParamList, MemberTabParamList) in src/types/navigation.ts
+  - Set up RootNavigator.tsx with session management and auth/main app switching
+  - Create wrapper components OfficerRoot.tsx and MemberRoot.tsx for bottom tab navigators
+  - _Requirements: 4.1, 4.2, 4.5, 8.1, 8.2, 8.3, 8.4, 8.5, 8.6_
 
-- [ ] 1.1 Create navigation type definitions
-  - Write comprehensive TypeScript interfaces for RootStackParamList, AuthStackParamList, MainTabParamList, and all feature stack param lists
-  - Define navigation prop types for each screen component
-  - _Requirements: 1.4, 8.2_
+- [x] 1.1 Create TypeScript navigation types
+  - Define RootStackParamList with Landing, Login, Signup, OfficerRoot, MemberRoot screens
+  - Create OfficerTabParamList with OfficerDashboard, OfficerAnnouncements, OfficerAttendance, OfficerVerifyHours, OfficerEvents
+  - Define MemberTabParamList with Dashboard, Announcements, Attendance, LogHours, Events
+  - Add screen prop types using NativeStackScreenProps for type safety
+  - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6_
 
-- [ ] 1.2 Implement role system constants
-  - Create Roles enum with Unverified, Member, Officer, Admin values
-  - Implement roleHierarchy mapping that defines role inheritance (Officer includes Member permissions)
-  - Create TabNames enum for consistent tab naming across the app
-  - _Requirements: 2.2, 2.3, 2.4_
+- [x] 1.2 Implement RootNavigator with session management
+  - Create RootNavigator.tsx using createNativeStackNavigator with session state management
+  - Add Supabase auth session listener with useEffect for automatic state updates
+  - Implement conditional rendering of auth stack vs main app based on session
+  - Configure NavigationContainer with proper error boundaries
+  - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.6_
 
-- [ ] 1.3 Set up theme context and hook
-  - Create useTheme hook that provides light/dark theme state and toggle function
-  - Implement ThemeProvider component that wraps the app with theme context
-  - Add theme-aware color utilities for navigation styling
-  - _Requirements: 6.1, 6.2_
+- [x] 1.3 Create root wrapper components
+  - Build OfficerRoot.tsx as wrapper component that renders OfficerBottomNavigator
+  - Create MemberRoot.tsx as wrapper component that renders MemberBottomNavigator
+  - Add proper TypeScript typing and error handling for root components
+  - _Requirements: 4.1, 4.2, 4.6_
 
-- [ ]* 1.4 Write unit tests for foundation components
-  - Create tests for roleHierarchy calculations and role permission checking
-  - Write tests for theme context state management and color utilities
+- [ ]* 1.4 Write unit tests for navigation types
   - Test TypeScript type definitions with mock navigation scenarios
-  - _Requirements: 10.1, 10.2_
+  - Verify navigation parameter passing and type safety
+  - Test RootNavigator session state management logic
+  - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6_
 
-- [ ] 2. Create reusable navigation components
-  - Implement RoleBasedHeaderButton component with role checking and theme-aware styling
-  - Create TabBarIcon component with consistent icon mapping and focus states
-  - Build PlaceholderScreen component for missing screens with TODO documentation
-  - Create NavigationErrorBoundary for handling navigation failures gracefully
-  - _Requirements: 2.5, 6.4, 9.1, 9.2, 9.3_
+- [x] 2. Update authentication screens for role-based flow
+  - Modify existing LandingScreen.tsx to navigate to Login with role parameters
+  - Update LoginScreen.tsx to handle role params, signupSuccess toast, and post-login navigation
+  - Enhance SignupScreen.tsx with secure officer invite validation and proper navigation flow
+  - Fix file naming issues (remove spaces from auth screen filenames)
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
 
-- [ ] 2.1 Implement RoleBasedHeaderButton component
-  - Create component that accepts onPress, title, requiredRoles, style, and optional icon props
-  - Implement role checking logic using useAuth hook and roleHierarchy
-  - Add theme-aware styling with NativeWind classes and conditional rendering
-  - _Requirements: 2.5, 6.2, 6.4_
+- [x] 2.1 Update LandingScreen for role selection
+  - Modify existing LandingScreen.tsx to use navigation.navigate('Login', { role: 'member' }) for member button
+  - Update officer button to navigate with navigation.navigate('Login', { role: 'officer' })
+  - Ensure proper TypeScript typing with LandingScreenProps from navigation types
+  - Maintain existing styling and LinearGradient design patterns
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5_
 
-- [ ] 2.2 Create TabBarIcon component
-  - Implement icon mapping function that converts TabNames to react-native-vector-icons names
-  - Add focused/unfocused states with opacity changes and theme-aware colors
-  - Support customizable size and color props for different use cases
-  - _Requirements: 6.3, 6.4_
+- [x] 2.2 Enhance LoginScreen with role parameters
+  - Update existing LoginScreen.tsx to receive and handle role parameter from route.params
+  - Add signupSuccess parameter handling with toast message display
+  - Implement post-login profile fetching and role-based navigation using navigation.reset()
+  - Add "Sign Up" button that navigates to SignupScreen with role parameter
+  - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6_
 
-- [ ] 2.3 Build PlaceholderScreen component
-  - Create reusable screen component for missing implementations with title, description, and TODO note props
-  - Style with NativeWind classes for consistent appearance across placeholder screens
-  - Add construction icon and clear messaging about implementation status
-  - _Requirements: 9.1, 9.4_
+- [x] 2.3 Secure SignupScreen with officer validation
+  - Update existing SignupScreen.tsx to handle role parameter and prevent client-side officer assignment
+  - Add invite code input field and server-side validation for officer role
+  - Implement navigation back to LoginScreen with signupSuccess parameter after successful signup
+  - Ensure no auto-sign-in occurs, requiring manual login after signup
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6_
 
-- [ ] 2.4 Implement NavigationErrorBoundary
-  - Create error boundary class component that catches navigation-related errors
-  - Add error logging and user-friendly error display with retry functionality
-  - Implement fallback UI that allows users to recover from navigation errors
-  - _Requirements: 9.1, 9.4, 9.5_
+- [x] 2.4 Fix authentication screen file naming
+  - Rename "src/screens/auth/ LoginScreen.tsx" to "src/screens/auth/LoginScreen.tsx" (remove space)
+  - Rename "src/screens/auth/  SignupScreen.tsx" to "src/screens/auth/SignupScreen.tsx" (remove spaces)
+  - Update any import statements that reference the old filenames
+  - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
 
-- [ ]* 2.5 Write unit tests for navigation components
-  - Test RoleBasedHeaderButton visibility with different user roles and required permissions
-  - Test TabBarIcon rendering with different tab names and focus states
-  - Test PlaceholderScreen rendering with various prop combinations
-  - Test NavigationErrorBoundary error catching and recovery functionality
-  - _Requirements: 10.1, 10.2_
+- [ ]* 2.5 Write integration tests for auth flow
+  - Test Landing → Login → Signup → Login flow for both member and officer roles
+  - Test role parameter passing and navigation state management
+  - Test officer invite code validation and error handling
+  - Test post-login navigation to appropriate root based on user role
+  - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6_
 
-- [ ] 3. Implement authentication navigation
-  - Create AuthNavigator using createBottomTabNavigator with Login, Register, and conditional ForgotPassword screens
-  - Build placeholder screens for missing authentication screens (ForgotPasswordScreen, etc.)
-  - Implement theme-aware tab icons and consistent header styling across auth screens
-  - Add proper TypeScript typing for auth navigation parameters and routes
-  - _Requirements: 5.1, 5.2, 5.4, 9.1_
+- [x] 3. Create Officer Bottom Tab Navigator
+  - Implement OfficerBottomNavigator.tsx using createBottomTabNavigator with 5 officer tabs
+  - Map tabs to existing officer screens in src/screens/officer/nhs/ directory
+  - Configure tab icons using @expo/vector-icons with consistent theming
+  - Handle missing @react-navigation/bottom-tabs dependency with fallback implementation
+  - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
 
-- [ ] 3.1 Create AuthNavigator with bottom tabs
-  - Implement createBottomTabNavigator for Login and Register screens
-  - Add conditional ForgotPassword tab when token parameter is present
-  - Configure tab icons using react-native-vector-icons with theme-aware colors
-  - _Requirements: 5.1, 5.2, 6.3_
+- [x] 3.1 Implement OfficerBottomNavigator with createBottomTabNavigator
+  - Create OfficerBottomNavigator.tsx using createBottomTabNavigator<OfficerTabParamList>
+  - Configure 5 tabs: OfficerDashboard, OfficerAnnouncements, OfficerAttendance, OfficerVerifyHours, OfficerEvents
+  - Set screenOptions with headerShown: false to let individual screens handle headers
+  - Add proper TypeScript typing for all tab screens and navigation
+  - _Requirements: 5.1, 5.2, 5.3, 5.4_
 
-- [ ] 3.2 Build authentication placeholder screens
-  - Create ForgotPasswordScreen placeholder with token parameter handling
-  - Implement LoginScreen and RegisterScreen placeholders if they don't exist
-  - Add proper navigation typing and parameter passing for auth flow
-  - _Requirements: 5.1, 9.1_
+- [x] 3.2 Map officer tabs to existing screen files
+  - Import and connect OfficerDashboard from src/screens/officer/nhs/OfficerDashboard.tsx
+  - Connect OfficerAnnouncements from src/screens/officer/nhs/OfficerAnnouncements.tsx
+  - Link OfficerAttendance from src/screens/officer/nhs/OfficerAttendance.tsx
+  - Map OfficerVerifyHours from src/screens/officer/nhs/OfficerVerifyHours.tsx
+  - Connect OfficerEvents from src/screens/officer/nhs/OfficerEventScreen.tsx
+  - _Requirements: 5.2, 5.3, 5.4_
 
-- [ ] 3.3 Style authentication navigation
-  - Apply consistent headerTitleAlign: "center" styling across all auth screens
-  - Implement theme-aware tab bar styling with proper contrast ratios
-  - Add NativeWind classes for consistent spacing and typography
-  - _Requirements: 5.4, 6.1, 6.2, 6.5_
+- [x] 3.3 Configure tab icons using @expo/vector-icons
+  - Implement getTabBarIcon function using MaterialIcons from @expo/vector-icons
+  - Map each officer tab to appropriate icons (dashboard, announcement, event-available, schedule, event)
+  - Add tabBarActiveTintColor and tabBarInactiveTintColor using existing app colors
+  - Ensure consistent icon sizing and theme-aware color handling
+  - _Requirements: 5.4, 5.5, 5.6_
 
-- [ ]* 3.4 Write integration tests for auth navigation
-  - Test navigation flow between Login, Register, and ForgotPassword screens
-  - Test conditional tab visibility based on token parameter presence
-  - Test theme switching and icon color updates in auth navigation
-  - _Requirements: 10.2, 10.3_
+- [x] 3.4 Handle missing @react-navigation/bottom-tabs dependency
+  - Check if @react-navigation/bottom-tabs is available in package.json
+  - If missing, create FallbackTabNavigator component using TouchableOpacity and state management
+  - Implement same interface as createBottomTabNavigator for future migration
+  - Create dependency report documenting missing package and installation instructions
+  - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
 
-- [ ] 4. Create member navigation stacks
-  - Implement HomeStackNavigator with dashboard, events, and announcement navigation
-  - Build AttendanceStackNavigator with BLE scanning, session joining, and history screens
-  - Create VolunteerStackNavigator with hour submission and history functionality
-  - Implement AnnouncementsStackNavigator with organization announcements and notifications
-  - Build ProfileStackNavigator with personal information and account management
-  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7_
+- [x] 3.5 Write unit tests for officer navigation
+  - Test OfficerBottomNavigator tab rendering and navigation
+  - Test icon mapping and theme-aware color application
+  - Test fallback tab navigator functionality if dependency is missing
+  - Verify proper TypeScript typing and screen connections
+  - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6_
 
-- [ ] 4.1 Implement HomeStackNavigator
-  - Create stack navigator with HomeMain screen and header navigation to EventDetails and AnnouncementDetails
-  - Add RoleBasedHeaderButton components for "Events" and "Announcements" navigation
-  - Implement placeholder screens for EventDetailsScreen and AnnouncementDetailsScreen
-  - _Requirements: 3.2, 3.7_
+- [x] 4. Create Member Bottom Tab Navigator
+  - Implement MemberBottomNavigator.tsx using createBottomTabNavigator with 5 member tabs
+  - Map tabs to existing member screens in src/screens/member/nhs/ directory
+  - Configure tab icons using @expo/vector-icons with consistent theming
+  - Use same fallback strategy as officer navigator for missing dependencies
+  - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
 
-- [ ] 4.2 Build AttendanceStackNavigator
-  - Create stack with AttendanceMain screen for BLE scanning and session joining
-  - Add AttendanceHistoryScreen for personal attendance tracking
-  - Implement header navigation between main attendance view and history
-  - _Requirements: 3.3, 3.7_
+- [x] 4.1 Implement MemberBottomNavigator with createBottomTabNavigator
+  - Create MemberBottomNavigator.tsx using createBottomTabNavigator<MemberTabParamList>
+  - Configure 5 tabs: Dashboard, Announcements, Attendance, LogHours, Events
+  - Set screenOptions with headerShown: false to let individual screens handle headers
+  - Add proper TypeScript typing for all tab screens and navigation
+  - _Requirements: 6.1, 6.2, 6.3, 6.4_
 
-- [ ] 4.3 Create VolunteerStackNavigator
-  - Implement stack with VolunteerMain screen for hour submission forms
-  - Add VolunteerHistoryScreen for tracking submitted and approved hours
-  - Create header navigation between submission and history views
-  - _Requirements: 3.4, 3.7_
+- [x] 4.2 Map member tabs to existing screen files
+  - Import and connect Dashboard from src/screens/member/nhs/DashboardScreen.tsx
+  - Connect Announcements from src/screens/member/nhs/AnnouncementsScreen.tsx (fix typo in filename)
+  - Link Attendance from src/screens/member/nhs/AttendanceScreen.tsx
+  - Map LogHours from src/screens/member/nhs/LogHoursScreen.tsx
+  - Connect Events from src/screens/member/nhs/EventScreen.tsx
+  - _Requirements: 6.2, 6.3, 6.4_
 
-- [ ] 4.4 Implement AnnouncementsStackNavigator
-  - Create stack with AnnouncementsMain screen for viewing organization announcements
-  - Add AnnouncementDetailsScreen for detailed announcement viewing
-  - Implement navigation between announcement list and detail views
-  - _Requirements: 3.5, 3.7_
+- [x] 4.3 Configure member tab icons using @expo/vector-icons
+  - Implement getTabBarIcon function using MaterialIcons for member tabs
+  - Map each member tab to appropriate icons (dashboard, announcement, event-available, schedule, event)
+  - Use same tabBarActiveTintColor and tabBarInactiveTintColor as officer navigator
+  - Ensure consistent styling and theming across both navigators
+  - _Requirements: 6.4, 6.5, 6.6_
 
-- [ ] 4.5 Build ProfileStackNavigator
-  - Create stack with ProfileMain screen for personal information display
-  - Add EditProfileScreen and SettingsScreen for account management
-  - Implement header navigation between profile sections
-  - _Requirements: 3.6, 3.7_
+- [x] 4.4 Handle member screen file naming issues
+  - Fix typo in src/screens/member/nhs/AnnouncementsScreen.tsx (currently "Anounnouncemments")
+  - Update import statements to use correct filename
+  - Verify all member screen files exist and are properly exported
+  - _Requirements: 9.1, 9.2, 9.3_
 
-- [ ]* 4.6 Write integration tests for member stacks
-  - Test navigation flows within each member stack navigator
-  - Test header button functionality and screen transitions
-  - Test placeholder screen rendering and navigation parameter passing
-  - _Requirements: 10.2, 10.3_
+- [ ]* 4.5 Write unit tests for member navigation
+  - Test MemberBottomNavigator tab rendering and navigation
+  - Test screen file connections and proper imports
+  - Test icon mapping and consistent theming with officer navigator
+  - Verify TypeScript typing and error handling
+  - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6_
 
-- [ ] 5. Add officer-specific navigation features
-  - Enhance AttendanceStackNavigator with officer-only "Create Session" and "Manage Attendance" header buttons
-  - Extend VolunteerStackNavigator with "Approve Hours" and "Hour Reports" officer functionality
-  - Add officer features to AnnouncementsStackNavigator with "Create Announcement" and "Manage Posts" options
-  - Implement OfficerDashboardStackNavigator with analytics, event creation, and user management screens
-  - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7_
+- [x] 5. Implement role-based access control and security
+  - Create useRequireRole hook for screen-level access control
+  - Add role protection to officer screens with proper redirects
+  - Implement error handling and unauthorized access prevention
+  - Create reusable access control patterns for future use
+  - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 9.1, 9.2, 9.3, 9.4, 9.5_
 
-- [ ] 5.1 Enhance AttendanceStackNavigator for officers
-  - Add RoleBasedHeaderButton for "Create Session" navigation (officer-only)
-  - Implement "Manage Attendance" header button for attendance administration
-  - Create placeholder screens for CreateAttendanceSessionScreen and AttendanceManagementScreen
-  - _Requirements: 4.2, 4.6_
+- [x] 5.1 Create useRequireRole hook for access control
+  - Implement useRequireRole hook that checks user role and redirects unauthorized users
+  - Add integration with existing useAuth context to fetch current user role
+  - Implement automatic redirect to appropriate root (MemberRoot/OfficerRoot) for unauthorized access
+  - Add toast notifications for access denied scenarios
+  - _Requirements: 7.1, 7.2, 7.3, 7.4_
 
-- [ ] 5.2 Extend VolunteerStackNavigator for officers
-  - Add "Approve Hours" header button for volunteer hour verification (officer-only)
-  - Implement "Hour Reports" navigation for volunteer analytics and reporting
-  - Create placeholder screens for ApproveHoursScreen and HourReportsScreen
-  - _Requirements: 4.3, 4.6_
+- [x] 5.2 Add role protection to officer screens
+  - Integrate useRequireRole('officer') hook into all officer screen components
+  - Add loading states while role verification is in progress
+  - Implement proper error boundaries for role-related failures
+  - Test unauthorized access scenarios and redirect behavior
+  - _Requirements: 7.1, 7.2, 7.3, 7.5, 7.6_
 
-- [ ] 5.3 Add officer features to AnnouncementsStackNavigator
-  - Implement "Create Announcement" header button for announcement creation (officer-only)
-  - Add "Manage Posts" navigation for announcement administration
-  - Create placeholder screens for CreateAnnouncementScreen and ManageAnnouncementsScreen
-  - _Requirements: 4.4, 4.6_
+- [x] 5.3 Create access control utilities and patterns
+  - Build reusable role checking utilities for future screen additions
+  - Create HOC (Higher Order Component) alternative to useRequireRole for class components
+  - Implement role-based conditional rendering helpers
+  - Document access control patterns for consistent implementation
+  - _Requirements: 7.4, 7.5, 7.6_
 
-- [ ] 5.4 Implement OfficerDashboardStackNavigator
-  - Create stack navigator with DashboardMain screen for officer analytics and overview
-  - Add EventAnalyticsScreen, UserManagementScreen, and ClubSettingsScreen
-  - Implement header navigation between dashboard sections with proper role checking
+- [x] 5.4 Handle edge cases and error scenarios
+  - Implement fallback behavior when user role is unavailable or null
+  - Add network failure handling for role verification
+  - Create graceful degradation for authentication timeouts
+  - Test app backgrounding/foregrounding with role state persistence
+  - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
+
+- [ ]* 5.5 Write comprehensive access control tests
+  - Test useRequireRole hook with different user roles and scenarios
+  - Test unauthorized access attempts and proper redirect behavior
+  - Test role state persistence and recovery from network failures
+  - Test integration with existing auth context and Supabase profile fetching
+  - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6_
+
+- [x] 6. Integrate navigation system with app architecture
+  - Update App.tsx to use new RootNavigator with proper provider wrapping
+  - Create placeholder screens for any missing screen files
+  - Add comprehensive error boundaries and loading states
+  - Test complete navigation flow from landing to role-specific tabs
+  - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 9.1, 9.2, 9.3, 9.4, 9.5, 9.6_
+
+- [x] 6.1 Update App.tsx with new navigation structure
+  - Replace existing navigation setup with new RootNavigator component
+  - Wrap RootNavigator with NavigationContainer and SafeAreaProvider
+  - Add proper error boundaries around navigation components
+  - Test app startup and navigation initialization
+  - _Requirements: 4.1, 4.2, 4.3, 4.4_
+
+- [x] 6.2 Create placeholder screens for missing files
+  - Create ForgotPasswordScreen.tsx placeholder if needed for password reset flow
+  - Add any missing NHSA-specific screens in member/nhsa/ and officer/nhsa/ directories
+  - Implement PlaceholderScreen component with TODO documentation for future implementation
+  - Ensure all placeholder screens follow existing styling patterns
+  - _Requirements: 9.1, 9.2, 9.3, 9.4_
+
+- [x] 6.3 Add comprehensive error boundaries and loading states
+  - Create NavigationErrorBoundary component for catching navigation-related errors
+  - Add loading states for authentication and profile fetching
+  - Implement graceful error recovery and user-friendly error messages
+  - Test error scenarios and recovery flows
+  - _Requirements: 9.1, 9.4, 9.5, 9.6_
+
+- [x] 6.4 Test complete navigation integration
+  - Test full user flow from app startup through role-specific navigation
+  - Verify proper session management and authentication state handling
+  - Test navigation state persistence and app backgrounding/foregrounding
+  - Validate TypeScript compilation and runtime error handling
   - _Requirements: 4.5, 4.6_
 
-- [ ]* 5.5 Write integration tests for officer features
-  - Test officer-only header button visibility and functionality
-  - Test navigation flows for officer-specific screens and features
-  - Test role-based access control for officer dashboard and management screens
-  - _Requirements: 10.2, 10.3_
+- [ ]* 6.5 Write end-to-end navigation tests
+  - Test complete user journeys from landing screen to role-specific features
+  - Test authentication flow integration with navigation state management
+  - Test error recovery and edge case handling
+  - Verify performance and memory usage during navigation
+  - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6_
 
-- [ ] 6. Create main tab navigation system
-  - Implement RoleBasedTabs component using createBottomTabNavigator with role-based tab filtering
-  - Configure tab visibility based on user role using roleHierarchy mapping
-  - Add TabBarIcon components for all tabs with consistent styling and theme support
-  - Implement organization context filtering for NHS vs NHSA content
-  - _Requirements: 2.1, 2.3, 2.4, 2.6, 6.3, 7.1, 7.2, 7.3, 7.4_
+- [x] 7. Create dependency management and documentation
+  - Create comprehensive dependency report documenting available and missing packages
+  - Implement fallback strategies for missing navigation dependencies
+  - Write detailed README.md with navigation architecture and usage examples
+  - Create troubleshooting guide for common navigation issues
+  - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6_
 
-- [ ] 6.1 Implement RoleBasedTabs component
-  - Create bottom tab navigator that filters tabs based on user role and roleHierarchy
-  - Implement tab configuration array with name, component, roles, and icon mappings
-  - Add dynamic tab filtering logic that shows/hides tabs based on user permissions
-  - _Requirements: 2.1, 2.3, 2.4_
+- [x] 7.1 Create dependency audit and report
+  - Scan package.json for available navigation dependencies
+  - Document missing @react-navigation/bottom-tabs and installation instructions
+  - Create fallback implementation guide for missing dependencies
+  - Add TODO comments throughout code for future dependency upgrades
+  - _Requirements: 9.1, 9.2, 9.3, 9.4_
 
-- [ ] 6.2 Configure tab icons and styling
-  - Implement getIcon function that maps TabNames to react-native-vector-icons
-  - Add theme-aware tab bar styling with proper colors for light/dark modes
-  - Configure tab bar options with consistent sizing and accessibility labels
-  - _Requirements: 6.3, 6.4, 6.5_
+- [x] 7.2 Write comprehensive navigation README
+  - Document complete navigation architecture and component hierarchy
+  - Add examples of adding new screens, tabs, and role-based features
+  - Include TypeScript usage examples and navigation parameter patterns
+  - Create quick start guide for developers new to the navigation system
+  - _Requirements: 10.3, 10.4, 10.5, 10.6_
 
-- [ ] 6.3 Add organization context support
-  - Implement organization filtering logic for NHS vs NHSA content
-  - Add organization context to tab navigation state and parameter passing
-  - Create organization-aware tab badge system for notifications and updates
-  - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
-
-- [ ]* 6.4 Write comprehensive tests for tab navigation
-  - Test tab visibility filtering based on different user roles
-  - Test organization context switching and content filtering
-  - Test tab icon rendering and theme-aware styling
-  - Test tab navigation performance and memory usage
-  - _Requirements: 10.1, 10.2, 10.3, 8.1, 8.4_
-
-- [ ] 7. Integrate navigation with app architecture
-  - Update App.tsx to use NavigationContainer with SafeAreaProvider and ThemeProvider wrapping
-  - Implement authentication wrapper that switches between AuthNavigator and RoleBasedTabs
-  - Add deep linking support for navigation routes and authentication flows
-  - Create navigation service for programmatic navigation from outside components
-  - _Requirements: 1.1, 5.3, 5.6, 8.2_
-
-- [ ] 7.1 Update App.tsx with navigation structure
-  - Wrap app with NavigationContainer, SafeAreaProvider, and ThemeProvider
-  - Implement authentication state checking to switch between auth and main navigation
-  - Add NavigationErrorBoundary wrapping for error handling
-  - _Requirements: 1.1, 9.1, 9.4_
-
-- [ ] 7.2 Create authentication wrapper component
-  - Implement component that checks authentication state and renders appropriate navigator
-  - Add loading states and transitions between auth and main navigation
-  - Handle authentication token validation and automatic navigation updates
-  - _Requirements: 5.3, 5.6_
-
-- [ ] 7.3 Add deep linking support
-  - Configure navigation linking for authentication flows and password reset tokens
-  - Implement deep link handling for specific screens and organization contexts
-  - Add URL parameter parsing for navigation state restoration
-  - _Requirements: 5.6, 7.6_
-
-- [ ] 7.4 Create navigation service utility
-  - Implement navigation service for programmatic navigation from services and utilities
-  - Add navigation helpers for common flows like logout, role changes, and error handling
-  - Create navigation state persistence for app backgrounding and restoration
-  - _Requirements: 8.2, 8.3_
-
-- [ ]* 7.5 Write end-to-end navigation tests
-  - Test complete user flows from authentication through main app navigation
-  - Test deep linking functionality and URL parameter handling
-  - Test navigation state persistence and restoration
-  - Test error scenarios and recovery flows
-  - _Requirements: 10.2, 10.3, 10.4_
-
-- [ ] 8. Optimize performance and add advanced features
-  - Implement lazy loading for large feature stacks to improve cold start performance
-  - Add navigation state caching and optimization for role-based filtering
-  - Create navigation analytics and performance monitoring
-  - Implement accessibility improvements and screen reader support
-  - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 6.5_
-
-- [ ] 8.1 Implement lazy loading for navigation stacks
-  - Use React.lazy() for large feature stack navigators to improve app startup time
-  - Add loading indicators and error boundaries for lazy-loaded components
-  - Optimize bundle splitting for navigation components
-  - _Requirements: 8.1, 8.3_
-
-- [ ] 8.2 Add navigation performance optimizations
-  - Implement role calculation caching to avoid repeated permission checks
-  - Optimize tab filtering logic and memoize expensive computations
-  - Add navigation timing metrics and performance monitoring
-  - _Requirements: 8.2, 8.4, 8.6_
-
-- [ ] 8.3 Create accessibility improvements
-  - Add proper accessibility labels and hints for all navigation elements
-  - Implement screen reader support for tab navigation and header buttons
-  - Ensure proper focus management and keyboard navigation support
-  - _Requirements: 6.5, 6.6_
-
-- [ ]* 8.4 Write performance and accessibility tests
-  - Create performance benchmarks for tab switching and navigation transitions
-  - Test accessibility compliance with screen readers and keyboard navigation
-  - Test lazy loading effectiveness and bundle size optimization
-  - _Requirements: 10.1, 10.2, 8.6_
-
-- [ ] 9. Create documentation and migration guides
-  - Write comprehensive README.md explaining navigation architecture and extension patterns
-  - Create migration guide for updating existing navigation code to new system
-  - Document role-based access control patterns and how to add new permissions
-  - Create troubleshooting guide for common navigation issues and solutions
-  - _Requirements: 1.5, 10.3, 10.4, 10.5, 10.6_
-
-- [ ] 9.1 Write navigation architecture documentation
-  - Create detailed README.md explaining navigation hierarchy and component structure
-  - Document role-based access control system and how to extend it
-  - Add examples of adding new tabs, screens, and role-based features
-  - _Requirements: 1.5, 10.4, 10.6_
-
-- [ ] 9.2 Create migration and setup guides
-  - Write migration guide for transitioning from existing navigation to new system
-  - Document dependency installation and setup requirements
-  - Create troubleshooting guide for common navigation issues and error scenarios
-  - _Requirements: 10.3, 10.4, 10.5_
-
-- [ ] 9.3 Document testing and maintenance procedures
-  - Create test checklist for verifying navigation functionality across different roles
-  - Document performance testing procedures and benchmarking guidelines
-  - Add maintenance guide for updating navigation as app grows and evolves
+- [x] 7.3 Create troubleshooting and maintenance guide
+  - Document common navigation issues and their solutions
+  - Add debugging guide for authentication and role-based access problems
+  - Create maintenance checklist for updating navigation as app evolves
+  - Include performance optimization tips and best practices
   - _Requirements: 10.1, 10.2, 10.5, 10.6_
 
-- [ ]* 9.4 Create comprehensive test suite documentation
-  - Document all test scenarios and expected outcomes for navigation system
-  - Create test data setup guides for different user roles and organization contexts
-  - Add continuous integration setup for navigation testing and performance monitoring
-  - _Requirements: 10.1, 10.2, 10.3, 10.5_
+- [x] 7.4 Implement final testing and validation
+  - Create comprehensive manual test checklist covering all user scenarios
+  - Test navigation system with different user roles and authentication states
+  - Validate TypeScript compilation and runtime performance
+  - Verify integration with existing Supabase auth and app architecture
+  - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6_
+
+- [ ]* 7.5 Write automated test suite
+  - Create unit tests for navigation components and utilities
+  - Write integration tests for authentication flow and role-based access
+  - Add performance tests for tab switching and navigation transitions
+  - Create continuous integration setup for navigation testing
+  - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6_
+

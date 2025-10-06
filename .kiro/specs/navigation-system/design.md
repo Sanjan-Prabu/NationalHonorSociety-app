@@ -2,9 +2,9 @@
 
 ## Overview
 
-The NHS/NHSA navigation system will be built using React Navigation 7 with a hierarchical structure that supports role-based access control, organization context, and seamless user experience. The design follows the FRC 2658 pattern with stack navigators for feature areas and a bottom tab navigator for main navigation, while incorporating the app's existing architecture patterns.
+The NHS/NHSA navigation system implements a comprehensive role-based authentication and navigation architecture using React Navigation 7. The system starts with a landing screen for role selection, flows through shared authentication screens, and culminates in separate bottom tab navigators for officers and members.
 
-The system will create a scalable foundation that can grow with the app's needs while maintaining type safety, performance, and accessibility standards. All navigation components will use NativeWind for styling and react-native-vector-icons for consistent iconography.
+The design follows the exact FRC 2658 patterns provided, using createNativeStackNavigator() for auth flows and createBottomTabNavigator() for main navigation. The system integrates seamlessly with existing Supabase authentication, NativeWind styling, and the current project structure while using only dependencies already present in package.json.
 
 ## Architecture
 
@@ -13,50 +13,71 @@ The system will create a scalable foundation that can grow with the app's needs 
 ```
 App
 ├── NavigationContainer
-├── SafeAreaProvider  
-├── ThemeProvider (if available, otherwise create minimal theme context)
-└── AuthenticationWrapper
-    ├── AuthNavigator (when not authenticated)
-    │   ├── LoginScreen
-    │   ├── RegisterScreen
-    │   └── ForgotPasswordScreen (conditional)
-    └── RoleBasedTabs (when authenticated)
-        ├── HomeStackNavigator
-        ├── AttendanceStackNavigator
-        ├── VolunteerStackNavigator
-        ├── AnnouncementsStackNavigator
-        ├── ProfileStackNavigator
-        └── OfficerDashboardStackNavigator (officers only)
+├── SafeAreaProvider (from react-native-safe-area-context)
+└── RootNavigator
+    ├── Auth Stack (when not authenticated)
+    │   ├── LandingScreen (role selection)
+    │   ├── LoginScreen (receives role param)
+    │   └── SignupScreen (receives role param)
+    └── Main App (when authenticated)
+        ├── OfficerRoot → OfficerBottomNavigator (if user.role === 'officer')
+        │   ├── OfficerDashboard
+        │   ├── OfficerAnnouncements  
+        │   ├── OfficerAttendance
+        │   ├── OfficerVerifyHours
+        │   └── OfficerEvents
+        └── MemberRoot → MemberBottomNavigator (if user.role === 'member')
+            ├── Dashboard
+            ├── Announcements
+            ├── Attendance
+            ├── LogHours
+            └── Events
 ```
 
-### Stack Navigator Structure
+### Authentication Flow Design
 
-Each feature area will have its own stack navigator following this pattern:
+The authentication system follows this exact pattern:
 
 ```typescript
-const FeatureStackNavigator = () => {
-  const { theme } = useTheme();
+// 1. Landing Screen - Role Selection
+const LandingScreen = ({ navigation }) => (
+  <View>
+    <Button title="I'm a Member" onPress={() => navigation.navigate('Login', { role: 'member' })} />
+    <Button title="I'm an Officer" onPress={() => navigation.navigate('Login', { role: 'officer' })} />
+  </View>
+);
+
+// 2. Login Screen - Shared with Role Context
+const LoginScreen = ({ route, navigation }) => {
+  const role = route.params?.role ?? 'member';
+  const signupSuccess = route.params?.signupSuccess;
   
-  return (
-    <Stack.Navigator screenOptions={{ headerTitleAlign: "center" }}>
-      <Stack.Screen 
-        name="FeatureMain" 
-        component={MainScreen}
-        options={({ navigation }) => ({
-          title: "Feature",
-          headerRight: () => (
-            <RoleBasedHeaderButton
-              onPress={() => navigation.navigate("OfficerFeature")}
-              title="Officer Action"
-              requiredRoles={[Roles.Officer]}
-              style={{ color: theme === "light" ? "black" : "white" }}
-            />
-          )
-        })}
-      />
-      <Stack.Screen name="OfficerFeature" component={OfficerScreen} />
-    </Stack.Navigator>
-  );
+  const handleLogin = async (email, password) => {
+    const { data } = await supabase.auth.signInWithPassword({ email, password });
+    const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).single();
+    
+    navigation.reset({
+      index: 0,
+      routes: [{ name: profile.role === 'officer' ? 'OfficerRoot' : 'MemberRoot' }],
+    });
+  };
+};
+
+// 3. Signup Screen - Role-Based Security
+const SignupScreen = ({ route }) => {
+  const role = route.params.role;
+  
+  const handleSignup = async () => {
+    if (role === 'officer') {
+      // Verify invite code server-side
+      const { data: verifyRes } = await supabase.rpc('verify_officer_invite', { invite_code });
+      if (!verifyRes?.valid) return alert('Invalid invite code');
+    }
+    
+    // Create user and profile (server prevents client-side officer role assignment)
+    await supabase.auth.signUp({ email, password });
+    navigation.navigate('Login', { role, signupSuccess: true });
+  };
 };
 ```
 
@@ -67,406 +88,446 @@ const FeatureStackNavigator = () => {
 ```typescript
 // src/types/navigation.ts
 export type RootStackParamList = {
-  Auth: undefined;
-  Main: { token?: string; admin?: boolean };
+  Landing: undefined;
+  Login: { role?: 'member' | 'officer'; signupSuccess?: boolean } | undefined;
+  Signup: { role: 'member' | 'officer' };
+  OfficerRoot: undefined; // wraps OfficerBottomNavigator
+  MemberRoot: undefined;  // wraps MemberBottomNavigator
 };
 
-export type AuthStackParamList = {
-  Login: undefined;
-  Register: undefined;
-  ForgotPassword: { token: string };
-};
-
-export type MainTabParamList = {
-  Home: undefined;
-  Attendance: undefined;
-  Volunteer: undefined;
-  Announcements: undefined;
-  Profile: undefined;
+export type OfficerTabParamList = {
   OfficerDashboard: undefined;
+  OfficerAnnouncements: undefined;
+  OfficerAttendance: undefined;
+  OfficerVerifyHours: undefined;
+  OfficerEvents: undefined;
 };
 
-export type HomeStackParamList = {
-  HomeMain: undefined;
-  EventDetails: { eventId: string };
-  AnnouncementDetails: { announcementId: string };
+export type MemberTabParamList = {
+  Dashboard: undefined;
+  Announcements: undefined;
+  Attendance: undefined;
+  LogHours: undefined;
+  Events: undefined;
 };
 
-// Similar param lists for other stacks...
+// Screen prop types for type safety
+export type LandingScreenProps = NativeStackScreenProps<RootStackParamList, 'Landing'>;
+export type LoginScreenProps = NativeStackScreenProps<RootStackParamList, 'Login'>;
+export type SignupScreenProps = NativeStackScreenProps<RootStackParamList, 'Signup'>;
 ```
 
-### Role System
+### Bottom Tab Navigator Design
+
+Following the FRC 2658 pattern exactly:
 
 ```typescript
-// src/constants/Roles.ts
-export enum Roles {
-  Unverified = "unverified",
-  Member = "member", 
-  Officer = "officer",
-  Admin = "admin"
-}
+// navigation/OfficerBottomNavigator.tsx
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { OfficerTabParamList } from '../types/navigation';
+import OfficerDashboard from '../screens/officer/nhs/OfficerDashboard';
+import OfficerAnnouncements from '../screens/officer/nhs/OfficerAnnouncements';
+import OfficerAttendance from '../screens/officer/nhs/OfficerAttendance';
+import OfficerVerifyHours from '../screens/officer/nhs/OfficerVerifyHours';
+import OfficerEvents from '../screens/officer/nhs/OfficerEventScreen';
 
-export const roleHierarchy: Record<Roles, Roles[]> = {
-  [Roles.Unverified]: [Roles.Unverified],
-  [Roles.Member]: [Roles.Unverified, Roles.Member],
-  [Roles.Officer]: [Roles.Unverified, Roles.Member, Roles.Officer],
-  [Roles.Admin]: [Roles.Unverified, Roles.Member, Roles.Officer, Roles.Admin]
-};
+const Tab = createBottomTabNavigator<OfficerTabParamList>();
 
-export enum TabNames {
-  Home = "Home",
-  Attendance = "Attendance", 
-  Volunteer = "Volunteer",
-  Announcements = "Announcements",
-  Profile = "Profile",
-  OfficerDashboard = "Officer Dashboard"
-}
-```
-
-### Reusable Components
-
-#### RoleBasedHeaderButton
-
-```typescript
-// src/components/navigation/RoleBasedHeaderButton.tsx
-interface RoleBasedHeaderButtonProps {
-  onPress: () => void;
-  title: string;
-  requiredRoles: Roles[];
-  style?: TextStyle;
-  icon?: string;
-}
-
-export const RoleBasedHeaderButton: React.FC<RoleBasedHeaderButtonProps> = ({
-  onPress,
-  title,
-  requiredRoles,
-  style,
-  icon
-}) => {
-  const { user } = useAuth();
-  const userRole = user?.role as Roles || Roles.Unverified;
-  const allowedRoles = roleHierarchy[userRole] || [Roles.Unverified];
-  
-  const hasPermission = requiredRoles.some(role => allowedRoles.includes(role));
-  
-  if (!hasPermission) return null;
-  
+export default function OfficerBottomNavigator() {
   return (
-    <TouchableOpacity onPress={onPress} className="px-3 py-2">
-      {icon && <Icon name={icon} size={16} color={style?.color} />}
-      <Text style={style} className="text-sm font-medium">
-        {title}
-      </Text>
-    </TouchableOpacity>
+    <Tab.Navigator screenOptions={{ headerShown: false }}>
+      <Tab.Screen name="OfficerDashboard" component={OfficerDashboard} options={{ title: 'Dashboard' }} />
+      <Tab.Screen name="OfficerAnnouncements" component={OfficerAnnouncements} options={{ title: 'Announcements' }} />
+      <Tab.Screen name="OfficerAttendance" component={OfficerAttendance} options={{ title: 'Attendance' }} />
+      <Tab.Screen name="OfficerVerifyHours" component={OfficerVerifyHours} options={{ title: 'Verify Hours' }} />
+      <Tab.Screen name="OfficerEvents" component={OfficerEvents} options={{ title: 'Events' }} />
+    </Tab.Navigator>
   );
-};
-```
-
-#### TabBarIcon
-
-```typescript
-// src/components/navigation/TabBarIcon.tsx
-interface TabBarIconProps {
-  name: TabNames;
-  focused: boolean;
-  color: string;
-  size?: number;
 }
 
-export const TabBarIcon: React.FC<TabBarIconProps> = ({
-  name,
-  focused,
-  color,
-  size = 24
-}) => {
-  const getIconName = (tabName: TabNames): string => {
-    switch (tabName) {
-      case TabNames.Home: return "home";
-      case TabNames.Attendance: return "calendar-check";
-      case TabNames.Volunteer: return "heart";
-      case TabNames.Announcements: return "megaphone";
-      case TabNames.Profile: return "user";
-      case TabNames.OfficerDashboard: return "settings";
-      default: return "help-circle";
-    }
-  };
+// navigation/MemberBottomNavigator.tsx  
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { MemberTabParamList } from '../types/navigation';
+import DashboardScreen from '../screens/member/nhs/DashboardScreen';
+import AnnouncementsScreen from '../screens/member/nhs/AnnouncementsScreen';
+import AttendanceScreen from '../screens/member/nhs/AttendanceScreen';
+import LogHoursScreen from '../screens/member/nhs/LogHoursScreen';
+import EventScreen from '../screens/member/nhs/EventScreen';
+
+const Tab = createBottomTabNavigator<MemberTabParamList>();
+
+export default function MemberBottomNavigator() {
+  return (
+    <Tab.Navigator screenOptions={{ headerShown: false }}>
+      <Tab.Screen name="Dashboard" component={DashboardScreen} />
+      <Tab.Screen name="Announcements" component={AnnouncementsScreen} />
+      <Tab.Screen name="Attendance" component={AttendanceScreen} />
+      <Tab.Screen name="LogHours" component={LogHoursScreen} />
+      <Tab.Screen name="Events" component={EventScreen} />
+    </Tab.Navigator>
+  );
+}
+```
+
+### Root Navigator Implementation
+
+```typescript
+// navigation/RootNavigator.tsx
+import React, { useEffect, useState } from 'react';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { supabase } from '../lib/supabaseClient';
+import { RootStackParamList } from '../types/navigation';
+import LandingScreen from '../screens/auth/LandingScreen';
+import LoginScreen from '../screens/auth/ LoginScreen';
+import SignupScreen from '../screens/auth/  SignupScreen';
+import OfficerRoot from './OfficerRoot';
+import MemberRoot from './MemberRoot';
+
+const Stack = createNativeStackNavigator<RootStackParamList>();
+
+export default function RootNavigator() {
+  const [session, setSession] = useState(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    return () => listener?.subscription.unsubscribe();
+  }, []);
 
   return (
-    <Icon 
-      name={getIconName(name)} 
-      size={size} 
-      color={color}
-      style={{ opacity: focused ? 1 : 0.6 }}
-    />
+    <NavigationContainer>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        {!session ? (
+          <>
+            <Stack.Screen name="Landing" component={LandingScreen} />
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="Signup" component={SignupScreen} />
+          </>
+        ) : (
+          <>
+            <Stack.Screen name="OfficerRoot" component={OfficerRoot} />
+            <Stack.Screen name="MemberRoot" component={MemberRoot} />
+          </>
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
   );
-};
-```
-
-### Theme Integration
-
-```typescript
-// src/hooks/useTheme.ts (create if doesn't exist)
-interface ThemeContextType {
-  theme: 'light' | 'dark';
-  toggleTheme: () => void;
 }
 
-export const useTheme = (): ThemeContextType => {
-  // Implementation will check system theme or user preference
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+// navigation/OfficerRoot.tsx - Wrapper for OfficerBottomNavigator
+import React from 'react';
+import OfficerBottomNavigator from './OfficerBottomNavigator';
+
+export default function OfficerRoot() {
+  return <OfficerBottomNavigator />;
+}
+
+// navigation/MemberRoot.tsx - Wrapper for MemberBottomNavigator  
+import React from 'react';
+import MemberBottomNavigator from './MemberBottomNavigator';
+
+export default function MemberRoot() {
+  return <MemberBottomNavigator />;
+}
+```
+
+### Icon Integration and Theming
+
+```typescript
+// Tab icon configuration using @expo/vector-icons (available in package.json)
+import { MaterialIcons } from '@expo/vector-icons';
+
+const getTabBarIcon = (routeName: string, focused: boolean, color: string) => {
+  let iconName: keyof typeof MaterialIcons.glyphMap;
   
-  const toggleTheme = () => {
-    setTheme(prev => prev === 'light' ? 'dark' : 'light');
-  };
-  
-  return { theme, toggleTheme };
+  switch (routeName) {
+    case 'Dashboard':
+    case 'OfficerDashboard':
+      iconName = 'dashboard';
+      break;
+    case 'Announcements':
+    case 'OfficerAnnouncements':
+      iconName = 'announcement';
+      break;
+    case 'Attendance':
+    case 'OfficerAttendance':
+      iconName = 'event-available';
+      break;
+    case 'LogHours':
+    case 'OfficerVerifyHours':
+      iconName = 'schedule';
+      break;
+    case 'Events':
+    case 'OfficerEvents':
+      iconName = 'event';
+      break;
+    default:
+      iconName = 'help';
+  }
+
+  return <MaterialIcons name={iconName} size={24} color={color} />;
 };
+
+// Tab navigator configuration with icons
+<Tab.Navigator 
+  screenOptions={({ route }) => ({
+    headerShown: false,
+    tabBarIcon: ({ focused, color }) => getTabBarIcon(route.name, focused, color),
+    tabBarActiveTintColor: '#2B5CE6', // Colors.solidBlue from existing screens
+    tabBarInactiveTintColor: '#718096', // Colors.textLight from existing screens
+  })}
+>
 ```
 
 ## Data Models
 
-### Navigation State Management
+### Supabase Integration
 
-The navigation system will integrate with the existing authentication and user management:
+The navigation system integrates with existing Supabase authentication and profile management:
 
 ```typescript
-// Integration with existing auth context
-interface User {
+// Profile structure from Supabase
+interface Profile {
   id: string;
-  role: Roles;
-  organizations: Array<{
-    id: string;
-    type: 'NHS' | 'NHSA';
-    role: Roles;
-  }>;
-  currentOrganization?: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  role: 'member' | 'officer';
+  pending_officer?: boolean;
+  organization: string; // 'NHS' or 'NHSA'
+  grade?: string;
+  phone_number?: string;
+  student_id?: string;
 }
 
-// Navigation will filter based on:
-// 1. User authentication status
-// 2. User role within current organization  
-// 3. Organization type (NHS vs NHSA)
-// 4. Feature availability
+// Authentication flow integration
+const handleLogin = async (email: string, password: string) => {
+  // 1. Authenticate with Supabase
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+
+  // 2. Fetch user profile to determine role
+  const { data: profile, error: profileErr } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', data.user.id)
+    .single();
+  
+  if (profileErr) throw profileErr;
+
+  // 3. Navigate to appropriate root based on role
+  const isOfficer = profile.role === 'officer';
+  navigation.reset({
+    index: 0,
+    routes: [{ name: isOfficer ? 'OfficerRoot' : 'MemberRoot' }],
+  });
+};
 ```
 
-### Tab Configuration
+### Screen File Mapping
+
+The navigation system maps to existing and placeholder screen files:
 
 ```typescript
-interface TabConfig {
-  name: TabNames;
-  component: React.ComponentType<any>;
-  roles: Roles[];
-  organizations?: ('NHS' | 'NHSA')[];
-  icon: string;
-  badge?: () => number; // For notification badges
-}
+// Existing Officer Screens (src/screens/officer/nhs/)
+- OfficerDashboard.tsx ✓ (exists)
+- OfficerAnnouncements.tsx ✓ (exists) 
+- OfficerAttendance.tsx ✓ (exists)
+- OfficerVerifyHours.tsx ✓ (exists)
+- OfficerEventScreen.tsx ✓ (exists)
 
-const tabConfigurations: TabConfig[] = [
-  {
-    name: TabNames.Home,
-    component: HomeStackNavigator,
-    roles: [Roles.Unverified, Roles.Member, Roles.Officer, Roles.Admin],
-    icon: "home"
-  },
-  {
-    name: TabNames.Attendance,
-    component: AttendanceStackNavigator,
-    roles: [Roles.Member, Roles.Officer, Roles.Admin],
-    icon: "calendar-check"
-  },
-  {
-    name: TabNames.Volunteer,
-    component: VolunteerStackNavigator,
-    roles: [Roles.Member, Roles.Officer, Roles.Admin],
-    icon: "heart"
-  },
-  {
-    name: TabNames.Announcements,
-    component: AnnouncementsStackNavigator,
-    roles: [Roles.Member, Roles.Officer, Roles.Admin],
-    icon: "megaphone"
-  },
-  {
-    name: TabNames.Profile,
-    component: ProfileStackNavigator,
-    roles: [Roles.Unverified, Roles.Member, Roles.Officer, Roles.Admin],
-    icon: "user"
-  },
-  {
-    name: TabNames.OfficerDashboard,
-    component: OfficerDashboardStackNavigator,
-    roles: [Roles.Officer, Roles.Admin],
-    icon: "settings"
-  }
-];
+// Existing Member Screens (src/screens/member/nhs/)
+- DashboardScreen.tsx ✓ (exists)
+- AnnouncementsScreen.tsx ✓ (exists - note: typo "Anounnouncemments")
+- AttendanceScreen.tsx ✓ (exists)
+- LogHoursScreen.tsx ✓ (exists)
+- EventScreen.tsx ✓ (exists)
+
+// Existing Auth Screens (src/screens/auth/)
+- LandingScreen.tsx ✓ (exists)
+- LoginScreen.tsx ✓ (exists - note: space in filename " LoginScreen.tsx")
+- SignupScreen.tsx ✓ (exists - note: spaces in filename "  SignupScreen.tsx")
+
+// Placeholder Screens to Create
+- ForgotPasswordScreen.tsx (if needed for password reset flow)
+- Any missing NHSA-specific screens in /nhsa/ directories
 ```
 
-## Error Handling
+## Error Handling and Security
 
-### Navigation Error Boundaries
+### Role-Based Access Control
 
 ```typescript
-// src/components/navigation/NavigationErrorBoundary.tsx
-class NavigationErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
+// Role protection hook
+const useRequireRole = (requiredRole: 'officer' | 'member') => {
+  const { user } = useAuth(); // Assumes existing auth context
+  const navigation = useNavigation();
 
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    // Log navigation errors
-    console.error('Navigation Error:', error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <View className="flex-1 justify-center items-center p-4">
-          <Text className="text-lg font-semibold mb-2">Navigation Error</Text>
-          <Text className="text-gray-600 text-center mb-4">
-            Something went wrong with navigation. Please restart the app.
-          </Text>
-          <TouchableOpacity 
-            onPress={() => this.setState({ hasError: false, error: null })}
-            className="bg-blue-500 px-4 py-2 rounded"
-          >
-            <Text className="text-white">Try Again</Text>
-          </TouchableOpacity>
-        </View>
-      );
+  useEffect(() => {
+    if (!user) return;
+    
+    if (requiredRole === 'officer' && user.role !== 'officer') {
+      // Show error toast
+      Toast.show('Access denied - Officer privileges required');
+      
+      // Redirect to appropriate root
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'MemberRoot' }],
+      });
     }
+  }, [user, requiredRole, navigation]);
 
-    return this.props.children;
+  return user?.role === requiredRole;
+};
+
+// Usage in officer screens
+const OfficerDashboard = () => {
+  const hasAccess = useRequireRole('officer');
+  
+  if (!hasAccess) {
+    return <LoadingSpinner />; // or redirect is handling
   }
-}
+  
+  return <YourOfficerDashboardContent />;
+};
 ```
 
-### Fallback Components
+### Dependency Fallback Strategy
 
-For missing screens or components:
+For missing @react-navigation/bottom-tabs dependency:
 
 ```typescript
-// src/components/navigation/PlaceholderScreen.tsx
-interface PlaceholderScreenProps {
-  title: string;
-  description: string;
-  todoNote?: string;
+// Fallback bottom tab implementation if @react-navigation/bottom-tabs is missing
+import React, { useState } from 'react';
+import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+
+interface FallbackTabNavigatorProps {
+  screens: Array<{
+    name: string;
+    component: React.ComponentType;
+    icon: string;
+    title: string;
+  }>;
 }
 
-export const PlaceholderScreen: React.FC<PlaceholderScreenProps> = ({
-  title,
-  description,
-  todoNote
-}) => (
-  <View className="flex-1 justify-center items-center p-6 bg-gray-50">
-    <Icon name="construction" size={64} color="#9CA3AF" />
-    <Text className="text-2xl font-bold mt-4 mb-2 text-center">{title}</Text>
-    <Text className="text-gray-600 text-center mb-4">{description}</Text>
-    {todoNote && (
-      <View className="bg-yellow-100 p-3 rounded-lg">
-        <Text className="text-yellow-800 text-sm">TODO: {todoNote}</Text>
+const FallbackTabNavigator: React.FC<FallbackTabNavigatorProps> = ({ screens }) => {
+  const [activeTab, setActiveTab] = useState(0);
+  const ActiveComponent = screens[activeTab].component;
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.content}>
+        <ActiveComponent />
       </View>
-    )}
-  </View>
-);
+      <View style={styles.tabBar}>
+        {screens.map((screen, index) => (
+          <TouchableOpacity
+            key={screen.name}
+            style={[styles.tab, activeTab === index && styles.activeTab]}
+            onPress={() => setActiveTab(index)}
+          >
+            <MaterialIcons 
+              name={screen.icon as any} 
+              size={24} 
+              color={activeTab === index ? '#2B5CE6' : '#718096'} 
+            />
+            <Text style={[styles.tabText, activeTab === index && styles.activeTabText]}>
+              {screen.title}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+};
+
+// Usage: Create dependency report and use fallback
+console.warn('Missing @react-navigation/bottom-tabs - using fallback implementation');
+// TODO: Install @react-navigation/bottom-tabs for optimal performance
 ```
 
 ## Testing Strategy
 
-### Unit Tests
+### Manual Test Checklist
 
-1. **Role-based filtering logic**
-   - Test roleHierarchy calculations
-   - Test tab visibility based on user roles
-   - Test header button visibility
+1. **Landing Screen Flow**
+   - Tap "I'm a Member" → Login screen shows role=member
+   - Tap "I'm an Officer" → Login screen shows role=officer
+   - Verify role parameter is passed correctly
 
-2. **Navigation component rendering**
-   - Test RoleBasedHeaderButton with different roles
-   - Test TabBarIcon with different states
-   - Test PlaceholderScreen rendering
+2. **Authentication Flow**
+   - Sign up as member → redirected to Login with success toast
+   - Sign up as officer with invalid invite → shows error
+   - Sign up as officer with valid invite → success flow
+   - Login as member → lands at MemberRoot with member tabs
+   - Login as officer → lands at OfficerRoot with officer tabs
 
-3. **Type safety**
-   - Test navigation parameter types
-   - Test stack param list consistency
+3. **Role-Based Access**
+   - Member cannot access officer-only screens
+   - Officer can access all features
+   - Proper error messages and redirects for unauthorized access
 
-### Integration Tests
+4. **Navigation State**
+   - After login, cannot navigate back to auth screens
+   - Tab switching works smoothly
+   - Screen transitions are responsive
 
-1. **Navigation flows**
-   - Test member navigation paths
-   - Test officer navigation paths
-   - Test authentication flow transitions
-
-2. **Role transitions**
-   - Test navigation updates when user role changes
-   - Test organization context switching
-
-3. **Error scenarios**
-   - Test navigation with missing dependencies
-   - Test navigation with invalid user states
-   - Test error boundary functionality
-
-### Performance Tests
-
-1. **Tab switching performance**
-   - Measure tab transition times
-   - Test memory usage during navigation
-   - Test lazy loading effectiveness
-
-2. **Role calculation performance**
-   - Benchmark role hierarchy calculations
-   - Test caching effectiveness
+5. **Error Scenarios**
+   - Network failure during login
+   - Invalid credentials
+   - Missing user profile
+   - App backgrounding/foregrounding
 
 ## Implementation Phases
 
-### Phase 1: Foundation
-- Create core types and constants
-- Implement basic theme context
-- Create reusable navigation components
-- Set up error boundaries
+### Phase 1: Core Navigation Types and Structure
+- Create TypeScript navigation types (RootStackParamList, OfficerTabParamList, MemberTabParamList)
+- Set up basic RootNavigator with session management
+- Implement auth stack (Landing, Login, Signup screens)
 
-### Phase 2: Authentication Navigation
-- Implement AuthNavigator
-- Create placeholder screens for missing auth screens
-- Test authentication flow
+### Phase 2: Authentication Flow
+- Update existing auth screens to handle role parameters
+- Implement secure signup flow with officer invite validation
+- Add navigation.reset() for post-login routing
 
-### Phase 3: Member Navigation
-- Implement all member-accessible stacks
-- Create placeholder screens for missing member screens
-- Test member navigation flows
+### Phase 3: Bottom Tab Navigators
+- Create OfficerBottomNavigator with 5 officer tabs
+- Create MemberBottomNavigator with 5 member tabs
+- Implement icon mapping using @expo/vector-icons
+- Handle missing @react-navigation/bottom-tabs with fallback
 
-### Phase 4: Officer Navigation
-- Add officer-specific features to existing stacks
-- Implement OfficerDashboardStackNavigator
-- Create placeholder screens for missing officer screens
-- Test officer navigation flows
+### Phase 4: Role Protection and Security
+- Implement useRequireRole hook for access control
+- Add role-based redirects and error handling
+- Test unauthorized access scenarios
 
-### Phase 5: Polish and Optimization
-- Implement lazy loading
-- Add performance optimizations
-- Complete testing suite
-- Create comprehensive documentation
+### Phase 5: Integration and Polish
+- Update App.tsx to use new RootNavigator
+- Create placeholder screens for missing files
+- Add comprehensive error boundaries
+- Document dependency requirements and fallback strategies
 
 ## Dependencies and Compatibility
 
-### Required Dependencies (Already Available)
-- @react-navigation/native: ^7.1.17
-- @react-navigation/native-stack: ^7.3.26
-- react-native-vector-icons: ^10.3.0
-- react-native-safe-area-context: ^5.6.1
-- react-native-screens: ~4.16.0
+### Available Dependencies (from package.json)
+- @react-navigation/native: ^7.1.17 ✓
+- @react-navigation/native-stack: ^7.3.26 ✓
+- @expo/vector-icons: ^15.0.2 ✓
+- react-native-vector-icons: ^10.3.0 ✓
+- react-native-safe-area-context: ^5.6.1 ✓
+- react-native-screens: ~4.16.0 ✓
 
-### Missing Dependencies (Need Installation)
-- @react-navigation/bottom-tabs (for tab navigation)
+### Missing Dependencies
+- @react-navigation/bottom-tabs (required for optimal tab navigation)
 
-### Fallback Strategy
-If @react-navigation/bottom-tabs is not available, create a custom tab bar using:
-- TouchableOpacity for tab buttons
-- Animated.View for tab indicator
-- State management for active tab tracking
+### Fallback Implementation
+If @react-navigation/bottom-tabs is missing, the system will:
+1. Create a dependency report documenting the missing package
+2. Implement a custom tab navigator using TouchableOpacity and state management
+3. Maintain the same interface for future migration to the official package
+4. Include TODO comments for installing the preferred dependency
 
-This ensures the navigation system can be implemented immediately while documenting the preferred dependencies for optimal functionality.
+This approach ensures immediate implementation while providing a clear upgrade path.
