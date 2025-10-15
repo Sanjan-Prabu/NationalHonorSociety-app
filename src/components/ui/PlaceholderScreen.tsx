@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ProfileButton from './ProfileButton';
 
 interface PlaceholderScreenProps {
   title: string;
@@ -18,9 +19,16 @@ const PlaceholderScreen: React.FC<PlaceholderScreenProps> = ({
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.title}>{title}</Text>
-          <Text style={styles.organization}>{organization}</Text>
+        {/* Header with ProfileButton */}
+        <View style={styles.topHeader}>
+          <View style={styles.headerLeft}>
+            <Text style={styles.title}>{title}</Text>
+            <Text style={styles.organization}>{organization}</Text>
+          </View>
+          <ProfileButton 
+            color="#2B5CE6"
+            size={28}
+          />
         </View>
         
         {description && (
@@ -70,6 +78,25 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 20,
+  },
+  topHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 30,
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  headerLeft: {
+    flex: 1,
+    alignItems: 'center',
   },
   header: {
     alignItems: 'center',

@@ -131,14 +131,7 @@ const SignupScreen = ({ route, navigation }: SignupScreenProps) => {
       newErrors.verificationCode = 'Verification code must be 8 digits long';
     }
 
-    // Invite code (required for officers)
-    if (role === 'officer') {
-      if (!inviteCode.trim()) {
-        newErrors.inviteCode = 'Officer invite code is required';
-      } else if (inviteCode.length < 6) {
-        newErrors.inviteCode = 'Invite code must be at least 6 characters';
-      }
-    }
+    // Removed officer invite code validation - using same verification code for all roles
 
     // Password
     if (!password) {
@@ -174,21 +167,45 @@ const SignupScreen = ({ route, navigation }: SignupScreenProps) => {
       console.log('Auth Key exists:', !!process.env.EXPO_PUBLIC_SUPABASE_KEY);
       console.log('Auth Key length:', process.env.EXPO_PUBLIC_SUPABASE_KEY?.length);
 
+      // Debug the organization mapping
+      const userOrgInput = organization.trim().toLowerCase();
+      let mappedOrg;
+      
+      if (userOrgInput === 'nhs' || userOrgInput === 'test-nhs') {
+        mappedOrg = 'test-nhs';
+      } else if (userOrgInput === 'nhsa' || userOrgInput === 'test-nhsa') {
+        mappedOrg = 'test-nhsa';
+      } else {
+        // Default fallback
+        mappedOrg = 'test-nhs';
+        console.warn('Unknown organization input:', userOrgInput, 'defaulting to test-nhs');
+      }
+      
+      console.log('Organization mapping debug:', {
+        userInput: organization,
+        trimmedLower: userOrgInput,
+        mappedTo: mappedOrg
+      });
+
+      console.log('Role from route params:', role);
+      console.log('Role type:', typeof role);
+      
       const requestBody = {
         email: email.trim().toLowerCase(),
         password,
         first_name: firstName.trim(),
         last_name: lastName.trim(),
-        organization: organization.trim().toUpperCase(), // Ensure NHS or NHSA
+        organization: mappedOrg, // Use the mapped organization
         role,
         code: verificationCode,
-        invite_code: role === 'officer' ? inviteCode.trim() : undefined,
+        // Removed invite_code - using same verification code for all roles
         phone_number: phoneNumber || undefined,
         student_id: studentId || undefined,
         grade: grade || undefined,
       };
 
       console.log('Request body:', JSON.stringify(requestBody, null, 2));
+      console.log('Role in request body:', requestBody.role);
 
       // Call the secure Edge Function for signup
       const response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/signupPublic`, {
@@ -288,7 +305,10 @@ const SignupScreen = ({ route, navigation }: SignupScreenProps) => {
             >
               {/* Header */}
               <View style={styles.header}>
-                <TouchableOpacity style={styles.backButton}>
+                <TouchableOpacity 
+                  style={styles.backButton}
+                  onPress={() => navigation.goBack()}
+                >
                   <Text style={styles.backButtonText}>←</Text>
                 </TouchableOpacity>
                 <View style={styles.placeholder} />
@@ -436,10 +456,12 @@ const SignupScreen = ({ route, navigation }: SignupScreenProps) => {
                 </View>
 
                 {/* Verification Code */}
-                <Text style={styles.inputLabel}>Verification Code</Text>
+                <Text style={styles.inputLabel}>
+                  Verification Code {role === 'officer' ? '(Officer Access)' : ''}
+                </Text>
                 <TextInput
                   style={[styles.textInput, errors.verificationCode && styles.inputError]}
-                  placeholder="Code provided by administrator"
+                  placeholder={role === 'officer' ? 'Officer verification code' : 'Code provided by administrator'}
                   placeholderTextColor={Colors.textLight}
                   value={verificationCode}
                   onChangeText={handleVerificationCodeChange}
@@ -450,23 +472,7 @@ const SignupScreen = ({ route, navigation }: SignupScreenProps) => {
                 />
                 {errors.verificationCode && <Text style={styles.errorText}>{errors.verificationCode}</Text>}
 
-                {/* Officer Invite Code (only show for officers) */}
-                {role === 'officer' && (
-                  <>
-                    <Text style={styles.inputLabel}>Officer Invite Code *</Text>
-                    <TextInput
-                      style={[styles.textInput, errors.inviteCode && styles.inputError]}
-                      placeholder="Enter officer invite code"
-                      placeholderTextColor={Colors.textLight}
-                      value={inviteCode}
-                      onChangeText={setInviteCode}
-                      autoCapitalize="none"
-                      autoComplete="off"
-                      textContentType="none"
-                    />
-                    {errors.inviteCode && <Text style={styles.errorText}>{errors.inviteCode}</Text>}
-                  </>
-                )}
+                {/* Removed Officer Invite Code - using same verification code for all roles */}
 
                 {/* Password */}
                 <Text style={styles.inputLabel}>Password *</Text>

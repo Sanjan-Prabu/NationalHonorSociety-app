@@ -79,7 +79,7 @@ const LandingScreen = ({ navigation }: LandingScreenProps) => {
             {/* Logo and Title Section */}
             <View style={styles.headerSection}>
               <StackedDiamondsLogo />
-              <Text style={styles.title}>Honor Society Hub</Text>
+              <Text style={styles.title}>National Honor Society </Text>
               <Text style={styles.subtitle}>Manage your volunteer hours and stay connected</Text>
             </View>
 

@@ -3,12 +3,12 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { OfficerTabParamList } from '../types/navigation';
 import FallbackTabNavigator from './FallbackTabNavigator';
 
-// Import officer screen components
-import OfficerDashboard from '../screens/officer/nhs/OfficerDashboard';
-import OfficerAnnouncements from '../screens/officer/nhs/OfficerAnnouncements';
-import OfficerAttendance from '../screens/officer/nhs/OfficerAttendance';
-import OfficerVerifyHours from '../screens/officer/nhs/OfficerVerifyHours';
-import OfficerEvents from '../screens/officer/nhs/OfficerEventScreen';
+// Import new role-based officer screen components
+import OfficerDashboardScreen from '../screens/officer/OfficerDashboardScreen';
+import OfficerAnnouncementsScreen from '../screens/officer/OfficerAnnouncementsScreen';
+import OfficerAttendanceScreen from '../screens/officer/OfficerAttendanceScreen';
+import OfficerVolunteerApprovalScreen from '../screens/officer/OfficerVolunteerApprovalScreen';
+import OfficerEventsScreen from '../screens/officer/OfficerEventsScreen';
 
 /**
  * Officer Bottom Tab Navigator
@@ -37,35 +37,35 @@ const getTabBarIcon = (routeName: keyof OfficerTabParamList): keyof typeof Mater
 };
 
 export default function OfficerBottomNavigator() {
-  // Define officer tab screens
+  // Define officer tab screens with role-based components
   const screens = [
     {
       name: 'OfficerDashboard',
-      component: OfficerDashboard,
+      component: OfficerDashboardScreen,
       icon: getTabBarIcon('OfficerDashboard'),
       title: 'Dashboard',
     },
     {
       name: 'OfficerAnnouncements',
-      component: OfficerAnnouncements,
+      component: OfficerAnnouncementsScreen,
       icon: getTabBarIcon('OfficerAnnouncements'),
       title: 'Announcements',
     },
     {
       name: 'OfficerAttendance',
-      component: OfficerAttendance,
+      component: OfficerAttendanceScreen,
       icon: getTabBarIcon('OfficerAttendance'),
       title: 'Attendance',
     },
     {
       name: 'OfficerVerifyHours',
-      component: OfficerVerifyHours,
+      component: OfficerVolunteerApprovalScreen,
       icon: getTabBarIcon('OfficerVerifyHours'),
       title: 'Verify Hours',
     },
     {
       name: 'OfficerEvents',
-      component: OfficerEvents,
+      component: OfficerEventsScreen,
       icon: getTabBarIcon('OfficerEvents'),
       title: 'Events',
     },

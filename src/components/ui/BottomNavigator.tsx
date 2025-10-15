@@ -119,7 +119,7 @@ const styles = StyleSheet.create({
     minWidth: scale(60),
   },
   navText: {
-    fontSize: moderateScale(10),
+    fontSize: moderateScale(5),
     marginTop: verticalScale(4),
     textAlign: 'center',
   },

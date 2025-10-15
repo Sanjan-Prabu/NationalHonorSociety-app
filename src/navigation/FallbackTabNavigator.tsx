@@ -71,11 +71,15 @@ export default function FallbackTabNavigator({
                 size={24} 
                 color={color} 
               />
-              <Text style={[
-                styles.tabText, 
-                { color },
-                isActive && styles.activeTabText
-              ]}>
+              <Text 
+                style={[
+                  styles.tabText, 
+                  { color },
+                  isActive && styles.activeTabText
+                ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
                 {screen.title}
               </Text>
             </TouchableOpacity>
@@ -105,16 +109,17 @@ const styles = StyleSheet.create({
   tab: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 2,
   },
   activeTab: {
     // Additional styling for active tab if needed
   },
   tabText: {
-    fontSize: 12,
-    marginTop: 4,
+    fontSize: 8,
+    marginTop: 2,
     textAlign: 'center',
+   
   },
   activeTabText: {
     fontWeight: '600',

@@ -1,21 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// Supabase automatically provides these environment variables in Edge Functions
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-// Debug environment variables
-console.log("Env check:", {
-  supabaseUrl: supabaseUrl ? "SET" : "MISSING",
-  supabaseServiceKey: supabaseServiceKey ? "SET" : "MISSING",
-  supabaseUrlValue: supabaseUrl,
-  serviceKeyFirst10Chars: supabaseServiceKey ? supabaseServiceKey.substring(0, 10) : "MISSING",
-  serviceKeyLength: supabaseServiceKey?.length || 0,
-});
-
 if (!supabaseUrl || !supabaseServiceKey) {
-  console.error("Missing environment variables");
   throw new Error("Missing environment variables");
 }
 
@@ -28,9 +17,7 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey, {
 });
 
 serve(async (req: Request) => {
-  console.log(`Received ${req.method} request to signupPublic`);
-  
-  // Allow CORS preflight & simple client usage
+  // CORS
   if (req.method === "OPTIONS") {
     return new Response(null, {
       headers: {
@@ -41,30 +28,29 @@ serve(async (req: Request) => {
     });
   }
 
-  // Debug: Log all environment variables
-  console.log("=== DEBUG START ===");
-  console.log("All env vars:", Object.keys(Deno.env.toObject()));
-  console.log("SUPABASE_URL:", Deno.env.get("SUPABASE_URL"));
-  console.log("SUPABASE_SERVICE_ROLE_KEY:", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ? "SET" : "MISSING");
-  console.log("=== DEBUG END ===");
-
   try {
+    const requestBody = await req.json();
     const { 
       email, 
       password, 
       first_name, 
       last_name, 
       organization, 
-      code,
-      phone_number = null,
-      student_id = null,
-      grade = null,
+      role,
+      code
+    } = requestBody;
 
-    } = await req.json();
+    // Validate role and set default if not provided or invalid
+    const validRoles = ['member', 'officer', 'president', 'vice_president', 'admin'];
+    const finalRole = (role && validRoles.includes(role)) ? role : 'member';
 
-    console.log("Received signup request for:", { email, first_name, last_name, organization });
+    console.log("Raw request body:", requestBody);
+    console.log("Role from request body:", requestBody.role);
+    console.log("Final role value:", finalRole);
+    console.log("Role type:", typeof finalRole);
+    console.log("Signup request:", { email, first_name, last_name, organization, role: finalRole });
 
-    if (!email || !password || !first_name || !last_name || !organization || !code) {
+    if (!email || !password || !first_name || !last_name || !organization) {
       return new Response(
         JSON.stringify({ success: false, error: "Missing required fields" }),
         { 
@@ -77,24 +63,17 @@ serve(async (req: Request) => {
       );
     }
 
-const orgId = organization.trim().toLowerCase();
-
-   
-    // 🔹 1. Verify code before creating user
-    // 🔹 1. Verify code exists (allow multiple users to share the same code)
-    console.log("Checking verification code:", code);
-    const { data: codeData, error: codeError } = await supabase
-      .from("verification_codes")
-      .select("*")
-      .eq("code", code)
-      .maybeSingle(); // allows 0 or 1 without error
-
-    if (codeError || !codeData) {
-      console.log("Code verification failed:", codeError);
+    // Hard-coded organization mapping to avoid UUID issues
+    let orgUuid;
+    if (organization.toLowerCase() === 'test-nhs') {
+      orgUuid = '550e8400-e29b-41d4-a716-446655440001';
+    } else if (organization.toLowerCase() === 'test-nhsa') {
+      orgUuid = '550e8400-e29b-41d4-a716-446655440002';
+    } else {
       return new Response(
-        JSON.stringify({
-          success: false,
-          error: "Invalid verification code",
+        JSON.stringify({ 
+          success: false, 
+          error: `Invalid organization: ${organization}. Must be test-nhs or test-nhsa` 
         }),
         { 
           status: 400, 
@@ -106,12 +85,9 @@ const orgId = organization.trim().toLowerCase();
       );
     }
 
-console.log("Code verified successfully");
+    console.log("Using org UUID:", orgUuid);
 
-    console.log("Code verified successfully");
-
-    // 🔹 2. Create auth user with service role
-    console.log("Creating auth user...");
+    // Create auth user
     const {
       data: { user },
       error: userError,
@@ -138,36 +114,21 @@ console.log("Code verified successfully");
     const userId = user.id;
     console.log("Auth user created:", userId);
 
-    // 🔹 3. Insert profile (no org lookup needed)
-    let Organization;
-    if(organization=="NHS"){
-       Organization = "NationalHonorSociety";
-    }
-    else{
-      Organization = "NationalHonorSocietyAssociates"
-    }
+    // Insert profile
     const { error: profileError } = await supabase.from("profiles").insert({
       id: userId,
       email: email.toLowerCase(),
       first_name: first_name.trim(),
       last_name: last_name.trim(),
-      phone_number,
-      student_id,
-      grade,
-      organization: Organization,
-      username: `${first_name.trim().toLowerCase()}.${last_name
-        .trim()
-        .toLowerCase()}`,
-      display_name: first_name.trim(),
+      org_id: orgUuid,
       is_verified: true,
-      verification_code: code,
-      org_id: orgId,
-      role: 'member' // Default role for new users
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     });
 
     if (profileError) {
       console.log("Profile creation failed:", profileError);
-      await supabase.auth.admin.deleteUser(userId); // rollback
+      await supabase.auth.admin.deleteUser(userId);
       return new Response(
         JSON.stringify({ success: false, error: profileError.message }),
         { 
@@ -182,6 +143,47 @@ console.log("Code verified successfully");
 
     console.log("Profile created successfully");
 
+    // Create membership with correct role
+    console.log("Creating membership with role:", finalRole);
+    console.log("Role value being inserted:", JSON.stringify(finalRole));
+    const membershipInsert = {
+      user_id: userId,
+      org_id: orgUuid,
+      role: finalRole, // This should be 'officer' or 'member'
+      is_active: true,
+      joined_at: new Date().toISOString(),
+    };
+    console.log("Membership insert object:", membershipInsert);
+    
+    const { error: membershipError } = await supabase.from("memberships").insert(membershipInsert);
+    
+    // Also update the profile role field
+    console.log("Updating profile role to:", finalRole);
+    const { error: profileRoleError } = await supabase.from("profiles").update({
+      role: finalRole
+    }).eq("id", userId);
+    
+    if (profileRoleError) {
+      console.log("Profile role update failed:", profileRoleError);
+    }
+
+    if (membershipError) {
+      console.log("Membership creation failed:", membershipError);
+      await supabase.from("profiles").delete().eq("id", userId);
+      await supabase.auth.admin.deleteUser(userId);
+      return new Response(
+        JSON.stringify({ success: false, error: membershipError.message }),
+        { 
+          status: 500, 
+          headers: { 
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          } 
+        }
+      );
+    }
+
+    console.log("Membership created successfully");
 
     return new Response(
       JSON.stringify({ success: true, user_id: userId }),

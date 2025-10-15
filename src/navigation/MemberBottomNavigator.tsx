@@ -3,12 +3,12 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { MemberTabParamList } from '../types/navigation';
 import FallbackTabNavigator from './FallbackTabNavigator';
 
-// Import member screen components
-import DashboardScreen from '../screens/member/nhs/DashboardScreen';
-import AnnouncementsScreen from '../screens/member/nhs/AnnouncementsScreen';
-import AttendanceScreen from '../screens/member/nhs/AttendanceScreen';
-import LogHoursScreen from '../screens/member/nhs/LogHoursScreen';
-import EventScreen from '../screens/member/nhs/EventScreen';
+// Import new role-based member screen components
+import MemberDashboardScreen from '../screens/member/MemberDashboardScreen';
+import MemberAnnouncementsScreen from '../screens/member/MemberAnnouncementsScreen';
+import MemberAttendanceScreen from '../screens/member/MemberAttendanceScreen';
+import MemberVolunteerHoursScreen from '../screens/member/MemberVolunteerHoursScreen';
+import MemberEventsScreen from '../screens/member/MemberEventsScreen';
 
 /**
  * Member Bottom Tab Navigator
@@ -37,35 +37,35 @@ const getTabBarIcon = (routeName: keyof MemberTabParamList): keyof typeof Materi
 };
 
 export default function MemberBottomNavigator() {
-  // Define member tab screens
+  // Define member tab screens with role-based components
   const screens = [
     {
       name: 'Dashboard',
-      component: DashboardScreen,
+      component: MemberDashboardScreen,
       icon: getTabBarIcon('Dashboard'),
       title: 'Dashboard',
     },
     {
       name: 'Announcements',
-      component: AnnouncementsScreen,
+      component: MemberAnnouncementsScreen,
       icon: getTabBarIcon('Announcements'),
       title: 'Announcements',
     },
     {
       name: 'Attendance',
-      component: AttendanceScreen,
+      component: MemberAttendanceScreen,
       icon: getTabBarIcon('Attendance'),
       title: 'Attendance',
     },
     {
       name: 'LogHours',
-      component: LogHoursScreen,
+      component: MemberVolunteerHoursScreen,
       icon: getTabBarIcon('LogHours'),
       title: 'Log Hours',
     },
     {
       name: 'Events',
-      component: EventScreen,
+      component: MemberEventsScreen,
       icon: getTabBarIcon('Events'),
       title: 'Events',
     },

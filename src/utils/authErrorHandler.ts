@@ -1,4 +1,15 @@
+/**
+ * Legacy authentication error handler - maintained for backward compatibility
+ * New code should use src/services/AuthErrorHandler.ts
+ */
+
 import { AuthError } from '@supabase/supabase-js';
+import { 
+  handleAuthError as handleAuthErrorNew, 
+  shouldRetryError, 
+  shouldSignOutOnError as shouldSignOutOnErrorNew,
+  getUserErrorMessage as getUserErrorMessageNew 
+} from '../services/AuthErrorHandler';
 
 export interface AuthErrorInfo {
   type: 'network' | 'timeout' | 'unauthorized' | 'invalid_role' | 'unknown';
@@ -9,133 +20,77 @@ export interface AuthErrorInfo {
 }
 
 /**
+ * @deprecated Use handleAuthError from AuthErrorHandler service instead
  * Categorizes and handles authentication-related errors
  */
 export const handleAuthError = (error: Error | AuthError | unknown): AuthErrorInfo => {
-  // Default error info
-  let errorInfo: AuthErrorInfo = {
-    type: 'unknown',
-    message: 'Unknown error occurred',
-    userMessage: 'An unexpected error occurred. Please try again.',
-    shouldRetry: true,
-    shouldSignOut: false,
+  // Use new error handler and convert to legacy format
+  const authError = handleAuthErrorNew(error);
+  
+  // Map new error types to legacy types
+  let legacyType: AuthErrorInfo['type'] = 'unknown';
+  switch (authError.type) {
+    case 'NETWORK_ERROR':
+    case 'OFFLINE_ERROR':
+      legacyType = 'network';
+      break;
+    case 'TIMEOUT_ERROR':
+      legacyType = 'timeout';
+      break;
+    case 'TOKEN_EXPIRED':
+    case 'REFRESH_FAILED':
+    case 'INVALID_TOKEN':
+    case 'SESSION_EXPIRED':
+    case 'INVALID_CREDENTIALS':
+      legacyType = 'unauthorized';
+      break;
+    case 'INVALID_ROLE':
+    case 'INSUFFICIENT_PERMISSIONS':
+    case 'ACCESS_DENIED':
+      legacyType = 'invalid_role';
+      break;
+    default:
+      legacyType = 'unknown';
+  }
+
+  return {
+    type: legacyType,
+    message: authError.message,
+    userMessage: authError.userMessage,
+    shouldRetry: authError.shouldRetry,
+    shouldSignOut: authError.shouldSignOut,
   };
-
-  if (!error) {
-    return errorInfo;
-  }
-
-  const errorMessage = error instanceof Error ? error.message : String(error);
-  const lowerMessage = errorMessage.toLowerCase();
-
-  // Network-related errors
-  if (
-    lowerMessage.includes('network') ||
-    lowerMessage.includes('fetch') ||
-    lowerMessage.includes('connection') ||
-    lowerMessage.includes('timeout') ||
-    lowerMessage.includes('offline')
-  ) {
-    errorInfo = {
-      type: 'network',
-      message: errorMessage,
-      userMessage: 'Network connection issue. Please check your internet connection and try again.',
-      shouldRetry: true,
-      shouldSignOut: false,
-    };
-  }
-  
-  // Timeout errors
-  else if (
-    lowerMessage.includes('timeout') ||
-    lowerMessage.includes('timed out') ||
-    lowerMessage.includes('request timeout')
-  ) {
-    errorInfo = {
-      type: 'timeout',
-      message: errorMessage,
-      userMessage: 'Request timed out. Please try again.',
-      shouldRetry: true,
-      shouldSignOut: false,
-    };
-  }
-  
-  // Authentication/authorization errors
-  else if (
-    lowerMessage.includes('unauthorized') ||
-    lowerMessage.includes('invalid_grant') ||
-    lowerMessage.includes('access_denied') ||
-    lowerMessage.includes('invalid token') ||
-    lowerMessage.includes('token expired')
-  ) {
-    errorInfo = {
-      type: 'unauthorized',
-      message: errorMessage,
-      userMessage: 'Your session has expired. Please log in again.',
-      shouldRetry: false,
-      shouldSignOut: true,
-    };
-  }
-  
-  // Role-related errors
-  else if (
-    lowerMessage.includes('role') ||
-    lowerMessage.includes('permission') ||
-    lowerMessage.includes('access')
-  ) {
-    errorInfo = {
-      type: 'invalid_role',
-      message: errorMessage,
-      userMessage: 'There is an issue with your account permissions. Please contact an administrator.',
-      shouldRetry: false,
-      shouldSignOut: false,
-    };
-  }
-
-  return errorInfo;
 };
 
 /**
+ * @deprecated Use shouldRetryError from AuthErrorHandler service instead
  * Determines if an error is recoverable and should trigger a retry
  */
 export const isRecoverableError = (error: Error | AuthError | unknown): boolean => {
-  const errorInfo = handleAuthError(error);
-  return errorInfo.shouldRetry;
+  return shouldRetryError(error);
 };
 
 /**
+ * @deprecated Use shouldSignOutOnError from AuthErrorHandler service instead
  * Determines if an error should trigger a sign out
  */
 export const shouldSignOutOnError = (error: Error | AuthError | unknown): boolean => {
-  const errorInfo = handleAuthError(error);
-  return errorInfo.shouldSignOut;
+  return shouldSignOutOnErrorNew(error);
 };
 
 /**
+ * @deprecated Use getUserErrorMessage from AuthErrorHandler service instead
  * Gets a user-friendly error message
  */
 export const getUserErrorMessage = (error: Error | AuthError | unknown): string => {
-  const errorInfo = handleAuthError(error);
-  return errorInfo.userMessage;
+  return getUserErrorMessageNew(error);
 };
 
 /**
+ * @deprecated Use AuthErrorHandler.logError instead
  * Logs error with appropriate level based on type
  */
 export const logAuthError = (error: Error | AuthError | unknown, context?: string) => {
-  const errorInfo = handleAuthError(error);
-  const logMessage = `Auth Error${context ? ` (${context})` : ''}: ${errorInfo.message}`;
-
-  switch (errorInfo.type) {
-    case 'network':
-    case 'timeout':
-      console.warn(logMessage);
-      break;
-    case 'unauthorized':
-    case 'invalid_role':
-      console.error(logMessage);
-      break;
-    default:
-      console.error(logMessage);
-  }
+  const authError = handleAuthErrorNew(error, context);
+  // Logging is handled automatically by the new error handler
 };

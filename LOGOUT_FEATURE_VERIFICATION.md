@@ -85,7 +85,7 @@
 To add the profile button to any screen, simply import and use:
 
 ```tsx
-import ProfileButton from 'components/ui/ProfileButton';
+import ProfileButton from '../../components/ui/ProfileButton';
 
 // In your render method:
 <ProfileButton 

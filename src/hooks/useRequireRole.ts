@@ -3,6 +3,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AppState, AppStateStatus } from 'react-native';
 import { useAuth } from '../contexts/AuthContext';
+import { useOrganization } from '../contexts/OrganizationContext';
 import { useToast } from '../components/ui/ToastProvider';
 import { RootStackParamList } from '../types/navigation';
 
@@ -25,6 +26,7 @@ export const useRequireRole = (
   } = options;
   
   const { profile, isLoading, user, refreshProfile } = useAuth();
+  const { activeMembership, isLoading: orgLoading } = useOrganization();
   const navigation = useNavigation<NavigationProp>();
   const { showError, showWarning } = useToast();
   const [hasAccess, setHasAccess] = useState<boolean | null>(null);
@@ -85,8 +87,8 @@ export const useRequireRole = (
       clearTimeout(timeoutRef.current);
     }
 
-    // Don't check access while auth is still loading
-    if (isLoading) {
+    // Don't check access while auth or organization is still loading
+    if (isLoading || orgLoading) {
       setIsChecking(true);
       return;
     }
@@ -103,8 +105,8 @@ export const useRequireRole = (
       return;
     }
 
-    // If profile is not loaded and we haven't exceeded retries, try to refresh
-    if (!profile && !networkError) {
+    // If profile or activeMembership is not loaded and we haven't exceeded retries, try to refresh
+    if ((!profile || !activeMembership) && !networkError) {
       if (retryCount === 0) {
         // First attempt - might just be loading
         setIsChecking(true);
@@ -116,8 +118,8 @@ export const useRequireRole = (
       }
     }
 
-    // If we have a network error and no profile, use fallback behavior
-    if (networkError && !profile) {
+    // If we have a network error and no profile or activeMembership, use fallback behavior
+    if (networkError && (!profile || !activeMembership)) {
       showWarning(
         'Limited Access',
         `Unable to verify permissions. Defaulting to ${fallbackRole} access.`
@@ -141,11 +143,11 @@ export const useRequireRole = (
       return;
     }
 
-    // If we still don't have a profile after retries, treat as unauthorized
-    if (!profile) {
+    // If we still don't have a profile or activeMembership after retries, treat as unauthorized
+    if (!profile || !activeMembership) {
       showError(
         'Access Error',
-        'Unable to load your profile. Please try logging out and back in.'
+        'Unable to load your profile or organization membership. Please try logging out and back in.'
       );
       
       navigation.reset({
@@ -158,8 +160,10 @@ export const useRequireRole = (
       return;
     }
 
-    // Check if user has required role
-    const userRole = profile.role;
+    // Check if user has required role - use activeMembership.role instead of profile.role
+    const userRole = activeMembership.role;
+    
+    console.log(`🔍 useRequireRole: checking role "${userRole}" against required "${requiredRole}"`);
     
     // Handle invalid/null roles
     if (!userRole || (userRole !== 'officer' && userRole !== 'member')) {
@@ -180,7 +184,11 @@ export const useRequireRole = (
 
     const hasRequiredRole = userRole === requiredRole;
 
+    console.log(`🔍 useRequireRole: hasRequiredRole = ${hasRequiredRole} (${userRole} === ${requiredRole})`);
+
     if (!hasRequiredRole) {
+      console.log(`🚨 useRequireRole: Access denied for ${userRole}, redirecting to appropriate root`);
+      
       // Show access denied message
       showError(
         'Access Denied',
@@ -190,6 +198,8 @@ export const useRequireRole = (
       // Redirect to appropriate root based on actual user role
       const redirectTarget = userRole === 'officer' ? 'OfficerRoot' : 'MemberRoot';
       
+      console.log(`🔄 useRequireRole: Redirecting to ${redirectTarget}`);
+      
       navigation.reset({
         index: 0,
         routes: [{ name: redirectTarget }],
@@ -197,13 +207,14 @@ export const useRequireRole = (
 
       setHasAccess(false);
     } else {
+      console.log(`✅ useRequireRole: Access granted for ${userRole}`);
       setHasAccess(true);
       setRetryCount(0); // Reset retry count on success
       setNetworkError(false);
     }
 
     setIsChecking(false);
-  }, [user, profile, isLoading, requiredRole, navigation, showError, showWarning, retryCount, networkError, fallbackRole, maxRetries]);
+  }, [user, profile, activeMembership, isLoading, orgLoading, requiredRole, navigation, showError, showWarning, retryCount, networkError, fallbackRole, maxRetries]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -216,8 +227,8 @@ export const useRequireRole = (
 
   return {
     hasAccess,
-    isChecking: isChecking || isLoading,
-    userRole: profile?.role || null,
+    isChecking: isChecking || isLoading || orgLoading,
+    userRole: activeMembership?.role || null,
     networkError,
     retryCount,
     retry: retryRoleCheck,

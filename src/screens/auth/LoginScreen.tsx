@@ -17,6 +17,10 @@ import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { LoginScreenProps } from '../../types/navigation';
 import { supabase } from '../../lib/supabaseClient';
+import { tokenManager } from '../../services/TokenManager';
+import { sessionPersistence } from '../../services/SessionPersistence';
+import { AuthError, AuthErrorType } from '../../types/auth';
+import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -29,6 +33,9 @@ const Colors = {
   inputBorder: '#D1D5DB',
   inputBackground: '#F9FAFB',
   dividerColor: '#D1D5DB',
+  errorRed: '#DC2626',
+  errorBackground: '#FEF2F2',
+  errorBorder: '#FECACA',
 };
 
 const LoginScreen = ({ route, navigation }: LoginScreenProps) => {
@@ -36,9 +43,12 @@ const LoginScreen = ({ route, navigation }: LoginScreenProps) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isProcessingLogin, setIsProcessingLogin] = useState(false);
   
   const role = route.params?.role ?? 'member';
   const signupSuccess = route.params?.signupSuccess;
+  const { isOnline, checkConnectivity } = useNetworkStatus();
 
   useEffect(() => {
     if (signupSuccess) {
@@ -46,51 +56,325 @@ const LoginScreen = ({ route, navigation }: LoginScreenProps) => {
     }
   }, [signupSuccess]);
 
+  // Helper function to get user-friendly error messages
+  const getErrorMessage = (error: any): string => {
+    if (!isOnline) {
+      return 'You appear to be offline. Please check your internet connection and try again.';
+    }
+
+    if (error instanceof AuthError) {
+      switch (error.type) {
+        case AuthErrorType.NETWORK_ERROR:
+          return 'Network connection issue. Please check your internet connection and try again.';
+        case AuthErrorType.INVALID_CREDENTIALS:
+          return 'Invalid email or password. Please check your credentials and try again.';
+        case AuthErrorType.STORAGE_ERROR:
+          return 'There was an issue saving your login. Please try again.';
+        default:
+          return 'Login failed. Please try again.';
+      }
+    }
+
+    // Handle specific error messages from the signin function
+    if (typeof error === 'string') {
+      if (error.toLowerCase().includes('network') || error.toLowerCase().includes('fetch')) {
+        return 'Network error. Please check your connection and try again.';
+      }
+      if (error.toLowerCase().includes('invalid') || error.toLowerCase().includes('credentials')) {
+        return 'Invalid email or password. Please check your credentials.';
+      }
+      if (error.toLowerCase().includes('rate limit')) {
+        return 'Too many login attempts. Please wait a moment and try again.';
+      }
+      return error;
+    }
+
+    if (error?.message) {
+      return error.message;
+    }
+
+    return 'An unexpected error occurred. Please try again.';
+  };
+
   const handleLogin = async () => {
+    // Prevent multiple simultaneous login attempts
+    if (isProcessingLogin || loading) {
+      console.log('🚫 Login already in progress, ignoring duplicate attempt');
+      return;
+    }
+
+    // Clear any previous errors
+    setError(null);
+
+    // Validate input
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Error', 'Please enter both email and password.');
+      setError('Please enter both email and password.');
+      return;
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      setError('Please enter a valid email address.');
       return;
     }
 
     setLoading(true);
+    setIsProcessingLogin(true);
+    
     try {
-      // Call the secure Edge Function for sign-in
-      const response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/signIn`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_KEY}`,
-        },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          password,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        // Set the session in Supabase client
-        if (data.session) {
-          await supabase.auth.setSession({
-            access_token: data.session.access_token,
-            refresh_token: data.session.refresh_token,
+      console.log('🔐 Starting login process...');
+      
+      // Check network connectivity first
+      if (!isOnline) {
+        await checkConnectivity();
+        if (!isOnline) {
+          throw new AuthError({
+            type: AuthErrorType.NETWORK_ERROR,
+            message: 'No internet connection available'
           });
         }
-
-        // Navigate to appropriate root based on user role
-        const isOfficer = data.user.role === 'officer';
-        navigation.reset({
-          index: 0,
-          routes: [{ name: isOfficer ? 'OfficerRoot' : 'MemberRoot' }],
-        });
-      } else {
-        Alert.alert('Login Failed', data.error || 'Invalid credentials.');
       }
+
+      // Call the secure Edge Function for sign-in
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+      const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_KEY;
+      
+      if (!supabaseUrl || !supabaseKey) {
+        throw new AuthError({
+          type: AuthErrorType.NETWORK_ERROR,
+          message: 'Configuration error. Please contact support.'
+        });
+      }
+
+      const response = await Promise.race([
+        fetch(`${supabaseUrl}/functions/v1/signin`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseKey}`,
+          },
+          body: JSON.stringify({
+            email: email.trim().toLowerCase(),
+            password,
+          }),
+        }),
+        // Reduced timeout for faster response
+        new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('Request timeout')), 10000)
+        )
+      ]);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMessage = 'Login failed';
+        let errorType = AuthErrorType.NETWORK_ERROR;
+        
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.error || errorMessage;
+          
+          // Handle specific Edge Function error responses
+          if (response.status === 401) {
+            errorType = AuthErrorType.INVALID_CREDENTIALS;
+            errorMessage = errorData.error || 'Invalid email or password';
+          } else if (response.status === 429) {
+            errorType = AuthErrorType.NETWORK_ERROR;
+            errorMessage = errorData.error || 'Too many login attempts. Please wait and try again.';
+          } else if (response.status === 400) {
+            errorType = AuthErrorType.INVALID_CREDENTIALS;
+            errorMessage = errorData.error || 'Invalid request format';
+          } else if (response.status >= 500) {
+            errorType = AuthErrorType.NETWORK_ERROR;
+            errorMessage = 'Server error. Please try again later.';
+          }
+        } catch {
+          // If response is not JSON, use status-based message
+          if (response.status === 401) {
+            errorType = AuthErrorType.INVALID_CREDENTIALS;
+            errorMessage = 'Invalid email or password';
+          } else if (response.status === 429) {
+            errorType = AuthErrorType.NETWORK_ERROR;
+            errorMessage = 'Too many login attempts. Please wait and try again.';
+          } else if (response.status >= 500) {
+            errorType = AuthErrorType.NETWORK_ERROR;
+            errorMessage = 'Server error. Please try again later.';
+          } else {
+            errorType = AuthErrorType.NETWORK_ERROR;
+            errorMessage = `Login failed (${response.status})`;
+          }
+        }
+        
+        throw new AuthError({
+          type: errorType,
+          message: errorMessage
+        });
+      }
+
+      const data = await response.json();
+      console.log('📡 Signin response received:', { success: data.success, hasSession: !!data.session, hasUser: !!data.user });
+
+      if (!data.success) {
+        throw new AuthError({
+          type: AuthErrorType.INVALID_CREDENTIALS,
+          message: data.error || 'Invalid credentials'
+        });
+      }
+
+      if (!data.session || !data.user) {
+        throw new AuthError({
+          type: AuthErrorType.INVALID_CREDENTIALS,
+          message: 'Invalid response from server'
+        });
+      }
+
+      // Validate session data from Edge Function response
+      if (!data.session.access_token || !data.session.refresh_token) {
+        throw new AuthError({
+          type: AuthErrorType.INVALID_CREDENTIALS,
+          message: 'Invalid session data received from server'
+        });
+      }
+
+      // Create enhanced session object with proper structure
+      const enhancedSession = {
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+        expires_at: data.session.expires_at || Math.floor(Date.now() / 1000) + (data.session.expires_in || 3600),
+        expires_in: data.session.expires_in || 3600,
+        token_type: data.session.token_type || 'bearer',
+        user: {
+          id: data.user.id,
+          email: data.user.email,
+          role: data.user.role,
+          organization: data.user.organization,
+          aud: 'authenticated',
+          email_confirmed_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          app_metadata: {},
+          user_metadata: {
+            role: data.user.role,
+            organization: data.user.organization
+          }
+        },
+        stored_at: Date.now(),
+        last_refreshed: Date.now()
+      };
+
+      console.log('💾 Storing session with TokenManager...');
+      
+      // Store tokens using TokenManager
+      await tokenManager.storeTokens(enhancedSession);
+
+      // Set the session in Supabase client with proper session structure
+      const { error: sessionError } = await supabase.auth.setSession({
+        access_token: enhancedSession.access_token,
+        refresh_token: enhancedSession.refresh_token,
+      });
+
+      if (sessionError) {
+        console.error('Failed to set Supabase session:', sessionError);
+        throw new AuthError({
+          type: AuthErrorType.STORAGE_ERROR,
+          message: 'Failed to initialize session'
+        });
+      }
+
+      // Create a minimal profile object from available data
+      // The AuthContext will fetch the full profile data after session is established
+      const profile = {
+        id: data.user.id,
+        email: data.user.email,
+        first_name: '', // Will be populated by AuthContext when it fetches full profile
+        last_name: '',  // Will be populated by AuthContext when it fetches full profile
+        role: (data.user.role as 'member' | 'officer') || 'member',
+        organization: data.user.organization || '',
+        grade: undefined,
+        phone_number: undefined,
+        student_id: undefined,
+        pending_officer: undefined
+      };
+
+      console.log('💾 Storing session and profile with SessionPersistence...');
+      
+      // Store session and profile data
+      await sessionPersistence.saveSession(enhancedSession, profile);
+
+      // Schedule automatic token refresh
+      tokenManager.scheduleTokenRefresh(enhancedSession);
+
+      console.log('✅ Login successful, navigating to app...');
+
+      console.log('✅ Login successful! Forcing immediate auth refresh...');
+
+      // IMMEDIATE FIX: Force multiple auth state refreshes to ensure detection
+      const forceAuthRefresh = async () => {
+        try {
+          // Force multiple session checks to trigger auth state change
+          for (let i = 0; i < 3; i++) {
+            await supabase.auth.getSession();
+            await new Promise(resolve => setTimeout(resolve, 200));
+          }
+          
+          // Force trigger auth state change event manually
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            // Manually trigger the auth state change
+            supabase.auth.onAuthStateChange(() => {});
+          }
+        } catch (error) {
+          console.error('Force auth refresh failed:', error);
+        }
+      };
+
+      // Execute immediately and with delays
+      forceAuthRefresh();
+      setTimeout(forceAuthRefresh, 500);
+      setTimeout(forceAuthRefresh, 1000);
+
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Network error. Please check your connection.');
+      console.error('❌ Login error:', error);
+      
+      // Check network connectivity on error
+      if (!isOnline) {
+        await checkConnectivity();
+      }
+      
+      // Handle specific error types
+      let finalError = error;
+      
+      // Handle fetch/network errors
+      if (error.message === 'Request timeout') {
+        finalError = new AuthError({
+          type: AuthErrorType.NETWORK_ERROR,
+          message: 'Request timed out. Please check your connection and try again.'
+        });
+      } else if (error.message?.includes('fetch') || error.message?.includes('Network request failed')) {
+        finalError = new AuthError({
+          type: AuthErrorType.NETWORK_ERROR,
+          message: 'Network error. Please check your connection and try again.'
+        });
+      } else if (error.name === 'TypeError' && error.message?.includes('Failed to fetch')) {
+        finalError = new AuthError({
+          type: AuthErrorType.NETWORK_ERROR,
+          message: 'Unable to connect to server. Please check your internet connection.'
+        });
+      }
+      
+      const errorMessage = getErrorMessage(finalError);
+      setError(errorMessage);
+      
+      // Log error for debugging (without sensitive data)
+      console.error('Login failed:', {
+        type: finalError instanceof AuthError ? finalError.type : 'unknown',
+        message: finalError.message || 'Unknown error',
+        isOnline,
+        originalError: error.name || 'Unknown'
+      });
     } finally {
       setLoading(false);
+      setIsProcessingLogin(false);
     }
   };
 
@@ -128,7 +412,10 @@ const LoginScreen = ({ route, navigation }: LoginScreenProps) => {
             >
               {/* Header with NHS logo in blue circle */}
               <View style={styles.header}>
-                <TouchableOpacity style={styles.backButton}>
+                <TouchableOpacity 
+                  style={styles.backButton}
+                  onPress={() => navigation.goBack()}
+                >
                   <Text style={styles.backButtonText}>←</Text>
                 </TouchableOpacity>
                 <View style={styles.nhsLogoContainer}>
@@ -145,20 +432,35 @@ const LoginScreen = ({ route, navigation }: LoginScreenProps) => {
                 </Text>
               </View>
 
+              {/* Error display */}
+              {error && (
+                <View style={styles.errorContainer}>
+                  <Icon name="error-outline" size={moderateScale(20)} color={Colors.errorRed} />
+                  <Text style={styles.errorText}>{error}</Text>
+                  <TouchableOpacity onPress={() => setError(null)} style={styles.errorDismiss}>
+                    <Icon name="close" size={moderateScale(16)} color={Colors.errorRed} />
+                  </TouchableOpacity>
+                </View>
+              )}
+
               {/* Login form - Now properly centered with full width */}
               <View style={styles.formContainer}>
                 <View style={styles.inputContainer}>
                   <Text style={styles.inputLabel}>Email</Text>
                   <TextInput
-                    style={styles.textInput}
+                    style={[styles.textInput, error && styles.textInputError]}
                     placeholder="Enter Email"
                     placeholderTextColor={Colors.textLight}
                     value={email}
-                    onChangeText={setEmail}
+                    onChangeText={(text) => {
+                      setEmail(text);
+                      if (error) setError(null); // Clear error when user starts typing
+                    }}
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoComplete="email"
                     textContentType="emailAddress"
+                    editable={!loading}
                   />
                 </View>
 
@@ -171,14 +473,18 @@ const LoginScreen = ({ route, navigation }: LoginScreenProps) => {
                     </TouchableOpacity>
                   </View>
                   <TextInput
-                    style={styles.textInput}
+                    style={[styles.textInput, error && styles.textInputError]}
                     placeholder="Enter Password"
                     placeholderTextColor={Colors.textLight}
                     value={password}
-                    onChangeText={setPassword}
+                    onChangeText={(text) => {
+                      setPassword(text);
+                      if (error) setError(null); // Clear error when user starts typing
+                    }}
                     secureTextEntry
                     autoComplete="current-password"
                     textContentType="password"
+                    editable={!loading}
                   />
                 </View>
 
@@ -187,9 +493,13 @@ const LoginScreen = ({ route, navigation }: LoginScreenProps) => {
                   onPress={handleLogin}
                   disabled={loading}
                 >
-                  <Text style={styles.loginButtonText}>
-                    {loading ? 'Logging in...' : 'Login'}
-                  </Text>
+                  {loading ? (
+                    <View style={styles.loadingContainer}>
+                      <Text style={styles.loginButtonText}>Logging in...</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.loginButtonText}>Login</Text>
+                  )}
                 </TouchableOpacity>
 
                 {/* Need help link */}
@@ -343,6 +653,37 @@ const styles = StyleSheet.create({
   },
   loginButtonDisabled: {
     opacity: 0.6,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  errorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.errorBackground,
+    borderColor: Colors.errorBorder,
+    borderWidth: 1,
+    borderRadius: moderateScale(8),
+    padding: scale(12),
+    marginBottom: verticalScale(16),
+    marginHorizontal: scale(8),
+  },
+  errorText: {
+    flex: 1,
+    fontSize: moderateScale(14),
+    color: Colors.errorRed,
+    marginLeft: scale(8),
+    lineHeight: moderateScale(20),
+  },
+  errorDismiss: {
+    padding: scale(4),
+    marginLeft: scale(8),
+  },
+  textInputError: {
+    borderColor: Colors.errorRed,
+    borderWidth: 1.5,
   },
   helpLink: {
     alignSelf: 'center',

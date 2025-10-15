@@ -2,11 +2,19 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 // Root Stack Parameter List - Main navigation structure
 export type RootStackParamList = {
+  Auth: undefined;
+  Loading: undefined;
+  OrganizationSelection: undefined;
+  Main: undefined;
+  OfficerRoot: undefined;
+  MemberRoot: undefined;
+};
+
+// Auth Stack Parameter List - Authentication screens
+export type AuthStackParamList = {
   Landing: undefined;
   Login: { role?: 'member' | 'officer'; signupSuccess?: boolean } | undefined;
   Signup: { role: 'member' | 'officer' };
-  OfficerRoot: undefined;
-  MemberRoot: undefined;
 };
 
 // Officer Tab Parameter List - Officer bottom tab navigation
@@ -28,8 +36,9 @@ export type MemberTabParamList = {
 };
 
 // Screen prop types for type safety
-export type LandingScreenProps = NativeStackScreenProps<RootStackParamList, 'Landing'>;
-export type LoginScreenProps = NativeStackScreenProps<RootStackParamList, 'Login'>;
-export type SignupScreenProps = NativeStackScreenProps<RootStackParamList, 'Signup'>;
+export type LandingScreenProps = NativeStackScreenProps<AuthStackParamList, 'Landing'>;
+export type LoginScreenProps = NativeStackScreenProps<AuthStackParamList, 'Login'>;
+export type SignupScreenProps = NativeStackScreenProps<AuthStackParamList, 'Signup'>;
+export type OrganizationSelectionScreenProps = NativeStackScreenProps<RootStackParamList, 'OrganizationSelection'>;
 export type OfficerRootProps = NativeStackScreenProps<RootStackParamList, 'OfficerRoot'>;
 export type MemberRootProps = NativeStackScreenProps<RootStackParamList, 'MemberRoot'>;
