@@ -3,6 +3,9 @@
 // Database types
 export * from './database';
 
+// Data service types
+export * from './dataService';
+
 // Authentication types
 export * from './auth';
 export * from './authErrors';

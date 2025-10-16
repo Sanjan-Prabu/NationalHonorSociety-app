@@ -4,11 +4,14 @@ import { supabase } from '../lib/supabaseClient';
 import { Profile, AuthenticatedUser } from '../types/auth';
 import { UserMembership } from '../types/database';
 import { OrganizationService } from '../services/OrganizationService';
+import { userDataService } from '../services/UserDataService';
+import { UserProfile } from '../types/dataService';
 
 interface AuthContextType {
   session: Session | null;
   user: User | null;
   profile: Profile | null;
+  userProfile: UserProfile | null; // Enhanced profile with organization data
   userMemberships: UserMembership[];
   authenticatedUser: AuthenticatedUser | null;
   isLoading: boolean;
@@ -32,6 +35,7 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null); // Enhanced profile
   const [userMemberships, setUserMemberships] = useState<UserMembership[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -48,7 +52,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const fetchProfile = async (userId: string): Promise<Profile | null> => {
     try {
-      console.log(`👤 Fetching profile for user ${userId}`);
+      console.log(`👤 Fetching basic profile for user ${userId}`);
 
       const { data, error } = await supabase
         .from('profiles')
@@ -102,10 +106,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         throw error;
       }
 
-      console.log('✅ Profile fetched successfully');
+      console.log('✅ Basic profile fetched successfully');
       return data;
     } catch (error) {
       console.error('Profile fetch failed:', error);
+      return null;
+    }
+  };
+
+  const fetchEnhancedProfile = async (userId: string): Promise<UserProfile | null> => {
+    try {
+      console.log(`🔍 Fetching enhanced profile for user ${userId}`);
+      
+      const response = await userDataService.getCurrentUserProfile();
+      
+      if (!response.success || !response.data) {
+        console.error('Enhanced profile fetch failed:', response.error);
+        return null;
+      }
+
+      console.log('✅ Enhanced profile fetched successfully');
+      return response.data;
+    } catch (error) {
+      console.error('Enhanced profile fetch failed:', error);
       return null;
     }
   };
@@ -125,8 +148,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const refreshProfile = async () => {
     if (!session?.user?.id) return;
 
-    const profileData = await fetchProfile(session.user.id);
-    setProfile(profileData);
+    try {
+      // Fetch both basic and enhanced profiles
+      const [basicProfile, enhancedProfile] = await Promise.all([
+        fetchProfile(session.user.id),
+        fetchEnhancedProfile(session.user.id)
+      ]);
+
+      setProfile(basicProfile);
+      setUserProfile(enhancedProfile);
+      
+      console.log('✅ Profile refresh completed');
+    } catch (error) {
+      console.error('Profile refresh failed:', error);
+      setError('Failed to refresh profile data');
+    }
   };
 
   const refreshMemberships = async () => {
@@ -159,6 +195,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Clear local state immediately for fast response
       setSession(null);
       setProfile(null);
+      setUserProfile(null);
       setUserMemberships([]);
       setError(null);
       setIsLoading(false);
@@ -186,6 +223,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Even if sign out fails, clear local state
       setSession(null);
       setProfile(null);
+      setUserProfile(null);
       setUserMemberships([]);
       setIsLoading(false);
       setIsInitialized(true);
@@ -200,6 +238,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     console.log('🔄 Resetting auth state');
     setSession(null);
     setProfile(null);
+    setUserProfile(null);
     setUserMemberships([]);
     setError(null);
     setIsLoading(false);
@@ -218,6 +257,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Clear local state immediately
       setSession(null);
       setProfile(null);
+      setUserProfile(null);
       setUserMemberships([]);
       setError(null);
       setIsLoading(false);
@@ -231,6 +271,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Even if signout fails, clear local state
       setSession(null);
       setProfile(null);
+      setUserProfile(null);
       setUserMemberships([]);
       setIsLoading(false);
     }
@@ -281,14 +322,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           console.error('Session fetch error:', sessionError);
           setSession(null);
           setProfile(null);
+          setUserProfile(null);
           setUserMemberships([]);
         } else if (currentSession) {
           console.log('📡 Found current session');
           setSession(currentSession);
 
-          // Fetch profile and memberships
-          const [profileData, memberships] = await Promise.all([
+          // Fetch profile, enhanced profile, and memberships
+          const [profileData, enhancedProfileData, memberships] = await Promise.all([
             fetchProfile(currentSession.user.id),
+            fetchEnhancedProfile(currentSession.user.id),
             fetchMemberships(currentSession.user.id)
           ]);
 
@@ -313,18 +356,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
           if (profileData) {
             setProfile(profileData);
+            setUserProfile(enhancedProfileData);
             setUserMemberships(memberships);
             console.log('✅ Auth initialization completed successfully');
           } else {
             console.log('⚠️ Profile not found but session is valid, continuing with limited functionality');
             // Don't force logout immediately - let the user continue and try to create profile later
             setProfile(null);
+            setUserProfile(null);
             setUserMemberships(memberships || []);
           }
         } else {
           console.log('ℹ️ No session found');
           setSession(null);
           setProfile(null);
+          setUserProfile(null);
           setUserMemberships([]);
         }
       } catch (error) {
@@ -332,6 +378,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (mounted) {
           setSession(null);
           setProfile(null);
+          setUserProfile(null);
           setUserMemberships([]);
           setError(null); // Don't show error on initialization failure
         }
@@ -370,16 +417,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           loadingTimeoutRef.current = null;
         }
 
-        // Fetch profile in background - DON'T BLOCK UI
-        fetchProfile(session.user.id).then(profileData => {
+        // Fetch profiles and memberships in background - DON'T BLOCK UI
+        Promise.all([
+          fetchProfile(session.user.id),
+          fetchEnhancedProfile(session.user.id),
+          fetchMemberships(session.user.id)
+        ]).then(([profileData, enhancedProfileData, memberships]) => {
           if (mounted) {
             setProfile(profileData);
-          }
-        });
-
-        fetchMemberships(session.user.id).then(memberships => {
-          if (mounted) {
+            setUserProfile(enhancedProfileData);
             setUserMemberships(memberships || []);
+          }
+        }).catch(error => {
+          console.error('Background profile fetch failed:', error);
+          if (mounted) {
+            setError('Failed to load profile data');
           }
         });
 
@@ -388,6 +440,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         console.log('🚪 Processing SIGNED_OUT event');
         setSession(null);
         setProfile(null);
+        setUserProfile(null);
         setUserMemberships([]);
         setError(null);
         setIsLoading(false);
@@ -409,6 +462,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     session,
     user: session?.user || null,
     profile,
+    userProfile,
     userMemberships,
     authenticatedUser,
     isLoading,

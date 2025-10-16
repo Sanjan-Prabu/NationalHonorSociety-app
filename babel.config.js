@@ -1,36 +1,27 @@
 module.exports = function (api) {
   api.cache(true);
-
   return {
-    // 1. Reverted to a standard Expo preset
-    presets: ['babel-preset-expo'], 
-    plugins: ["nativewind/babel"],
-    
+    presets: ['babel-preset-expo'],
     plugins: [
-      // 2. Removed the 'tailwind.config' alias
       [
         'module-resolver',
         {
-          root: ['./'],
+          root: ['./src'],
+          extensions: ['.ios.js', '.android.js', '.js', '.ts', '.tsx', '.json'],
           alias: {
-            '@': './',
-          },
-        },
+            '@': './src',
+            '@components': './src/components',
+            '@screens': './src/screens',
+            '@services': './src/services',
+            '@hooks': './src/hooks',
+            '@types': './src/types',
+            '@utils': './src/utils',
+            '@contexts': './src/contexts',
+            '@navigation': './src/navigation'
+          }
+        }
       ],
-
-      // 3. Environment variables setup (kept to address your error)
-      [
-        'module:react-native-dotenv',
-        {
-          moduleName: '@env', 
-          path: '.env',       
-          safe: false,
-          allowUndefined: true,
-        },
-      ],
-
-      // 4. Reanimated must always be the last plugin
-      'react-native-reanimated/plugin',
-    ],
+      'react-native-reanimated/plugin'
+    ]
   };
 };

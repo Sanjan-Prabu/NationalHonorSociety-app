@@ -7,7 +7,7 @@ import FallbackTabNavigator from './FallbackTabNavigator';
 import MemberDashboardScreen from '../screens/member/MemberDashboardScreen';
 import MemberAnnouncementsScreen from '../screens/member/MemberAnnouncementsScreen';
 import MemberAttendanceScreen from '../screens/member/MemberAttendanceScreen';
-import MemberVolunteerHoursScreen from '../screens/member/MemberVolunteerHoursScreen';
+import MemberLogHoursStack from './MemberLogHoursStack';
 import MemberEventsScreen from '../screens/member/MemberEventsScreen';
 
 /**
@@ -59,7 +59,7 @@ export default function MemberBottomNavigator() {
     },
     {
       name: 'LogHours',
-      component: MemberVolunteerHoursScreen,
+      component: MemberLogHoursStack,
       icon: getTabBarIcon('LogHours'),
       title: 'Log Hours',
     },

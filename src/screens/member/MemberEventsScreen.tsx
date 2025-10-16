@@ -1,5 +1,5 @@
 // screens/MemberEventsScreen.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
   View, 
   Text, 
@@ -17,7 +17,11 @@ import ProfileButton from '../../components/ui/ProfileButton';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { useAuth } from '../../contexts/AuthContext';
 import LoadingScreen from '../../components/ui/LoadingScreen';
-import { supabase } from '../../lib/supabaseClient';
+import { EventCardSkeleton } from '../../components/ui/LoadingSkeleton';
+import { NoEventsEmptyState, NetworkErrorEmptyState } from '../../components/ui/EmptyState';
+import { useOrganizationEvents, useMarkAttendance } from '../../hooks/useEventData';
+import { useCurrentOrganizationId } from '../../hooks/useUserData';
+import { EventData } from '../../types/dataService';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -43,7 +47,7 @@ const Colors = {
   cardBackground: '#FFFFFF',
 };
 
-interface Event {
+interface TransformedEvent {
   id: string;
   category: 'Community Service' | 'Volunteer' | 'Education' | 'Social';
   title: string;
@@ -61,78 +65,65 @@ const MemberEventsScreen = ({ navigation }: any) => {
   const { activeOrganization, activeMembership, isLoading: orgLoading } = useOrganization();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
+  const currentOrgId = useCurrentOrganizationId();
 
-  const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<'Upcoming' | 'This Week' | 'This Month'>('Upcoming');
-  const [events, setEvents] = useState<Event[]>([]);
-  const [eventsLoading, setEventsLoading] = useState(true);
 
-  // Fetch events data filtered by organizationId
-  const fetchEvents = async () => {
-    if (!activeOrganization?.id) return;
+  // Use dynamic data hooks
+  const { 
+    data: eventsData, 
+    isLoading: eventsLoading, 
+    isError: eventsError,
+    error: eventsErrorDetails,
+    refetch: refetchEvents 
+  } = useOrganizationEvents(currentOrgId || activeOrganization?.id || '');
 
-    try {
-      setEventsLoading(true);
+  const markAttendanceMutation = useMarkAttendance();
+
+  // Transform EventData to TransformedEvent for UI compatibility
+  const transformEventData = (eventData: EventData[]): TransformedEvent[] => {
+    return eventData.map(event => {
+      // Determine category based on title/description keywords
+      let category: 'Community Service' | 'Volunteer' | 'Education' | 'Social' = 'Community Service';
+      const titleLower = event.title.toLowerCase();
+      const descLower = (event.description || '').toLowerCase();
       
-      // Fetch events from database filtered by org_id
-      const { data, error } = await supabase
-        .from('events')
-        .select('*')
-        .eq('org_id', activeOrganization.id)
-        .order('starts_at', { ascending: true });
-
-      if (error) {
-        console.error('Error fetching events:', error);
-        setEvents([]);
-      } else {
-        // Transform database data to match Event interface
-        const transformedEvents: Event[] = (data || []).map(event => {
-          // Determine category based on title/description keywords
-          let category: 'Community Service' | 'Volunteer' | 'Education' | 'Social' = 'Community Service';
-          const titleLower = event.title.toLowerCase();
-          if (titleLower.includes('volunteer') || titleLower.includes('help')) {
-            category = 'Volunteer';
-          } else if (titleLower.includes('workshop') || titleLower.includes('tutoring') || titleLower.includes('education')) {
-            category = 'Education';
-          } else if (titleLower.includes('celebration') || titleLower.includes('party') || titleLower.includes('social')) {
-            category = 'Social';
-          }
-
-          return {
-            id: event.id,
-            category,
-            title: event.title,
-            date: new Date(event.starts_at),
-            startTime: new Date(event.starts_at).toLocaleTimeString('en-US', { 
-              hour: 'numeric', 
-              minute: '2-digit', 
-              hour12: true 
-            }),
-            endTime: new Date(event.ends_at).toLocaleTimeString('en-US', { 
-              hour: 'numeric', 
-              minute: '2-digit', 
-              hour12: true 
-            }),
-            location: event.location || 'TBD',
-            description: event.description,
-            rsvpCount: Math.floor(Math.random() * 30) + 5, // Random for demo
-            maxCapacity: 50,
-            isRsvped: false, // TODO: Check user's RSVP status from attendance table
-          };
-        });
-        
-        setEvents(transformedEvents);
+      if (titleLower.includes('volunteer') || titleLower.includes('help') || descLower.includes('volunteer')) {
+        category = 'Volunteer';
+      } else if (titleLower.includes('workshop') || titleLower.includes('tutoring') || titleLower.includes('education') || descLower.includes('education')) {
+        category = 'Education';
+      } else if (titleLower.includes('celebration') || titleLower.includes('party') || titleLower.includes('social') || descLower.includes('social')) {
+        category = 'Social';
       }
-    } catch (error) {
-      console.error('Error fetching events:', error);
-    } finally {
-      setEventsLoading(false);
-    }
+
+      const startDate = new Date(event.starts_at || '');
+      const endDate = new Date(event.ends_at || '');
+
+      return {
+        id: event.id,
+        category,
+        title: event.title,
+        date: startDate,
+        startTime: startDate.toLocaleTimeString('en-US', { 
+          hour: 'numeric', 
+          minute: '2-digit', 
+          hour12: true 
+        }),
+        endTime: endDate.toLocaleTimeString('en-US', { 
+          hour: 'numeric', 
+          minute: '2-digit', 
+          hour12: true 
+        }),
+        location: event.location || 'TBD',
+        description: event.description,
+        rsvpCount: event.attendee_count || 0,
+        maxCapacity: 50, // Default capacity since this field doesn't exist in EventData
+        isRsvped: event.user_attendance_status === 'attending',
+      };
+    });
   };
 
-  useEffect(() => {
-    fetchEvents();
-  }, [activeOrganization]);
+  const events = eventsData ? transformEventData(eventsData) : [];
 
   const categoryVariants = {
     'Community Service': 'blue',
@@ -148,41 +139,24 @@ const MemberEventsScreen = ({ navigation }: any) => {
   ];
 
   const onRefresh = async () => {
-    setRefreshing(true);
-    await fetchEvents();
-    setRefreshing(false);
+    await refetchEvents();
   };
 
   const handleRSVP = async (eventId: string) => {
-    if (!activeOrganization?.id || !user?.id) return;
+    if (!user?.id) return;
     
     try {
-      const { error } = await supabase
-        .from('event_rsvps')
-        .upsert({ 
-          event_id: eventId, 
-          user_id: user.id,
-          org_id: activeOrganization.id,
-          is_rsvped: true 
-        });
-      if (error) throw error;
+      await markAttendanceMutation.mutateAsync({
+        eventId,
+        memberId: user.id,
+        method: 'manual_rsvp'
+      });
     } catch (error) {
       console.error('Error updating RSVP:', error);
-      return;
     }
-    
-    setEvents(prev => prev.map(event => 
-      event.id === eventId 
-        ? { 
-            ...event, 
-            isRsvped: !event.isRsvped,
-            rsvpCount: event.isRsvped ? (event.rsvpCount || 1) - 1 : (event.rsvpCount || 0) + 1
-          }
-        : event
-    ));
   };
 
-  const handleViewDetails = (event: Event) => {
+  const handleViewDetails = (event: TransformedEvent) => {
     // Navigate to event details screen
     // navigation.navigate('EventDetails', { event });
     console.log('View details for:', event.title);
@@ -196,8 +170,8 @@ const MemberEventsScreen = ({ navigation }: any) => {
     }).toUpperCase();
   };
 
-  const groupEventsByDate = (events: Event[]) => {
-    const grouped: { [key: string]: Event[] } = {};
+  const groupEventsByDate = (events: TransformedEvent[]) => {
+    const grouped: { [key: string]: TransformedEvent[] } = {};
     
     events.forEach(event => {
       const dateKey = event.date.toDateString();
@@ -233,7 +207,7 @@ const MemberEventsScreen = ({ navigation }: any) => {
 
   const groupedEvents = groupEventsByDate(filteredEvents);
 
-  if (orgLoading) {
+  if (orgLoading || eventsLoading) {
     return <LoadingScreen message="Loading events..." />;
   }
 
@@ -242,6 +216,21 @@ const MemberEventsScreen = ({ navigation }: any) => {
       <View style={styles.errorContainer}>
         <Text style={styles.errorText}>No organization selected</Text>
       </View>
+    );
+  }
+
+  if (eventsError) {
+    return (
+      <LinearGradient
+        colors={Colors.LandingScreenGradient}
+        style={{ flex: 1 }}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+      >
+        <SafeAreaView style={{ flex: 1 }}>
+          <NetworkErrorEmptyState onRetry={() => refetchEvents()} />
+        </SafeAreaView>
+      </LinearGradient>
     );
   }
 
@@ -262,7 +251,7 @@ const MemberEventsScreen = ({ navigation }: any) => {
           }}
           showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            <RefreshControl refreshing={markAttendanceMutation.isPending} onRefresh={onRefresh} />
           }
         >
           {/* Header */}
@@ -301,9 +290,12 @@ const MemberEventsScreen = ({ navigation }: any) => {
           {/* Events List */}
           <View style={styles.eventsContainer}>
             {eventsLoading ? (
-              <View style={styles.loadingContainer}>
-                <Text style={styles.loadingText}>Loading events...</Text>
-              </View>
+              // Loading skeletons
+              <>
+                <EventCardSkeleton />
+                <EventCardSkeleton />
+                <EventCardSkeleton />
+              </>
             ) : Object.entries(groupedEvents).length > 0 ? (
               Object.entries(groupedEvents).map(([dateKey, dateEvents]) => (
                 <View key={dateKey} style={styles.dateSection}>
@@ -353,15 +345,18 @@ const MemberEventsScreen = ({ navigation }: any) => {
                         <TouchableOpacity 
                           style={[
                             styles.rsvpButton,
-                            event.isRsvped && styles.rsvpButtonActive
+                            event.isRsvped && styles.rsvpButtonActive,
+                            markAttendanceMutation.isPending && styles.rsvpButtonDisabled
                           ]}
                           onPress={() => handleRSVP(event.id)}
+                          disabled={markAttendanceMutation.isPending}
                         >
                           <Text style={[
                             styles.rsvpButtonText,
                             event.isRsvped && styles.rsvpButtonTextActive
                           ]}>
-                            {event.isRsvped ? 'RSVP\'d ✓' : 'RSVP'}
+                            {markAttendanceMutation.isPending ? 'Updating...' : 
+                             event.isRsvped ? 'RSVP\'d ✓' : 'RSVP'}
                           </Text>
                         </TouchableOpacity>
                         
@@ -378,13 +373,10 @@ const MemberEventsScreen = ({ navigation }: any) => {
               ))
             ) : (
               /* Empty State */
-              <View style={styles.emptyState}>
-                <Icon name="event-busy" size={moderateScale(64)} color={Colors.textLight} />
-                <Text style={styles.emptyStateTitle}>No Events Found</Text>
-                <Text style={styles.emptyStateText}>
-                  There are no {activeFilter.toLowerCase()} events for {activeOrganization.name} at the moment.
-                </Text>
-              </View>
+              <NoEventsEmptyState 
+                organizationName={activeOrganization.name}
+                onRefresh={() => refetchEvents()}
+              />
             )}
           </View>
         </ScrollView>
@@ -401,11 +393,33 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#f8f9fa',
+    paddingHorizontal: scale(32),
+  },
+  errorTitle: {
+    fontSize: moderateScale(18),
+    fontWeight: '600',
+    color: Colors.textDark,
+    marginTop: verticalScale(16),
+    marginBottom: verticalScale(8),
+    textAlign: 'center',
   },
   errorText: {
-    fontSize: 16,
-    color: '#dc3545',
+    fontSize: moderateScale(14),
+    color: Colors.textMedium,
     textAlign: 'center',
+    lineHeight: moderateScale(20),
+    marginBottom: verticalScale(24),
+  },
+  retryButton: {
+    backgroundColor: Colors.solidBlue,
+    paddingHorizontal: scale(24),
+    paddingVertical: verticalScale(12),
+    borderRadius: moderateScale(8),
+  },
+  retryButtonText: {
+    color: Colors.white,
+    fontSize: moderateScale(14),
+    fontWeight: '600',
   },
   loadingContainer: {
     padding: 20,
@@ -543,6 +557,9 @@ const styles = StyleSheet.create({
   },
   rsvpButtonTextActive: {
     color: Colors.white,
+  },
+  rsvpButtonDisabled: {
+    opacity: 0.6,
   },
   detailsButton: {
     flex: 1,

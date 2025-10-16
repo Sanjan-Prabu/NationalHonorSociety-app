@@ -6,6 +6,12 @@ import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { withRoleProtection } from 'components/hoc/withRoleProtection';
 import ProfileButton from 'components/ui/ProfileButton';
+import LoadingSkeleton from 'components/ui/LoadingSkeleton';
+import EmptyState from 'components/ui/EmptyState';
+import { useUserProfile, useCurrentOrganizationId } from 'hooks/useUserData';
+import { useOrganizationVolunteerStats, usePendingApprovals } from 'hooks/useVolunteerHoursData';
+import { useEventStats, useUpcomingEvents } from 'hooks/useEventData';
+import { useOrganization } from 'contexts/OrganizationContext';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -26,89 +32,102 @@ const Colors = {
 
 const OfficerDashboard = ({ navigation }: any) => {
   const insets = useSafeAreaInsets();
-
   const [refreshing, setRefreshing] = useState(false);
+
+  // Dynamic data hooks
+  const { data: userProfile, isLoading: profileLoading, refetch: refetchProfile } = useUserProfile();
+  const { activeOrganization } = useOrganization();
+  const orgId = activeOrganization?.id;
   
-  // Mock executive data - easily modifiable
-  const [executiveData, setExecutiveData] = useState({
-    firstName: 'Jessica',
-    role: 'NHS President',
+  const { data: volunteerStats, isLoading: volunteerStatsLoading, refetch: refetchVolunteerStats } = useOrganizationVolunteerStats(orgId || '');
+  const { data: pendingApprovals, isLoading: pendingApprovalsLoading, refetch: refetchPendingApprovals } = usePendingApprovals(orgId || '');
+  const { data: eventStats, isLoading: eventStatsLoading, refetch: refetchEventStats } = useEventStats(orgId || '');
+  const { data: upcomingEvents, isLoading: upcomingEventsLoading, refetch: refetchUpcomingEvents } = useUpcomingEvents(orgId || '', 3);
+
+  // Computed dashboard data
+  const dashboardData = {
+    firstName: userProfile?.first_name || 'Officer',
+    role: userProfile?.role === 'officer' ? 'NHS Officer' : 'NHS Member',
     officerType: 'Officer',
-    totalMembers: 120,
-    activeSessions: 1,
-  });
+    totalMembers: volunteerStats?.totalMembers || 0,
+    totalEvents: eventStats?.totalEvents || 0,
+    upcomingEvents: eventStats?.upcomingEvents || 0,
+    totalVolunteerHours: volunteerStats?.approvedHours || 0,
+    pendingApprovals: pendingApprovals?.length || 0,
+  };
 
   // Quick actions data - easily modifiable and extensible
-  const [quickActions, setQuickActions] = useState([
+  const quickActions = [
     {
       id: 'start_session',
       title: 'Start Session',
       icon: 'play-circle-filled',
       color: Colors.solidBlue,
-      onPress: () => console.log('Start Session pressed'),
+      onPress: () => navigation.navigate('Attendance'),
     },
     {
       id: 'verify_hours',
       title: 'Verify Hours',
       icon: 'verified',
       color: Colors.successGreen,
-      onPress: () => console.log('Verify Hours pressed'),
+      onPress: () => navigation.navigate('VolunteerApproval'),
     },
     {
       id: 'post_announcement',
       title: 'Post Announcement',
       icon: 'campaign',
       color: Colors.infoBlue,
-      onPress: () => console.log('Post Announcement pressed'),
+      onPress: () => navigation.navigate('Announcements'),
     },
     {
       id: 'post_event',
       title: 'Post Event',
       icon: 'event',
       color: Colors.purple,
-      onPress: () => console.log('Post Event pressed'),
+      onPress: () => navigation.navigate('Events'),
     },
-  ]);
+  ];
 
-  // Pending actions data - easily modifiable and connected to future pages
-  const [pendingActions, setPendingActions] = useState([
-    {
+  // Dynamic pending actions based on real data
+  const pendingActions = [
+    ...(dashboardData.pendingApprovals > 0 ? [{
       id: 'volunteer_hours',
-      count: 3,
-      title: 'volunteer hours to verify',
-      description: 'From Sarah, Michael, Amanda',
+      count: dashboardData.pendingApprovals,
+      title: `volunteer hour${dashboardData.pendingApprovals === 1 ? '' : 's'} to verify`,
+      description: `${dashboardData.pendingApprovals} pending approval${dashboardData.pendingApprovals === 1 ? '' : 's'}`,
       icon: 'access-time',
       color: Colors.warningOrange,
-      onPress: () => navigation.navigate('VerifyHours'), // Will link to verification page
-    },
-    {
+      onPress: () => navigation.navigate('VolunteerApproval'),
+    }] : []),
+    ...(upcomingEvents && upcomingEvents.length > 0 ? [{
       id: 'upcoming_event',
-      count: 1,
-      title: 'Beach Cleanup event tomorrow',
-      description: '15 members RSVP\'d',
+      count: upcomingEvents.length,
+      title: `upcoming event${upcomingEvents.length === 1 ? '' : 's'}`,
+      description: upcomingEvents[0]?.title || 'Event details',
       icon: 'event',
       color: Colors.infoBlue,
-      onPress: () => navigation.navigate('Events'), // Will link to events page
-    },
-    {
-      id: 'active_session',
-      count: 12,
-      title: 'Active attendance session',
-      description: 'members checked in',
-      icon: 'group',
-      color: Colors.successGreen,
-      onPress: () => navigation.navigate('Attendance'), // Will link to attendance page
-    },
-  ]);
+      onPress: () => navigation.navigate('Events'),
+    }] : []),
+  ];
 
-  const onRefresh = () => {
+  const onRefresh = async () => {
     setRefreshing(true);
-    // Simulate API call to refresh data
-    setTimeout(() => {
+    try {
+      await Promise.all([
+        refetchProfile(),
+        refetchVolunteerStats(),
+        refetchPendingApprovals(),
+        refetchEventStats(),
+        refetchUpcomingEvents(),
+      ]);
+    } catch (error) {
+      console.error('Error refreshing dashboard data:', error);
+    } finally {
       setRefreshing(false);
-      // In real app, you would update the state with fresh data here
-    }, 1000);
+    }
   };
+
+  const isLoading = profileLoading || volunteerStatsLoading || eventStatsLoading;
 
   // Removed handleTabPress - navigation is handled by the main navigator
 
@@ -135,9 +154,9 @@ const OfficerDashboard = ({ navigation }: any) => {
             <View style={styles.headerLeft}>
               <Text style={styles.headerTitle}>Executive Dashboard</Text>
               <View style={styles.roleContainer}>
-                <Text style={styles.roleText}>{executiveData.role}</Text>
+                <Text style={styles.roleText}>{dashboardData.role}</Text>
                 <View style={styles.officerBadge}>
-                  <Text style={styles.officerBadgeText}>{executiveData.officerType}</Text>
+                  <Text style={styles.officerBadgeText}>{dashboardData.officerType}</Text>
                 </View>
               </View>
             </View>
@@ -149,23 +168,45 @@ const OfficerDashboard = ({ navigation }: any) => {
 
           {/* Welcome Section */}
           <View style={styles.welcomeCard}>
-            <Text style={styles.welcomeText}>Welcome, {executiveData.firstName}!</Text>
+            <Text style={styles.welcomeText}>Welcome, {dashboardData.firstName}!</Text>
             <Text style={styles.welcomeSubtext}>
               Manage your NHS organization and track member progress.
             </Text>
           </View>
 
-          {/* Stats Section */}
-          <View style={styles.statsContainer}>
-            <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{executiveData.totalMembers}</Text>
-              <Text style={styles.statLabel}>Total Members</Text>
+          {/* Loading State */}
+          {isLoading ? (
+            <LoadingSkeleton 
+              height={verticalScale(120)} 
+              style={{ marginBottom: verticalScale(24) }} 
+            />
+          ) : (
+            /* Stats Section */
+            <View style={styles.statsContainer}>
+              <View style={styles.statCard}>
+                <Text style={styles.statNumber}>{dashboardData.totalMembers}</Text>
+                <Text style={styles.statLabel}>Total Members</Text>
+              </View>
+              <View style={styles.statCard}>
+                <Text style={styles.statNumber}>{dashboardData.totalEvents}</Text>
+                <Text style={styles.statLabel}>Total Events</Text>
+              </View>
             </View>
-            <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{executiveData.activeSessions}</Text>
-              <Text style={styles.statLabel}>Active Sessions</Text>
+          )}
+
+          {/* Additional Stats Row */}
+          {!isLoading && (
+            <View style={styles.statsContainer}>
+              <View style={styles.statCard}>
+                <Text style={styles.statNumber}>{dashboardData.upcomingEvents}</Text>
+                <Text style={styles.statLabel}>Upcoming Events</Text>
+              </View>
+              <View style={styles.statCard}>
+                <Text style={styles.statNumber}>{dashboardData.totalVolunteerHours}</Text>
+                <Text style={styles.statLabel}>Approved Hours</Text>
+              </View>
             </View>
-          </View>
+          )}
 
           {/* Quick Actions Section */}
           <View style={styles.sectionContainer}>
@@ -200,24 +241,38 @@ const OfficerDashboard = ({ navigation }: any) => {
               </Text>
             </View>
 
-            {pendingActions.map((action, index) => (
-              <TouchableOpacity
-                key={action.id}
-                style={styles.pendingActionCard}
-                onPress={action.onPress}
-              >
-                <View style={styles.pendingActionHeader}>
-                  <View style={styles.pendingActionLeft}>
-                    <View style={[styles.countBadge, { backgroundColor: action.color }]}>
-                      <Text style={styles.countText}>{action.count}</Text>
+            {pendingApprovalsLoading || upcomingEventsLoading ? (
+              <LoadingSkeleton 
+                height={verticalScale(80)} 
+                style={{ marginBottom: verticalScale(12) }} 
+              />
+            ) : pendingActions.length > 0 ? (
+              pendingActions.map((action, index) => (
+                <TouchableOpacity
+                  key={action.id}
+                  style={styles.pendingActionCard}
+                  onPress={action.onPress}
+                >
+                  <View style={styles.pendingActionHeader}>
+                    <View style={styles.pendingActionLeft}>
+                      <View style={[styles.countBadge, { backgroundColor: action.color }]}>
+                        <Text style={styles.countText}>{action.count}</Text>
+                      </View>
+                      <Text style={styles.pendingActionTitle}>{action.title}</Text>
                     </View>
-                    <Text style={styles.pendingActionTitle}>{action.title}</Text>
+                    <Icon name={action.icon} size={moderateScale(20)} color={action.color} />
                   </View>
-                  <Icon name={action.icon} size={moderateScale(20)} color={action.color} />
-                </View>
-                <Text style={styles.pendingActionDescription}>{action.description}</Text>
-              </TouchableOpacity>
-            ))}
+                  <Text style={styles.pendingActionDescription}>{action.description}</Text>
+                </TouchableOpacity>
+              ))
+            ) : (
+              <EmptyState
+                icon="check-circle"
+                title="All Caught Up!"
+                description="No pending actions at this time."
+                style={{ paddingVertical: verticalScale(40) }}
+              />
+            )}
           </View>
 
           {/* Bottom Spacer */}

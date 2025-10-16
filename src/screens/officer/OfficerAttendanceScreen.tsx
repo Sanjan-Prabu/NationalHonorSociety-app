@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, RefreshControl, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, RefreshControl, Platform, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -8,9 +8,12 @@ import ProfileButton from 'components/ui/ProfileButton';
 import { useToast } from 'components/ui/ToastProvider';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { withRoleProtection } from 'components/hoc/withRoleProtection';
+import LoadingSkeleton from 'components/ui/LoadingSkeleton';
+import EmptyState from 'components/ui/EmptyState';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../lib/supabaseClient';
+import { useOrganizationEvents, useCreateEvent } from 'hooks/useEventData';
+import { useAttendanceMarking, useBulkAttendanceOperations } from 'hooks/useAttendanceData';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -31,25 +34,7 @@ const Colors = {
   inputBackground: '#F9FAFB',
 };
 
-interface Session {
-  id: string;
-  title: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-  attendees: number;
-  status: string;
-}
-
-interface ActiveSession {
-  id: string;
-  title: string;
-  date: string;
-  startTime: string;
-  membersJoined: number;
-  sessionTime: string;
-  startTimestamp: Date;
-}
+// Remove interfaces since we'll use EventData from types
 
 const OfficerAttendance = ({ navigation }: any) => {
   const { showSuccess, showError } = useToast();
@@ -57,174 +42,121 @@ const OfficerAttendance = ({ navigation }: any) => {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
 
-  // Component initialization
-
   const [refreshing, setRefreshing] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   // Form state for creating new session
   const [meetingName, setMeetingName] = useState('');
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedTime, setSelectedTime] = useState(new Date());
+  const [showTimePicker, setShowTimePicker] = useState(false);
 
-  // Active session state
-  const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
+  // Active session state (simulated for now)
+  const [activeSession, setActiveSession] = useState<any>(null);
 
-  // Real data from database
-  const [recentSessions, setRecentSessions] = useState<Session[]>([]);
+  // Dynamic data hooks
+  const { 
+    data: events, 
+    isLoading: eventsLoading, 
+    refetch: refetchEvents 
+  } = useOrganizationEvents(activeOrganization?.id || '');
+  
+  const createEventMutation = useCreateEvent();
+  const markAttendanceMutation = useAttendanceMarking();
+  const bulkAttendanceOperations = useBulkAttendanceOperations();
 
-  // Fetch recent attendance sessions from database
-  useEffect(() => {
-    const fetchRecentSessions = async () => {
-      if (!activeOrganization?.id) return;
+  // Filter events to get recent ones with attendance
+  const recentSessions = events?.filter(event => {
+    if (!event.starts_at) return false;
+    const eventDate = new Date(event.starts_at);
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    return eventDate >= thirtyDaysAgo && (event.attendee_count || 0) > 0;
+  }).slice(0, 5) || [];
 
-      try {
-        // Fetch attendance records grouped by event
-        const { data, error } = await supabase
-          .from('attendance')
-          .select(`
-            event_id,
-            status,
-            checkin_time,
-            events (
-              title,
-              starts_at,
-              ends_at
-            )
-          `)
-          .eq('org_id', activeOrganization.id)
-          .order('checkin_time', { ascending: false });
-
-        if (error) {
-          console.error('Error fetching attendance:', error);
-          // Set empty array as fallback
-          setAttendanceData([]);
-          return;
-        }
-
-        // Group by event and create session objects
-        const sessionMap = new Map();
-        (data || []).forEach(record => {
-          const eventId = record.event_id;
-          if (!sessionMap.has(eventId) && record.events) {
-            // Handle both single object and array cases
-            const event = Array.isArray(record.events) ? record.events[0] : record.events;
-            if (event) {
-              sessionMap.set(eventId, {
-                id: eventId,
-                title: event.title || 'Unknown Event',
-                date: new Date(event.starts_at).toLocaleDateString('en-US', {
-                  month: 'long',
-                  day: 'numeric',
-                  year: 'numeric'
-                }),
-                startTime: new Date(event.starts_at).toLocaleTimeString('en-US', {
-                  hour: 'numeric',
-                  minute: '2-digit',
-                  hour12: true
-                }),
-                endTime: new Date(event.ends_at).toLocaleTimeString('en-US', {
-                  hour: 'numeric',
-                  minute: '2-digit',
-                  hour12: true
-                }),
-                attendees: 0,
-                status: 'completed'
-              });
-            }
-          }
-          if (record.status === 'present' && sessionMap.has(eventId)) {
-            const session = sessionMap.get(eventId);
-            if (session) {
-              session.attendees++;
-            }
-          }
-        });
-
-        setRecentSessions(Array.from(sessionMap.values()));
-      } catch (error) {
-        console.error('Error fetching sessions:', error);
-        // Set some mock data as fallback
-        setRecentSessions([
-          {
-            id: 'session_1',
-            title: 'NHS General Meeting',
-            date: 'December 20, 2024',
-            startTime: '3:30 PM',
-            endTime: '4:15 PM',
-            attendees: 15,
-            status: 'completed',
-          }
-        ]);
-      }
-    };
-
-    fetchRecentSessions();
-  }, [activeOrganization]);
-
-  const onRefresh = () => {
+  const onRefresh = async () => {
     setRefreshing(true);
-    // Simulate API call to refresh data
-    setTimeout(() => {
+    try {
+      await refetchEvents();
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+    } finally {
       setRefreshing(false);
-    }, 1000);
+    }
   };
 
-  const handleStartSession = () => {
+  const handleStartSession = async () => {
     if (!meetingName.trim()) {
       showError('Validation Error', 'Please enter a meeting name');
       return;
     }
 
-    // Create new session object - Add your BLE logic here later
-    const newSession: ActiveSession = {
-      id: `session_${Date.now()}`,
-      title: meetingName,
-      date: selectedDate.toLocaleDateString('en-US', {
-        month: '2-digit',
-        day: '2-digit',
-        year: 'numeric'
-      }),
-      startTime: new Date().toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      }),
-      membersJoined: 0,
-      sessionTime: '00:00',
-      startTimestamp: new Date(),
-    };
+    try {
+      // Create a new event for the attendance session
+      const eventDateTime = new Date(selectedDate);
+      eventDateTime.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
+      
+      const endDateTime = new Date(eventDateTime);
+      endDateTime.setHours(endDateTime.getHours() + 1); // Default 1 hour duration
 
-    setActiveSession(newSession);
-    setMeetingName('');
+      const eventData = {
+        title: meetingName,
+        description: 'Attendance tracking session',
+        location: 'Meeting Location',
+        starts_at: eventDateTime.toISOString(),
+        ends_at: endDateTime.toISOString(),
+        is_public: true,
+      };
 
-    // Add your BLE advertising start logic here
-    console.log('Starting session:', newSession);
-    showSuccess('Session Started', 'Session has been created successfully.');
-  };
+      const result = await createEventMutation.mutateAsync({ 
+        eventData, 
+        orgId: activeOrganization?.id 
+      });
 
-  const handleEndSession = () => {
-    if (activeSession) {
-      // Add your BLE advertising stop logic here
-      console.log('Ending session:', activeSession);
-
-      // Add to recent sessions
-      const endedSession: Session = {
-        id: activeSession.id,
-        title: activeSession.title,
-        date: activeSession.date,
-        startTime: activeSession.startTime,
-        endTime: new Date().toLocaleTimeString('en-US', {
+      // Set as active session
+      setActiveSession({
+        id: result.id,
+        title: result.title,
+        date: eventDateTime.toLocaleDateString('en-US', {
+          month: '2-digit',
+          day: '2-digit',
+          year: 'numeric'
+        }),
+        startTime: eventDateTime.toLocaleTimeString('en-US', {
           hour: '2-digit',
           minute: '2-digit',
           hour12: true
         }),
-        attendees: activeSession.membersJoined,
-        status: 'completed',
-      };
+        membersJoined: 0,
+        sessionTime: '00:00',
+        startTimestamp: new Date(),
+        eventId: result.id,
+      });
 
-      setRecentSessions(prev => [endedSession, ...prev]);
-      setActiveSession(null);
-      showSuccess('Session Ended', 'Attendance session has been closed.');
+      setMeetingName('');
+      showSuccess('Session Started', 'Attendance session has been created successfully.');
+    } catch (error) {
+      console.error('Error starting session:', error);
+      showError('Error', 'Failed to start session. Please try again.');
+    }
+  };
+
+  const handleEndSession = () => {
+    if (activeSession) {
+      Alert.alert(
+        'End Session',
+        'Are you sure you want to end this attendance session?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'End Session',
+            onPress: () => {
+              setActiveSession(null);
+              showSuccess('Session Ended', 'Attendance session has been closed.');
+            },
+          },
+        ]
+      );
     }
   };
 
@@ -235,12 +167,51 @@ const OfficerAttendance = ({ navigation }: any) => {
     }
   };
 
+  const handleTimeChange = (event: any, selectedTime?: Date) => {
+    setShowTimePicker(false);
+    if (selectedTime) {
+      setSelectedTime(selectedTime);
+    }
+  };
+
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('en-US', {
       month: '2-digit',
       day: '2-digit',
       year: 'numeric'
     });
+  };
+
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
+  const formatEventDate = (dateString?: string) => {
+    if (!dateString) return 'No date';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
+  const formatEventTime = (startDate?: string, endDate?: string) => {
+    if (!startDate || !endDate) return 'No time specified';
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    return `${start.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    })} - ${end.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    })}`;
   };
 
   // Removed handleTabPress - navigation is handled by the main navigator
@@ -354,15 +325,39 @@ const OfficerAttendance = ({ navigation }: any) => {
                 )}
               </View>
 
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Time</Text>
+                <TouchableOpacity
+                  style={styles.dateInput}
+                  onPress={() => setShowTimePicker(true)}
+                >
+                  <Text style={styles.dateText}>
+                    {formatTime(selectedTime)}
+                  </Text>
+                  <Icon name="access-time" size={moderateScale(20)} color={Colors.textMedium} />
+                </TouchableOpacity>
+
+                {showTimePicker && (
+                  <DateTimePicker
+                    value={selectedTime}
+                    mode="time"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    onChange={handleTimeChange}
+                  />
+                )}
+              </View>
+
               <TouchableOpacity
                 style={[
                   styles.startSessionButton,
-                  !meetingName.trim() && styles.startSessionButtonDisabled
+                  (!meetingName.trim() || createEventMutation.isPending) && styles.startSessionButtonDisabled
                 ]}
                 onPress={handleStartSession}
-                disabled={!meetingName.trim()}
+                disabled={!meetingName.trim() || createEventMutation.isPending}
               >
-                <Text style={styles.startSessionButtonText}>Start New Session</Text>
+                <Text style={styles.startSessionButtonText}>
+                  {createEventMutation.isPending ? 'Creating Session...' : 'Start New Session'}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -376,25 +371,48 @@ const OfficerAttendance = ({ navigation }: any) => {
               <Text style={styles.sectionTitle}>Recent Sessions</Text>
             </View>
 
-            {recentSessions.map((session) => (
-              <View key={session.id} style={styles.recentSessionCard}>
-                <View style={styles.sessionHeader}>
-                  <Text style={styles.recentSessionTitle}>{session.title}</Text>
-                  <View style={styles.completedBadge}>
-                    <Text style={styles.completedBadgeText}>Completed</Text>
+            {eventsLoading ? (
+              <>
+                <LoadingSkeleton height={verticalScale(80)} style={{ marginBottom: verticalScale(12) }} />
+                <LoadingSkeleton height={verticalScale(80)} style={{ marginBottom: verticalScale(12) }} />
+              </>
+            ) : recentSessions.length > 0 ? (
+              recentSessions.map((session) => (
+                <View key={session.id} style={styles.recentSessionCard}>
+                  <View style={styles.sessionHeader}>
+                    <Text style={styles.recentSessionTitle}>{session.title}</Text>
+                    <View style={styles.completedBadge}>
+                      <Text style={styles.completedBadgeText}>Completed</Text>
+                    </View>
                   </View>
-                </View>
 
-                <Text style={styles.recentSessionTime}>
-                  {session.date} • {session.startTime} - {session.endTime}
-                </Text>
+                  <Text style={styles.recentSessionTime}>
+                    {formatEventDate(session.starts_at)} • {formatEventTime(session.starts_at, session.ends_at)}
+                  </Text>
 
-                <View style={styles.attendeeInfo}>
-                  <Icon name="group" size={moderateScale(16)} color={Colors.textMedium} />
-                  <Text style={styles.attendeeCount}>{session.attendees} attendees</Text>
+                  <View style={styles.attendeeInfo}>
+                    <Icon name="group" size={moderateScale(16)} color={Colors.textMedium} />
+                    <Text style={styles.attendeeCount}>
+                      {session.attendee_count || 0} attendee{(session.attendee_count || 0) !== 1 ? 's' : ''}
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity 
+                    style={styles.viewAttendanceButton}
+                    onPress={() => navigation.navigate('EventAttendance', { eventId: session.id })}
+                  >
+                    <Icon name="visibility" size={moderateScale(16)} color={Colors.solidBlue} />
+                    <Text style={styles.viewAttendanceText}>View Attendance</Text>
+                  </TouchableOpacity>
                 </View>
-              </View>
-            ))}
+              ))
+            ) : (
+              <EmptyState
+                icon="event-busy"
+                title="No Recent Sessions"
+                description="Start your first attendance session to track member participation."
+              />
+            )}
           </View>
 
           {/* Bottom Spacer */}
@@ -634,6 +652,18 @@ const styles = StyleSheet.create({
   attendeeCount: {
     fontSize: moderateScale(14),
     color: Colors.textMedium,
+    marginLeft: scale(6),
+  },
+  viewAttendanceButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: verticalScale(8),
+    paddingVertical: verticalScale(6),
+  },
+  viewAttendanceText: {
+    fontSize: moderateScale(14),
+    fontWeight: '600',
+    color: Colors.solidBlue,
     marginLeft: scale(6),
   },
   bottomSpacer: {

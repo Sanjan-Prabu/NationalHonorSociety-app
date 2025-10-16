@@ -4,11 +4,11 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } 
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import ProgressBar from 'common/components/ProgressBar';
+import { useFocusEffect } from '@react-navigation/native';
+import ProgressBar from '../../components/ui/ProgressBar';
 import ProfileButton from '../../components/ui/ProfileButton';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { useAuth } from '../../contexts/AuthContext';
-import LoadingScreen from '../../components/ui/LoadingScreen';
 import { supabase } from '../../lib/supabaseClient';
 
 const Colors = {
@@ -75,97 +75,107 @@ const StatsCard = ({ title, value, subtitle, style }: {
   );
 };
 
-const MemberLogHoursScreen = ({ navigation }: any) => {
-  const { activeOrganization, activeMembership, isLoading: orgLoading } = useOrganization();
-  const { user } = useAuth();
+const LogHoursScreen = ({ navigation }: any) => {
   const insets = useSafeAreaInsets();
+  const { activeOrganization } = useOrganization();
+  const { user } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
-  const [hoursLoading, setHoursLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
 
-  // Mock data - TODO: Replace with actual data from API filtered by organizationId
+  // State for volunteer hours data
   const [userData, setUserData] = useState({
-    totalHours: 15,
+    totalHours: 0,
     requiredHours: 25,
-    pendingHours: 3,
+    pendingHours: 0,
   });
 
-  interface HourEntry {
-    id: number | string;
-    title: string;
-    date: string;
-    hours: number;
-    status: 'pending' | 'approved';
-  }
+  const [pendingEntries, setPendingEntries] = useState<any[]>([]);
+  const [approvedEntries, setApprovedEntries] = useState<any[]>([]);
 
-  const [pendingEntries, setPendingEntries] = useState<HourEntry[]>([]);
-  const [approvedEntries, setApprovedEntries] = useState<HourEntry[]>([]);
-
-  // Fetch volunteer hours data filtered by organizationId
+  // Fetch volunteer hours data
   const fetchVolunteerHours = async () => {
-    if (!activeOrganization?.id || !user?.id) return;
+    if (!activeOrganization?.id || !user?.id) {
+      console.log('❌ Missing required data:', { 
+        orgId: activeOrganization?.id, 
+        userId: user?.id 
+      });
+      return;
+    }
+
+    console.log('🔍 Fetching volunteer hours for:', { 
+      orgId: activeOrganization.id, 
+      userId: user.id 
+    });
 
     try {
-      setHoursLoading(true);
-      
-      // Fetch volunteer hours from database filtered by org_id and member_id
       const { data, error } = await supabase
         .from('volunteer_hours')
         .select('*')
         .eq('org_id', activeOrganization.id)
         .eq('member_id', user.id)
-        .order('date', { ascending: false });
+        .order('activity_date', { ascending: false });
 
       if (error) {
-        console.error('Error fetching volunteer hours:', error);
-        setPendingEntries([]);
-        setApprovedEntries([]);
-      } else {
-        // Transform database data
-        const pendingHours = (data || [])
-          .filter(h => !h.approved)
-          .map(h => ({
-            id: h.id,
-            title: h.description.split(' - ')[0] || 'Volunteer Work',
-            date: new Date(h.activity_date).toLocaleDateString('en-US', { 
-              month: 'long', 
-              day: 'numeric', 
-              year: 'numeric' 
-            }),
-            hours: parseFloat(h.hours),
-            status: 'pending' as const,
-          }));
-
-        const approvedHours = (data || [])
-          .filter(h => h.approved)
-          .map(h => ({
-            id: h.id,
-            title: h.description.split(' - ')[0] || 'Volunteer Work',
-            date: new Date(h.activity_date).toLocaleDateString('en-US', { 
-              month: 'long', 
-              day: 'numeric', 
-              year: 'numeric' 
-            }),
-            hours: parseFloat(h.hours),
-            status: 'approved' as const,
-          }));
-
-        setPendingEntries(pendingHours);
-        setApprovedEntries(approvedHours);
-
-        // Update user data with real totals
-        const totalApproved = approvedHours.reduce((sum, entry) => sum + entry.hours, 0);
-        const totalPending = pendingHours.reduce((sum, entry) => sum + entry.hours, 0);
-        
-        setUserData(prev => ({
-          ...prev,
-          totalHours: totalApproved,
-          pendingHours: totalPending,
-        }));
+        console.error('❌ Error fetching volunteer hours:', error);
+        return;
       }
+
+      console.log('✅ Fetched volunteer hours data:', data);
+
+      const pending = data?.filter(hour => !hour.approved) || [];
+      const approved = data?.filter(hour => hour.approved) || [];
+
+      const pendingHours = pending.reduce((sum, hour) => sum + parseFloat(hour.hours || '0'), 0);
+      const approvedHours = approved.reduce((sum, hour) => sum + parseFloat(hour.hours || '0'), 0);
+
+      console.log('📊 Calculated hours:', { 
+        pendingHours, 
+        approvedHours, 
+        pendingCount: pending.length, 
+        approvedCount: approved.length 
+      });
+
+      setPendingEntries(pending.map(hour => ({
+        id: hour.id,
+        title: hour.description || 'Volunteer Activity',
+        date: new Date(hour.activity_date).toLocaleDateString('en-US', {
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric'
+        }),
+        hours: parseFloat(hour.hours || '0'),
+        status: 'pending' as const,
+      })));
+
+      setApprovedEntries(approved.slice(0, 5).map(hour => ({
+        id: hour.id,
+        title: hour.description || 'Volunteer Activity',
+        date: new Date(hour.activity_date).toLocaleDateString('en-US', {
+          month: 'long',
+          day: 'numeric',
+          year: 'numeric'
+        }),
+        hours: parseFloat(hour.hours || '0'),
+        status: 'approved' as const,
+      })));
+
+      setUserData({
+        totalHours: approvedHours,
+        requiredHours: 25,
+        pendingHours: pendingHours,
+      });
+
+      console.log('📈 Updated UI with volunteer hours data:', {
+        totalHours: approvedHours,
+        pendingHours: pendingHours,
+        pendingEntries: pending.length,
+        approvedEntries: approved.length
+      });
+
     } catch (error) {
       console.error('Error fetching volunteer hours:', error);
     } finally {
-      setHoursLoading(false);
+      setLoading(false);
     }
   };
 
@@ -173,10 +183,16 @@ const MemberLogHoursScreen = ({ navigation }: any) => {
     fetchVolunteerHours();
   }, [activeOrganization, user]);
 
-  const onRefresh = async () => {
+  // Refresh data when screen comes into focus (e.g., after submitting new hours)
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchVolunteerHours();
+    }, [activeOrganization, user])
+  );
+
+  const onRefresh = () => {
     setRefreshing(true);
-    await fetchVolunteerHours();
-    setRefreshing(false);
+    fetchVolunteerHours().finally(() => setRefreshing(false));
   };
 
   const handleAddHours = () => {
@@ -189,15 +205,18 @@ const MemberLogHoursScreen = ({ navigation }: any) => {
     console.log('Entry pressed:', entry);
   };
 
-  if (orgLoading) {
-    return <LoadingScreen message="Loading volunteer hours..." />;
-  }
-
-  if (!activeOrganization || !activeMembership) {
+  if (loading) {
     return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>No organization selected</Text>
-      </View>
+      <LinearGradient
+        colors={Colors.LandingScreenGradient}
+        style={{ flex: 1 }}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+      >
+        <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={styles.loadingText}>Loading volunteer hours...</Text>
+        </SafeAreaView>
+      </LinearGradient>
     );
   }
 
@@ -224,7 +243,7 @@ const MemberLogHoursScreen = ({ navigation }: any) => {
             <View style={styles.header}>
               <View style={styles.headerLeft}>
                 <Text style={styles.headerTitle}>Log Hours</Text>
-                <Text style={styles.headerSubtitle}>{activeOrganization.name} • Track your volunteer time</Text>
+                <Text style={styles.headerSubtitle}>Track your volunteer time</Text>
               </View>
               <ProfileButton 
                 color={Colors.solidBlue}
@@ -242,7 +261,7 @@ const MemberLogHoursScreen = ({ navigation }: any) => {
                 totalHours={userData.requiredHours}
                 containerStyle={styles.progressBarContainer}
               />
-              
+
               {/* Stats Cards */}
               <View style={styles.statsRow}>
                 <StatsCard 
@@ -263,12 +282,7 @@ const MemberLogHoursScreen = ({ navigation }: any) => {
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Pending Entries</Text>
               </View>
-              
-              {hoursLoading ? (
-                <View style={styles.loadingContainer}>
-                  <Text style={styles.loadingText}>Loading hours...</Text>
-                </View>
-              ) : pendingEntries.length > 0 ? (
+              {pendingEntries.length > 0 ? (
                 pendingEntries.map((entry) => (
                   <HourEntry
                     key={entry.id}
@@ -291,7 +305,6 @@ const MemberLogHoursScreen = ({ navigation }: any) => {
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Recently Approved</Text>
               </View>
-              
               {approvedEntries.length > 0 ? (
                 approvedEntries.map((entry) => (
                   <HourEntry
@@ -318,8 +331,6 @@ const MemberLogHoursScreen = ({ navigation }: any) => {
           <TouchableOpacity style={styles.addButton} onPress={handleAddHours}>
             <Icon name="add" size={moderateScale(24)} color={Colors.white} />
           </TouchableOpacity>
-
-          {/* Navigation is handled by the main MemberBottomNavigator */}
         </SafeAreaView>
       </LinearGradient>
     </SafeAreaProvider>
@@ -327,25 +338,6 @@ const MemberLogHoursScreen = ({ navigation }: any) => {
 };
 
 const styles = StyleSheet.create({
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f8f9fa',
-  },
-  errorText: {
-    fontSize: 16,
-    color: '#dc3545',
-    textAlign: 'center',
-  },
-  loadingContainer: {
-    padding: 20,
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: '#666',
-  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -365,19 +357,6 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     fontSize: moderateScale(16),
     color: Colors.textMedium,
-  },
-  profileButton: {
-    width: scale(44),
-    height: scale(44),
-    borderRadius: moderateScale(22),
-    backgroundColor: Colors.white,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: verticalScale(2) },
-    shadowOpacity: 0.1,
-    shadowRadius: moderateScale(4),
-    elevation: 3,
   },
   sectionContainer: {
     marginBottom: verticalScale(24),
@@ -490,19 +469,25 @@ const styles = StyleSheet.create({
     color: Colors.textDark,
   },
   emptyState: {
+    backgroundColor: Colors.cardBackground,
+    borderRadius: moderateScale(12),
+    padding: scale(24),
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: verticalScale(20),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: verticalScale(1) },
+    shadowOpacity: 0.05,
+    shadowRadius: moderateScale(4),
+    elevation: 2,
   },
   emptyStateText: {
-    fontSize: moderateScale(14),
-    color: Colors.textMedium,
+    fontSize: moderateScale(16),
+    color: Colors.textLight,
     textAlign: 'center',
   },
   addButton: {
     position: 'absolute',
     right: scale(20),
-    bottom: verticalScale(30), // Position above the bottom nav
+    bottom: verticalScale(80), // Position above the bottom nav
     width: scale(56),
     height: scale(56),
     borderRadius: moderateScale(28),
@@ -518,6 +503,10 @@ const styles = StyleSheet.create({
   bottomSpacer: {
     height: verticalScale(100),
   },
+  loadingText: {
+    fontSize: moderateScale(16),
+    color: Colors.textMedium,
+  },
 });
 
-export default MemberLogHoursScreen;
+export default LogHoursScreen;

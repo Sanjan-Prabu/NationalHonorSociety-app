@@ -1,27 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  TextInput, 
-  TouchableOpacity, 
-  StyleSheet, 
-  ScrollView, 
-  KeyboardAvoidingView, 
-  Platform,
-  Alert 
-} from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useToast } from 'components/ui/ToastProvider';
-import ProfileButton from '../../components/ui/ProfileButton';
+import { useToast } from '../../components/ui/ToastProvider';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { useAuth } from '../../contexts/AuthContext';
-import LoadingScreen from '../../components/ui/LoadingScreen';
-import { supabase } from '../../lib/supabaseClient';
+import { useOrganizationEvents } from '../../hooks/useEventData';
+import { useVolunteerHourSubmission } from '../../hooks/useVolunteerHoursData';
+import { useCurrentOrganizationId } from '../../hooks/useUserData';
+import { CreateVolunteerHourRequest } from '../../types/dataService';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -38,11 +29,12 @@ const Colors = {
   successGreen: '#38A169',
 };
 
-const MemberVolunteerHoursForm = ({ navigation }: any) => {
-  const { activeOrganization, activeMembership, isLoading: orgLoading } = useOrganization();
-  const { user } = useAuth();
+const VolunteerHoursForm = ({ navigation }: any) => {
   const { showSuccess, showError, showValidationError } = useToast();
+  const { activeOrganization } = useOrganization();
+  const { user } = useAuth();
   const insets = useSafeAreaInsets();
+  const currentOrgId = useCurrentOrganizationId();
 
   // Form state
   const [eventType, setEventType] = useState<'club' | 'custom'>('club');
@@ -55,34 +47,20 @@ const MemberVolunteerHoursForm = ({ navigation }: any) => {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Fetch events from database filtered by organizationId
-  const [clubEvents, setClubEvents] = useState<{ label: string; value: string }[]>([]);
-  
-  useEffect(() => {
-    const fetchEvents = async () => {
-      if (!activeOrganization?.id) return;
-      
-      try {
-        const { data, error } = await supabase
-          .from('events')
-          .select('id, title')
-          .eq('org_id', activeOrganization.id)
-          .order('starts_at', { ascending: true });
-          
-        if (!error && data) {
-          const eventOptions = data.map(event => ({
-            label: event.title,
-            value: event.id
-          }));
-          setClubEvents(eventOptions);
-        }
-      } catch (error) {
-        console.error('Error fetching events:', error);
-      }
-    };
-    
-    fetchEvents();
-  }, [activeOrganization]);
+  // Use dynamic data hooks
+  const { 
+    data: eventsData, 
+    isLoading: eventsLoading, 
+    isError: eventsError 
+  } = useOrganizationEvents(currentOrgId || activeOrganization?.id || '');
+
+  const submitVolunteerHoursMutation = useVolunteerHourSubmission();
+
+  // Transform events data for dropdown
+  const clubEvents = eventsData?.map(event => ({
+    label: event.title,
+    value: event.id
+  })) || [];
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -124,51 +102,40 @@ const MemberVolunteerHoursForm = ({ navigation }: any) => {
       return;
     }
 
-    if (!activeOrganization || !user) {
-      showError('Error', 'Organization or user information is missing.');
+    if (!activeOrganization?.id || !user?.id) {
+      showError('Error', 'Unable to submit hours. Please try again.');
       return;
     }
 
-    // Prepare submission data
-    const submissionData = {
-      eventType,
-      event: eventType === 'club' ? selectedEvent : customEventName,
-      date,
-      hours: parseFloat(hours),
-      additionalNotes: additionalNotes.trim(),
-      proofImage: selectedImage,
-      organizationId: activeOrganization.id, // Include organization ID
-      memberId: user.id, // Include member ID
-    };
-
-    console.log('Submitting hours for organization:', activeOrganization.name, submissionData);
-    
     try {
-      // Submit to database with organization filtering
-      const { error } = await supabase
-        .from('volunteer_hours')
-        .insert({
-          member_id: user.id,
-          org_id: activeOrganization.id,
-          activity_date: submissionData.date?.toISOString().split('T')[0], // Format as YYYY-MM-DD
-          hours: submissionData.hours,
-          description: `${submissionData.event} - ${submissionData.additionalNotes}`,
-          approved: false,
-          submitted_at: new Date().toISOString()
-        });
+      // Prepare submission data
+      const submissionData: CreateVolunteerHourRequest = {
+        activity_date: date?.toISOString().split('T')[0] || '', // Format as YYYY-MM-DD
+        hours: parseFloat(hours),
+        description: eventType === 'club' ?
+          clubEvents.find(e => e.value === selectedEvent)?.label || 'Club Event' :
+          customEventName,
+        event_id: eventType === 'club' ? selectedEvent : undefined,
+        // TODO: Handle file upload for selectedImage and notes
+      };
 
-      if (error) {
-        console.error('Error submitting volunteer hours:', error);
-        showError('Submission Error', 'Failed to submit volunteer hours. Please try again.');
-        return;
-      }
+      console.log('📝 Submitting volunteer hours:', submissionData);
 
-      showSuccess('Hours Submitted', `Your volunteer hours have been submitted to ${activeOrganization.name} for review.`);
-      
+      await submitVolunteerHoursMutation.mutateAsync(submissionData);
+
+      console.log('✅ Volunteer hours submitted successfully!');
+      showSuccess('Hours Submitted', 'Your volunteer hours have been submitted for review.');
+
       // Reset form after successful submission
       resetForm();
+
+      // Small delay to ensure UI updates complete before navigation
+      setTimeout(() => {
+        navigation.goBack();
+      }, 500);
+
     } catch (error) {
-      console.error('Error submitting hours:', error);
+      console.error('Error submitting volunteer hours:', error);
       showError('Submission Error', 'Failed to submit volunteer hours. Please try again.');
     }
   };
@@ -194,7 +161,6 @@ const MemberVolunteerHoursForm = ({ navigation }: any) => {
   const pickImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
       if (status !== 'granted') {
         Alert.alert('Permission Required', 'Sorry, we need camera roll permissions to upload proof.');
         return;
@@ -224,18 +190,6 @@ const MemberVolunteerHoursForm = ({ navigation }: any) => {
     });
   };
 
-  if (orgLoading) {
-    return <LoadingScreen message="Loading form..." />;
-  }
-
-  if (!activeOrganization || !activeMembership) {
-    return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>No organization selected</Text>
-      </View>
-    );
-  }
-
   return (
     <LinearGradient
       colors={Colors.LandingScreenGradient}
@@ -260,30 +214,22 @@ const MemberVolunteerHoursForm = ({ navigation }: any) => {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            {/* Header with Back Button and Profile Button */}
+            {/* Header with Back Button */}
             <View style={styles.header}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.backButton}
                 onPress={() => navigation.goBack()}
               >
                 <Icon name="arrow-back" size={moderateScale(24)} color={Colors.textDark} />
               </TouchableOpacity>
               <Text style={styles.headerTitle}>Add Volunteer Hours</Text>
-              <ProfileButton 
-                color={Colors.solidBlue}
-                size={moderateScale(28)}
-              />
+              <View style={styles.headerPlaceholder} />
             </View>
-
-            <Text style={styles.organizationText}>
-              Submitting to: {activeOrganization.name}
-            </Text>
 
             {/* Form Container */}
             <View style={styles.formContainer}>
               {/* Event Type Selection */}
               <Text style={styles.sectionTitle}>Event Information</Text>
-              
               <View style={styles.eventTypeContainer}>
                 <TouchableOpacity
                   style={[
@@ -319,15 +265,28 @@ const MemberVolunteerHoursForm = ({ navigation }: any) => {
               {eventType === 'club' ? (
                 <View style={styles.inputContainer}>
                   <Text style={styles.inputLabel}>Event Name</Text>
-                  <View style={[styles.dropdownContainer, errors.event && styles.inputError]}>
-                    <Text style={[
-                      styles.dropdownText,
-                      !selectedEvent && styles.dropdownPlaceholder
-                    ]}>
-                      {selectedEvent ? clubEvents.find(e => e.value === selectedEvent)?.label : 'Select an event'}
-                    </Text>
-                    <Icon name="arrow-drop-down" size={moderateScale(24)} color={Colors.textMedium} />
-                  </View>
+                  {eventsLoading ? (
+                    <View style={[styles.dropdownContainer, styles.loadingContainer]}>
+                      <Text style={styles.dropdownPlaceholder}>Loading events...</Text>
+                    </View>
+                  ) : eventsError ? (
+                    <View style={[styles.dropdownContainer, styles.loadingContainer]}>
+                      <Text style={styles.dropdownPlaceholder}>Failed to load events</Text>
+                    </View>
+                  ) : (
+                    <View style={[styles.dropdownContainer, errors.event && styles.inputError]}>
+                      <Text style={[
+                        styles.dropdownText,
+                        !selectedEvent && styles.dropdownPlaceholder
+                      ]}>
+                        {selectedEvent ?
+                          clubEvents.find(e => e.value === selectedEvent)?.label :
+                          clubEvents.length > 0 ? 'Select an event' : 'No events available'
+                        }
+                      </Text>
+                      <Icon name="arrow-drop-down" size={moderateScale(24)} color={Colors.textMedium} />
+                    </View>
+                  )}
                   {errors.event && <Text style={styles.errorText}>{errors.event}</Text>}
                 </View>
               ) : (
@@ -361,7 +320,6 @@ const MemberVolunteerHoursForm = ({ navigation }: any) => {
                   <Icon name="calendar-today" size={moderateScale(20)} color={Colors.textMedium} />
                 </TouchableOpacity>
                 {errors.date && <Text style={styles.errorText}>{errors.date}</Text>}
-                
                 {showDatePicker && (
                   <DateTimePicker
                     value={date || new Date()}
@@ -424,15 +382,19 @@ const MemberVolunteerHoursForm = ({ navigation }: any) => {
                   </Text>
                 </TouchableOpacity>
                 {selectedImage && (
-                  <Text style={styles.uploadSuccessText}>
-                    ✓ Proof uploaded successfully
-                  </Text>
+                  <Text style={styles.uploadSuccessText}>✓ Proof uploaded successfully</Text>
                 )}
               </View>
 
               {/* Submit Button */}
-              <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
-                <Text style={styles.submitButtonText}>Submit Hours to {activeOrganization.name}</Text>
+              <TouchableOpacity
+                style={[styles.submitButton, submitVolunteerHoursMutation.isPending && styles.submitButtonDisabled]}
+                onPress={handleSubmit}
+                disabled={submitVolunteerHoursMutation.isPending}
+              >
+                <Text style={styles.submitButtonText}>
+                  {submitVolunteerHoursMutation.isPending ? 'Submitting...' : 'Submit Hours'}
+                </Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -443,12 +405,6 @@ const MemberVolunteerHoursForm = ({ navigation }: any) => {
 };
 
 const styles = StyleSheet.create({
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f8f9fa',
-  },
   keyboardAvoidingView: {
     flex: 1,
   },
@@ -461,7 +417,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: verticalScale(16),
-    marginBottom: verticalScale(16),
+    marginBottom: verticalScale(24),
   },
   backButton: {
     padding: scale(8),
@@ -472,12 +428,8 @@ const styles = StyleSheet.create({
     color: Colors.textDark,
     textAlign: 'center',
   },
-  organizationText: {
-    fontSize: moderateScale(14),
-    color: Colors.textMedium,
-    textAlign: 'center',
-    marginBottom: verticalScale(24),
-    fontWeight: '500',
+  headerPlaceholder: {
+    width: scale(40),
   },
   formContainer: {
     backgroundColor: 'transparent',
@@ -559,6 +511,9 @@ const styles = StyleSheet.create({
   dropdownPlaceholder: {
     color: Colors.textLight,
   },
+  loadingContainer: {
+    opacity: 0.6,
+  },
   dateInput: {
     height: verticalScale(52),
     borderWidth: 1,
@@ -616,7 +571,7 @@ const styles = StyleSheet.create({
     marginTop: verticalScale(4),
   },
   uploadButton: {
-    height: verticalScale(200),
+    height: verticalScale(52),
     borderWidth: 2,
     borderColor: Colors.solidBlue,
     borderStyle: 'dashed',
@@ -653,6 +608,9 @@ const styles = StyleSheet.create({
     shadowRadius: moderateScale(6),
     elevation: 6,
   },
+  submitButtonDisabled: {
+    opacity: 0.6,
+  },
   submitButtonText: {
     color: Colors.white,
     fontSize: moderateScale(16),
@@ -669,4 +627,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default MemberVolunteerHoursForm;
+export default VolunteerHoursForm;

@@ -4,7 +4,8 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } 
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import ProgressBar from 'common/components/ProgressBar';
+import { useFocusEffect } from '@react-navigation/native';
+import ProgressBar from '../../components/ui/ProgressBar';
 import ProfileButton from '../../components/ui/ProfileButton';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -63,11 +64,15 @@ const MemberDashboardScreen = ({ navigation }: any) => {
 
       try {
         // Fetch user's volunteer hours for this organization
-        const { data: hoursData } = await supabase
+        const { data: hoursData, error: hoursError } = await supabase
           .from('volunteer_hours')
-          .select('hours, status')
+          .select('hours, approved')
           .eq('org_id', activeOrganization.id)
           .eq('member_id', user.id);
+
+        if (hoursError) {
+          console.error('Error fetching volunteer hours for dashboard:', hoursError);
+        }
 
         // Fetch upcoming events for this organization
         const { data: eventsData } = await supabase
@@ -89,8 +94,13 @@ const MemberDashboardScreen = ({ navigation }: any) => {
 
         // Calculate approved hours
         const approvedHours = (hoursData || [])
-          .filter(h => h.status === 'approved')
-          .reduce((sum, h) => sum + h.hours, 0);
+          .filter(h => h.approved === true)
+          .reduce((sum, h) => sum + parseFloat(h.hours || '0'), 0);
+
+        console.log('📊 Dashboard volunteer hours:', { 
+          totalEntries: hoursData?.length || 0, 
+          approvedHours 
+        });
 
         // Update user data with real information
         setUserData(prev => ({
@@ -154,6 +164,50 @@ const MemberDashboardScreen = ({ navigation }: any) => {
 
     fetchDashboardData();
   }, [activeOrganization, user, profile, activeMembership]);
+
+  // Refresh data when screen comes into focus (e.g., after submitting new hours)
+  useFocusEffect(
+    React.useCallback(() => {
+      if (activeOrganization?.id && user?.id) {
+        const fetchDashboardData = async () => {
+          try {
+            // Fetch user's volunteer hours for this organization
+            const { data: hoursData, error: hoursError } = await supabase
+              .from('volunteer_hours')
+              .select('hours, approved')
+              .eq('org_id', activeOrganization.id)
+              .eq('member_id', user.id);
+
+            if (hoursError) {
+              console.error('Error fetching volunteer hours for dashboard:', hoursError);
+              return;
+            }
+
+            // Calculate approved hours
+            const approvedHours = (hoursData || [])
+              .filter(h => h.approved === true)
+              .reduce((sum, h) => sum + parseFloat(h.hours || '0'), 0);
+
+            console.log('📊 Dashboard refresh - volunteer hours:', { 
+              totalEntries: hoursData?.length || 0, 
+              approvedHours 
+            });
+
+            // Update user data with real information
+            setUserData(prev => ({
+              ...prev,
+              currentHours: approvedHours,
+            }));
+
+          } catch (error) {
+            console.error('Error refreshing dashboard data:', error);
+          }
+        };
+
+        fetchDashboardData();
+      }
+    }, [activeOrganization, user])
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);

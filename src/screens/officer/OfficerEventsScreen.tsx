@@ -6,7 +6,8 @@ import {
   TouchableOpacity, 
   StyleSheet, 
   ScrollView,
-  RefreshControl
+  RefreshControl,
+  Alert
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -15,6 +16,10 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import Tag from 'components/ui/Tag';
 import { withRoleProtection } from 'components/hoc/withRoleProtection';
 import ProfileButton from 'components/ui/ProfileButton';
+import LoadingSkeleton from 'components/ui/LoadingSkeleton';
+import EmptyState from 'components/ui/EmptyState';
+import { useOrganizationEvents, useDeleteEvent } from 'hooks/useEventData';
+import { useOrganization } from 'contexts/OrganizationContext';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -42,90 +47,53 @@ const Colors = {
   draftGray: '#718096',
 };
 
-interface Event {
-  id: string;
-  category: 'Community Service' | 'Volunteer' | 'Education' | 'Social';
-  title: string;
-  date: Date;
-  startTime: string;
-  endTime: string;
-  location: string;
-  description?: string;
-  rsvpCount: number;
-  maxCapacity?: number;
-  status: 'Live' | 'Draft';
-  isPublished: boolean;
-}
+// Remove the interface since we'll use EventData from types
 
 const OfficerEventScreen = ({ navigation }: any) => {
-  // Removed useOfficerBottomNav - navigation is handled by the main navigator
   const insets = useSafeAreaInsets();
-
-  // Removed setActiveTab - navigation is handled by the main navigator
-
   const [refreshing, setRefreshing] = useState(false);
 
-  // Mock events data - REPLACE WITH YOUR DATABASE CALL
-  const [events, setEvents] = useState<Event[]>([
-    {
-      id: '1',
-      category: 'Community Service',
-      title: 'Beach Cleanup Day',
-      date: new Date('2024-05-15'),
-      startTime: '9:00 AM',
-      endTime: '12:00 PM',
-      location: 'Sunset Beach, Main Entrance',
-      description: 'Join us for a community beach cleanup to help keep our beaches clean and beautiful.',
-      rsvpCount: 15,
-      maxCapacity: 50,
-      status: 'Live',
-      isPublished: true,
-    },
-    {
-      id: '2',
-      category: 'Volunteer',
-      title: 'Food Bank Volunteer',
-      date: new Date('2024-05-20'),
-      startTime: '4:00 PM',
-      endTime: '6:00 PM',
-      location: 'Community Food Bank, 123 Main St',
-      description: 'Help sort and package food donations for families in need.',
-      rsvpCount: 8,
-      maxCapacity: 30,
-      status: 'Draft',
-      isPublished: false,
-    },
-    {
-      id: '3',
-      category: 'Education',
-      title: 'Senior Center Visit',
-      date: new Date('2024-05-25'),
-      startTime: '1:00 PM',
-      endTime: '3:00 PM',
-      location: 'Oakwood Senior Living, 456 Oak Ave',
-      description: 'Spend time with seniors, share stories, and participate in activities.',
-      rsvpCount: 12,
-      maxCapacity: 20,
-      status: 'Live',
-      isPublished: true,
-    },
-  ]);
+  // Dynamic data hooks
+  const { activeOrganization } = useOrganization();
+  const orgId = activeOrganization?.id;
+  
+  const { 
+    data: events, 
+    isLoading: eventsLoading, 
+    refetch: refetchEvents,
+    error: eventsError 
+  } = useOrganizationEvents(orgId || '');
+  
+  const deleteEventMutation = useDeleteEvent();
+
+  // Category mapping for display
+  const getCategoryFromDescription = (description?: string): string => {
+    if (!description) return 'General';
+    const desc = description.toLowerCase();
+    if (desc.includes('community') || desc.includes('cleanup') || desc.includes('service')) return 'Community Service';
+    if (desc.includes('volunteer') || desc.includes('help')) return 'Volunteer';
+    if (desc.includes('education') || desc.includes('learn') || desc.includes('tutor')) return 'Education';
+    if (desc.includes('social') || desc.includes('meeting') || desc.includes('gathering')) return 'Social';
+    return 'General';
+  };
 
   const categoryVariants = {
     'Community Service': 'blue',
     'Volunteer': 'green',
     'Education': 'purple',
     'Social': 'yellow',
+    'General': 'blue',
   } as const;
 
-  const onRefresh = () => {
+  const onRefresh = async () => {
     setRefreshing(true);
-    // Simulate API call to refresh data
-    setTimeout(() => {
+    try {
+      await refetchEvents();
+    } catch (error) {
+      console.error('Error refreshing events:', error);
+    } finally {
       setRefreshing(false);
-      // In real app, you would update the state with fresh data here
-      // Example: fetchEventsFromDB();
-    }, 1000);
+    }
   };
 
   // Removed handleTabPress - navigation is handled by the main navigator
@@ -135,40 +103,39 @@ const OfficerEventScreen = ({ navigation }: any) => {
     navigation.navigate('CreateEvent');
   };
 
-  const handleEditEvent = (event: Event) => {
+  const handleEditEvent = (event: any) => {
     // Navigate to edit event screen
-    navigation.navigate('EditEvent', { event });
+    navigation.navigate('CreateEvent', { event, isEdit: true });
   };
 
-  const handleToggleStatus = (eventId: string) => {
-    // TODO: Replace with your database update
-    // Example:
-    // try {
-    //   const { error } = await supabase
-    //     .from('events')
-    //     .update({ 
-    //       status: newStatus,
-    //       is_published: newStatus === 'Live'
-    //     })
-    //     .eq('id', eventId);
-    //   if (error) throw error;
-    // } catch (error) {
-    //   console.error('Error updating event status:', error);
-    //   return;
-    // }
-    
-    setEvents(prev => prev.map(event => 
-      event.id === eventId 
-        ? { 
-            ...event, 
-            status: event.status === 'Live' ? 'Draft' : 'Live',
-            isPublished: event.status === 'Live' ? false : true
-          }
-        : event
-    ));
+  const handleDeleteEvent = (eventId: string, eventTitle: string) => {
+    Alert.alert(
+      'Delete Event',
+      `Are you sure you want to delete "${eventTitle}"? This action cannot be undone.`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteEventMutation.mutateAsync(eventId);
+              // The cache will be automatically updated by the mutation
+            } catch (error) {
+              console.error('Error deleting event:', error);
+              Alert.alert('Error', 'Failed to delete event. Please try again.');
+            }
+          },
+        },
+      ]
+    );
   };
 
-  const formatDate = (date: Date) => {
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
     return date.toLocaleDateString('en-US', { 
       month: 'long', 
       day: 'numeric', 
@@ -176,8 +143,17 @@ const OfficerEventScreen = ({ navigation }: any) => {
     });
   };
 
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
   const formatTimeRange = (startTime: string, endTime: string) => {
-    return `${startTime} - ${endTime}`;
+    return `${formatTime(startTime)} - ${formatTime(endTime)}`;
   };
 
   return (
@@ -219,97 +195,106 @@ const OfficerEventScreen = ({ navigation }: any) => {
 
           {/* Upcoming Events Section */}
           <View style={styles.sectionContainer}>
-            <Text style={styles.sectionTitle}>Upcoming Events</Text>
+            <Text style={styles.sectionTitle}>Organization Events</Text>
             
-            {events.map((event) => (
-              <View key={event.id} style={styles.eventCard}>
-                {/* Event Category Tag */}
-                <View style={styles.eventHeader}>
-                  <Tag 
-                    text={event.category} 
-                    variant={categoryVariants[event.category]}
-                    active={true}
-                  />
-                </View>
+            {eventsLoading ? (
+              // Loading state
+              <>
+                <LoadingSkeleton height={verticalScale(200)} style={{ marginBottom: verticalScale(16) }} />
+                <LoadingSkeleton height={verticalScale(200)} style={{ marginBottom: verticalScale(16) }} />
+              </>
+            ) : eventsError ? (
+              // Error state
+              <EmptyState
+                icon="error"
+                title="Error Loading Events"
+                description="Failed to load events. Please try again."
+                actionText="Retry"
+                onActionPress={refetchEvents}
+              />
+            ) : events && events.length > 0 ? (
+              // Events list
+              events.map((event) => {
+                const category = getCategoryFromDescription(event.description);
+                return (
+                  <View key={event.id} style={styles.eventCard}>
+                    {/* Event Category Tag */}
+                    <View style={styles.eventHeader}>
+                      <Tag 
+                        text={category} 
+                        variant={categoryVariants[category as keyof typeof categoryVariants]}
+                        active={true}
+                      />
+                    </View>
 
-                {/* Event Title */}
-                <Text style={styles.eventTitle}>{event.title}</Text>
+                    {/* Event Title */}
+                    <Text style={styles.eventTitle}>{event.title}</Text>
 
-                {/* Event Date and Time */}
-                <View style={styles.eventDetails}>
-                  <View style={styles.detailRow}>
-                    <Icon name="calendar-today" size={moderateScale(16)} color={Colors.textMedium} />
-                    <Text style={styles.detailText}>
-                      {formatDate(event.date)} • {formatTimeRange(event.startTime, event.endTime)}
-                    </Text>
+                    {/* Event Date and Time */}
+                    <View style={styles.eventDetails}>
+                      <View style={styles.detailRow}>
+                        <Icon name="calendar-today" size={moderateScale(16)} color={Colors.textMedium} />
+                        <Text style={styles.detailText}>
+                          {formatDate(event.starts_at || '')} • {formatTimeRange(event.starts_at || '', event.ends_at || '')}
+                        </Text>
+                      </View>
+                      <View style={styles.detailRow}>
+                        <Icon name="location-on" size={moderateScale(16)} color={Colors.textMedium} />
+                        <Text style={styles.detailText}>{event.location || 'Location TBD'}</Text>
+                      </View>
+                    </View>
+
+                    {/* Attendance Count and Status */}
+                    <View style={styles.eventFooter}>
+                      <Text style={styles.rsvpText}>
+                        {event.attendee_count || 0} attendee{(event.attendee_count || 0) !== 1 ? 's' : ''}
+                      </Text>
+                      <View style={[
+                        styles.statusBadge,
+                        event.is_public ? styles.liveBadge : styles.draftBadge
+                      ]}>
+                        <Text style={[
+                          styles.statusText,
+                          event.is_public ? styles.liveText : styles.draftText
+                        ]}>
+                          {event.is_public ? 'Public' : 'Private'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Action Buttons */}
+                    <View style={styles.actionButtons}>
+                      <TouchableOpacity 
+                        style={styles.editButton}
+                        onPress={() => handleEditEvent(event)}
+                      >
+                        <Icon name="edit" size={moderateScale(18)} color={Colors.solidBlue} />
+                        <Text style={styles.editButtonText}>Edit</Text>
+                      </TouchableOpacity>
+                      
+                      <TouchableOpacity 
+                        style={styles.deleteButton}
+                        onPress={() => handleDeleteEvent(event.id, event.title)}
+                        disabled={deleteEventMutation.isPending}
+                      >
+                        <Icon name="delete" size={moderateScale(18)} color={Colors.errorRed} />
+                        <Text style={styles.deleteButtonText}>
+                          {deleteEventMutation.isPending ? 'Deleting...' : 'Delete'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                  <View style={styles.detailRow}>
-                    <Icon name="location-on" size={moderateScale(16)} color={Colors.textMedium} />
-                    <Text style={styles.detailText}>{event.location}</Text>
-                  </View>
-                </View>
-
-                {/* RSVP Count and Status */}
-                <View style={styles.eventFooter}>
-                  <Text style={styles.rsvpText}>
-                    {event.rsvpCount} RSVP{event.rsvpCount !== 1 ? 's' : ''}
-                  </Text>
-                  <View style={[
-                    styles.statusBadge,
-                    event.status === 'Live' ? styles.liveBadge : styles.draftBadge
-                  ]}>
-                    <Text style={[
-                      styles.statusText,
-                      event.status === 'Live' ? styles.liveText : styles.draftText
-                    ]}>
-                      {event.status}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Action Buttons */}
-                <View style={styles.actionButtons}>
-                  <TouchableOpacity 
-                    style={styles.editButton}
-                    onPress={() => handleEditEvent(event)}
-                  >
-                    <Icon name="edit" size={moderateScale(18)} color={Colors.solidBlue} />
-                    <Text style={styles.editButtonText}>Edit</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={[
-                      styles.statusButton,
-                      event.status === 'Live' ? styles.unpublishButton : styles.publishButton
-                    ]}
-                    onPress={() => handleToggleStatus(event.id)}
-                  >
-                    <Text style={[
-                      styles.statusButtonText,
-                      event.status === 'Live' ? styles.unpublishButtonText : styles.publishButtonText
-                    ]}>
-                      {event.status === 'Live' ? 'Unpublish' : 'Publish'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))}
-
-            {/* Empty State */}
-            {events.length === 0 && (
-              <View style={styles.emptyState}>
-                <Icon name="event-busy" size={moderateScale(64)} color={Colors.textLight} />
-                <Text style={styles.emptyStateTitle}>No Events Created</Text>
-                <Text style={styles.emptyStateText}>
-                  Create your first event to get started with volunteer opportunities.
-                </Text>
-                <TouchableOpacity 
-                  style={styles.createFirstButton}
-                  onPress={handleCreateEvent}
-                >
-                  <Text style={styles.createFirstButtonText}>Create First Event</Text>
-                </TouchableOpacity>
-              </View>
+                );
+              })
+            ) : (
+              // Empty state
+              <EmptyState
+                icon="event-busy"
+                title="No Events Created"
+                description="Create your first event to get started with volunteer opportunities."
+                actionText="Create First Event"
+                onActionPress={handleCreateEvent}
+              />
             )}
           </View>
         </ScrollView>
@@ -458,29 +443,22 @@ const styles = StyleSheet.create({
     color: Colors.solidBlue,
     marginLeft: scale(6),
   },
-  statusButton: {
+  deleteButton: {
     flex: 1,
-    paddingVertical: verticalScale(12),
-    borderRadius: moderateScale(8),
+    flexDirection: 'row',
     alignItems: 'center',
-  },
-  publishButton: {
-    backgroundColor: Colors.solidBlue,
-  },
-  unpublishButton: {
+    justifyContent: 'center',
+    paddingVertical: verticalScale(10),
+    borderRadius: moderateScale(8),
     backgroundColor: Colors.lightGray,
     borderWidth: 1,
-    borderColor: Colors.inputBorder,
+    borderColor: Colors.errorRed,
   },
-  statusButtonText: {
+  deleteButtonText: {
     fontSize: moderateScale(14),
     fontWeight: '600',
-  },
-  publishButtonText: {
-    color: Colors.white,
-  },
-  unpublishButtonText: {
-    color: Colors.textMedium,
+    color: Colors.errorRed,
+    marginLeft: scale(6),
   },
   emptyState: {
     alignItems: 'center',

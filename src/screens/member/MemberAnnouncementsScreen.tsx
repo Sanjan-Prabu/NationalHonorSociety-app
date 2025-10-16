@@ -57,26 +57,7 @@ const MemberAnnouncementsScreen = ({ navigation }: any) => {
 
       if (error) {
         console.error('Error fetching announcements:', error);
-        // Fallback to mock data if database query fails
-        const mockAnnouncements = [
-          {
-            id: 1,
-            type: 'Reminder',
-            date: 'May 8, 2023',
-            title: 'Beach Cleanup Day',
-            content: 'Don\'t forget about our Beach Cleanup Day this Saturday, May 15th from 9:00 AM to 12:00 PM at Sunset Beach. Please wear comfortable clothes and bring sunscreen. Water and snacks will be provided.',
-            image: 'Last year\'s beach cleanup event',
-          },
-          {
-            id: 2,
-            type: 'Flyer',
-            date: 'May 5, 2023',
-            title: 'Scholarship Opportunities',
-            content: 'Several new scholarship opportunities have been posted. Check the scholarship portal for more information.',
-          },
-        ];
-
-        setAnnouncements(mockAnnouncements);
+        setAnnouncements([]);
       } else {
         // Transform database data to match announcement interface
         const transformedAnnouncements = (data || []).map(announcement => ({

@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useOrganization } from '../contexts/OrganizationContext';
 import { supabase } from '../lib/supabaseClient';
-import { getMockData } from '../data/mockOrganizationData';
 import { 
   Event, 
   VolunteerHours, 
@@ -107,18 +106,6 @@ export function useOrganizationData<T extends BaseOrganizationData | LegacyBaseO
       const { data: result, error: queryError } = await query;
 
       if (queryError) {
-        // Handle missing tables gracefully by using mock data
-        if (queryError.code === 'PGRST205' || queryError.code === '42703') {
-          console.log(`⚠️ Table ${tableName} not found or missing ${orgFieldName} column - using mock data`);
-          const mockData = getMockData(tableName, organizationSlug || organizationId || '');
-          
-          // Apply limit if specified
-          const limitedData = limit ? mockData.slice(0, limit) : mockData;
-          
-          setData(limitedData as T[]);
-          setError(null);
-          return;
-        }
         throw queryError;
       }
 
@@ -126,21 +113,9 @@ export function useOrganizationData<T extends BaseOrganizationData | LegacyBaseO
       console.log(`✅ Fetched ${result?.length || 0} ${tableName} records for ${orgIdentifier}`);
     } catch (err) {
       console.error(`❌ Error fetching ${tableName}:`, err);
-      // For development, use mock data for missing tables
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch data';
-      if (errorMessage.includes('does not exist') || errorMessage.includes('Could not find')) {
-        console.log(`⚠️ ${tableName} table not set up yet - using mock data`);
-        const mockData = getMockData(tableName, organizationSlug || organizationId || '');
-        
-        // Apply limit if specified
-        const limitedData = limit ? mockData.slice(0, limit) : mockData;
-        
-        setData(limitedData as T[]);
-        setError(null);
-      } else {
-        setError(errorMessage);
-        setData([]);
-      }
+      setError(errorMessage);
+      setData([]);
     } finally {
       setIsLoading(false);
     }
