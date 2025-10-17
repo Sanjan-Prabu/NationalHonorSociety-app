@@ -17,6 +17,13 @@ export type AuthStackParamList = {
   Signup: { role: 'member' | 'officer' };
 };
 
+// Officer Stack Parameter List - Officer stack navigation
+export type OfficerStackParamList = {
+  OfficerTabs: undefined;
+  AttendanceSession: undefined;
+  EventAttendance: { eventId: string };
+};
+
 // Officer Tab Parameter List - Officer bottom tab navigation
 export type OfficerTabParamList = {
   OfficerDashboard: undefined;

@@ -14,6 +14,9 @@ import { NoAttendanceEmptyState, NetworkErrorEmptyState } from '../../components
 import { useUserAttendance, useAttendanceMarking } from '../../hooks/useAttendanceData';
 import { useCurrentOrganizationId } from '../../hooks/useUserData';
 import { AttendanceRecord } from '../../types/dataService';
+// Temporarily disabled BLE imports for Expo Go testing
+// import { useBLE } from '../../../modules/BLE/BLEContext';
+// import { AttendanceSession } from '../../types/ble';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -37,6 +40,14 @@ const MemberAttendanceScreen = ({ navigation }: any) => {
   const { showSuccess, showError } = useToast();
   const insets = useSafeAreaInsets();
   const currentOrgId = useCurrentOrganizationId();
+
+  // BLE Context
+  // Temporarily disabled BLE functionality for Expo Go testing
+  const bluetoothState = 'unknown';
+  const autoAttendanceEnabled = false;
+  const detectedSessions: any[] = [];
+  const enableAutoAttendance = () => console.log('BLE disabled in Expo Go');
+  const disableAutoAttendance = () => console.log('BLE disabled in Expo Go');
 
   const [hasJoinedSession, setHasJoinedSession] = useState(false);
 
@@ -66,6 +77,7 @@ const MemberAttendanceScreen = ({ navigation }: any) => {
         minute: '2-digit', 
         hour12: true 
       }),
+      method: record.method || 'manual',
       verified: false, // Verification status not available in current AttendanceRecord type
       present: record.status === 'present' || record.status === 'attended',
     }));
@@ -73,11 +85,11 @@ const MemberAttendanceScreen = ({ navigation }: any) => {
 
   const recentAttendance = attendanceData ? transformAttendanceData(attendanceData.slice(0, 10)) : [];
 
-  // Mock active session for now - this would come from a real-time session system
-  const activeSession = {
-    id: 'session_1',
-    title: 'Monthly Meeting',
-    host: 'Jessica Davis (President)',
+  // Use detected BLE sessions instead of mock data
+  const activeSession = detectedSessions.length > 0 ? {
+    id: detectedSessions[0].sessionToken,
+    title: detectedSessions[0].title,
+    host: 'Officer', // We don't have host info in BLE sessions
     date: new Date().toLocaleDateString('en-US', { 
       month: 'long', 
       day: 'numeric', 
@@ -88,8 +100,8 @@ const MemberAttendanceScreen = ({ navigation }: any) => {
       minute: '2-digit', 
       hour12: true 
     }),
-    isActive: false, // Set to false for now since we don't have active session management
-  };
+    isActive: detectedSessions[0].isActive,
+  } : null;
 
   const onRefresh = async () => {
     await refetchAttendance();
@@ -175,6 +187,58 @@ const MemberAttendanceScreen = ({ navigation }: any) => {
 
           <View style={styles.divider} />
 
+          {/* BLE Status Indicator */}
+          <TouchableOpacity 
+            style={styles.bleStatusCard}
+            onPress={() => {
+              if (navigation?.navigate) {
+                navigation.navigate('MemberBLEAttendance');
+              } else {
+                console.log('Navigation not available - BLE screen disabled in Expo Go');
+              }
+            }}
+          >
+            <View style={styles.bleStatusHeader}>
+              <Icon 
+                name={bluetoothState === 'poweredOn' ? 'bluetooth' : 'bluetooth-disabled'} 
+                size={moderateScale(20)} 
+                color={bluetoothState === 'poweredOn' ? Colors.solidBlue : Colors.textLight} 
+              />
+              <View style={styles.bleStatusInfo}>
+                <Text style={styles.bleStatusTitle}>
+                  {autoAttendanceEnabled ? 'Auto-Attendance Active' : 'Auto-Attendance Available'}
+                </Text>
+                <Text style={styles.bleStatusSubtitle}>
+                  {bluetoothState === 'poweredOn' 
+                    ? `${detectedSessions.length} session${detectedSessions.length !== 1 ? 's' : ''} detected`
+                    : 'Enable Bluetooth for auto check-in'
+                  }
+                </Text>
+              </View>
+              <Icon name="chevron-right" size={moderateScale(20)} color={Colors.textLight} />
+            </View>
+            
+            {autoAttendanceEnabled && detectedSessions.length > 0 && (
+              <View style={styles.bleSessionsPreview}>
+                {detectedSessions.slice(0, 2).map((session, index) => (
+                  <View key={session.sessionToken} style={styles.bleSessionItem}>
+                    <Icon 
+                      name={session.isActive ? 'radio-button-checked' : 'radio-button-unchecked'} 
+                      size={moderateScale(12)} 
+                      color={session.isActive ? Colors.successGreen : Colors.textLight} 
+                    />
+                    <Text style={styles.bleSessionText}>{session.title}</Text>
+                  </View>
+                ))}
+                {detectedSessions.length > 2 && (
+                  <Text style={styles.bleMoreSessions}>
+                    +{detectedSessions.length - 2} more
+                  </Text>
+                )}
+              </View>
+            )}
+          </TouchableOpacity>
+
           <View style={styles.sectionContainer}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Session Status</Text>
@@ -249,11 +313,19 @@ const MemberAttendanceScreen = ({ navigation }: any) => {
                 <View key={attendance.id} style={styles.attendanceCard}>
                   <View style={styles.attendanceHeader}>
                     <Text style={styles.attendanceTitle}>{attendance.title}</Text>
-                    {attendance.verified && (
-                      <TouchableOpacity>
-                        <Text style={styles.verifiedLink}>Verified</Text>
-                      </TouchableOpacity>
-                    )}
+                    <View style={styles.attendanceMethodBadge}>
+                      <Icon 
+                        name={attendance.method === 'ble' ? 'bluetooth' : 'touch-app'} 
+                        size={moderateScale(12)} 
+                        color={attendance.method === 'ble' ? Colors.solidBlue : Colors.textMedium} 
+                      />
+                      <Text style={[
+                        styles.attendanceMethodText,
+                        { color: attendance.method === 'ble' ? Colors.solidBlue : Colors.textMedium }
+                      ]}>
+                        {attendance.method === 'ble' ? 'BLE' : 'Manual'}
+                      </Text>
+                    </View>
                   </View>
                   
                   <Text style={styles.attendanceTime}>
@@ -512,6 +584,71 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: verticalScale(100),
+  },
+  bleStatusCard: {
+    backgroundColor: Colors.cardBackground,
+    borderRadius: moderateScale(12),
+    padding: scale(16),
+    marginBottom: verticalScale(16),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: verticalScale(1) },
+    shadowOpacity: 0.05,
+    shadowRadius: moderateScale(4),
+    elevation: 2,
+  },
+  bleStatusHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  bleStatusInfo: {
+    flex: 1,
+    marginLeft: scale(12),
+  },
+  bleStatusTitle: {
+    fontSize: moderateScale(16),
+    fontWeight: '600',
+    color: Colors.textDark,
+    marginBottom: verticalScale(2),
+  },
+  bleStatusSubtitle: {
+    fontSize: moderateScale(14),
+    color: Colors.textMedium,
+  },
+  bleSessionsPreview: {
+    marginTop: verticalScale(12),
+    paddingTop: verticalScale(12),
+    borderTopWidth: 1,
+    borderTopColor: Colors.dividerColor,
+  },
+  bleSessionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: verticalScale(6),
+  },
+  bleSessionText: {
+    fontSize: moderateScale(14),
+    color: Colors.textDark,
+    marginLeft: scale(8),
+    flex: 1,
+  },
+  bleMoreSessions: {
+    fontSize: moderateScale(12),
+    color: Colors.textLight,
+    fontStyle: 'italic',
+    marginTop: verticalScale(4),
+  },
+  attendanceMethodBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.lightBlue,
+    paddingHorizontal: scale(8),
+    paddingVertical: verticalScale(4),
+    borderRadius: moderateScale(12),
+  },
+  attendanceMethodText: {
+    fontSize: moderateScale(12),
+    fontWeight: '600',
+    marginLeft: scale(4),
   },
 });
 

@@ -3,6 +3,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ToastProvider } from './src/components/ui/ToastProvider';
 import { AuthProvider } from './src/contexts/AuthContext';
 import { OrganizationProvider } from './src/contexts/OrganizationContext';
+import { BLEProvider } from './modules/BLE/BLEContext';
 import { QueryProvider } from './src/providers/QueryProvider';
 import { DataErrorBoundary } from './src/components/ErrorBoundary/DataErrorBoundary';
 import RootNavigator from './src/navigation/RootNavigator';
@@ -22,10 +23,12 @@ export default function App() {
           <NavigationErrorBoundary>
             <AuthProvider>
               <OrganizationProvider>
-                <ToastProvider>
-                  <AppContent />
-                  <StatusBar style="auto" />
-                </ToastProvider>
+                <BLEProvider>
+                  <ToastProvider>
+                    <AppContent />
+                    <StatusBar style="auto" />
+                  </ToastProvider>
+                </BLEProvider>
               </OrganizationProvider>
             </AuthProvider>
           </NavigationErrorBoundary>

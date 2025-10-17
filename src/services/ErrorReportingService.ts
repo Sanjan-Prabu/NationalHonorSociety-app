@@ -455,10 +455,16 @@ export class ErrorReportingService {
   }
 
   private getPlatform(): string {
-    if (typeof navigator !== 'undefined') {
+    if (typeof navigator !== 'undefined' && navigator.platform) {
       return navigator.platform;
     }
-    return 'Unknown';
+    // Fallback to React Native Platform
+    try {
+      const { Platform } = require('react-native');
+      return Platform.OS || 'Unknown';
+    } catch (e) {
+      return 'Unknown';
+    }
   }
 
   private getAppVersion(): string {
@@ -467,12 +473,17 @@ export class ErrorReportingService {
   }
 
   private getDeviceModel(userAgent: string): string {
+    // Safe includes function to avoid runtime errors
+    const safeIncludes = (str: string, search: string): boolean => {
+      return str && typeof str.indexOf === 'function' ? str.indexOf(search) !== -1 : false;
+    };
+
     // Basic device model detection - you might want to use a more sophisticated library
-    if (userAgent.includes('iPhone')) {
+    if (safeIncludes(userAgent, 'iPhone')) {
       const match = userAgent.match(/iPhone OS (\d+_\d+)/);
       return match ? `iPhone (iOS ${match[1].replace('_', '.')})` : 'iPhone';
     }
-    if (userAgent.includes('Android')) {
+    if (safeIncludes(userAgent, 'Android')) {
       const match = userAgent.match(/Android (\d+\.?\d*)/);
       return match ? `Android ${match[1]}` : 'Android';
     }
@@ -480,17 +491,27 @@ export class ErrorReportingService {
   }
 
   private getDeviceManufacturer(userAgent: string): string {
-    if (userAgent.includes('iPhone') || userAgent.includes('iPad')) return 'Apple';
-    if (userAgent.includes('Samsung')) return 'Samsung';
-    if (userAgent.includes('Huawei')) return 'Huawei';
-    if (userAgent.includes('Xiaomi')) return 'Xiaomi';
+    // Safe includes function to avoid runtime errors
+    const safeIncludes = (str: string, search: string): boolean => {
+      return str && typeof str.indexOf === 'function' ? str.indexOf(search) !== -1 : false;
+    };
+
+    if (safeIncludes(userAgent, 'iPhone') || safeIncludes(userAgent, 'iPad')) return 'Apple';
+    if (safeIncludes(userAgent, 'Samsung')) return 'Samsung';
+    if (safeIncludes(userAgent, 'Huawei')) return 'Huawei';
+    if (safeIncludes(userAgent, 'Xiaomi')) return 'Xiaomi';
     return 'Unknown';
   }
 
   private isEmulator(userAgent: string): boolean {
-    return userAgent.includes('Simulator') || 
-           userAgent.includes('Emulator') ||
-           userAgent.includes('Android SDK');
+    // Safe includes function to avoid runtime errors
+    const safeIncludes = (str: string, search: string): boolean => {
+      return str && typeof str.indexOf === 'function' ? str.indexOf(search) !== -1 : false;
+    };
+
+    return safeIncludes(userAgent, 'Simulator') || 
+           safeIncludes(userAgent, 'Emulator') ||
+           safeIncludes(userAgent, 'Android SDK');
   }
 
   // =============================================================================
@@ -499,16 +520,22 @@ export class ErrorReportingService {
 
   private logError(report: ErrorReport): void {
     if (__DEV__) {
-      const logMethod = report.level === 'error' ? console.error : 
-                       report.level === 'warning' ? console.warn : console.log;
+      // Add safety checks for all potentially undefined values
+      const level = report?.level || 'error';
+      const category = report?.category || 'unknown';
+      const message = report?.message || 'Unknown error';
+      const id = report?.id || 'unknown-id';
       
-      logMethod(`[ErrorReportingService] ${report.level.toUpperCase()}:`, {
-        id: report.id,
-        category: report.category,
-        message: report.message,
-        context: report.context,
-        metadata: report.metadata,
-        timestamp: report.timestamp,
+      const logMethod = level === 'error' ? console.error : 
+                       level === 'warning' ? console.warn : console.log;
+      
+      logMethod(`[ErrorReportingService] ${level.toUpperCase()}:`, {
+        id,
+        category,
+        message,
+        context: report?.context || {},
+        metadata: report?.metadata || {},
+        timestamp: report?.timestamp || new Date().toISOString(),
       });
     }
   }

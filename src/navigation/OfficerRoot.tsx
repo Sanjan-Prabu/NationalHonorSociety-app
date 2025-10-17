@@ -1,9 +1,9 @@
 import React from 'react';
 import { OfficerRootProps } from '../types/navigation';
-import OfficerBottomNavigator from './OfficerBottomNavigator';
+import OfficerStack from './OfficerStack';
 
 interface OfficerRootComponentProps extends OfficerRootProps {}
 
 export default function OfficerRoot({}: OfficerRootComponentProps) {
-  return <OfficerBottomNavigator />;
+  return <OfficerStack />;
 }

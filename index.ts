@@ -1,5 +1,21 @@
-import { registerRootComponent } from 'expo';
+// Add polyfills at the very top
+import 'react-native-get-random-values';
 
+// Add Array.includes polyfill for older JavaScript engines
+if (typeof Array.prototype.includes === 'undefined') {
+  Array.prototype.includes = function(search) {
+    return this.indexOf(search) !== -1;
+  };
+}
+
+// Add String.includes polyfill
+if (typeof String.prototype.includes === 'undefined') {
+  String.prototype.includes = function(search) {
+    return this.indexOf(search) !== -1;
+  };
+}
+
+import { registerRootComponent } from 'expo';
 import App from './App';
 
 // registerRootComponent calls AppRegistry.registerComponent('main', () => App);

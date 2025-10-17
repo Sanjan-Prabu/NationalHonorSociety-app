@@ -13,6 +13,9 @@ export * from './authErrors';
 // Navigation types
 export * from './navigation';
 
+// BLE types
+export * from './ble';
+
 // Re-export commonly used types for convenience
 export type {
   Organization,

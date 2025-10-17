@@ -167,18 +167,18 @@ const SignupScreen = ({ route, navigation }: SignupScreenProps) => {
       console.log('Auth Key exists:', !!process.env.EXPO_PUBLIC_SUPABASE_KEY);
       console.log('Auth Key length:', process.env.EXPO_PUBLIC_SUPABASE_KEY?.length);
 
-      // Debug the organization mapping
+      // Map organization input to proper organization slugs
       const userOrgInput = organization.trim().toLowerCase();
       let mappedOrg;
       
-      if (userOrgInput === 'nhs' || userOrgInput === 'test-nhs') {
-        mappedOrg = 'test-nhs';
-      } else if (userOrgInput === 'nhsa' || userOrgInput === 'test-nhsa') {
-        mappedOrg = 'test-nhsa';
+      if (userOrgInput === 'nhs') {
+        mappedOrg = 'nhs';
+      } else if (userOrgInput === 'nhsa') {
+        mappedOrg = 'nhsa';
       } else {
         // Default fallback
-        mappedOrg = 'test-nhs';
-        console.warn('Unknown organization input:', userOrgInput, 'defaulting to test-nhs');
+        mappedOrg = 'nhs';
+        console.warn('Unknown organization input:', userOrgInput, 'defaulting to nhs');
       }
       
       console.log('Organization mapping debug:', {
