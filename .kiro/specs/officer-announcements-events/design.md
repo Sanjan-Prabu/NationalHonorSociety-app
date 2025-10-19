@@ -289,6 +289,33 @@ async createAnnouncement(data: CreateAnnouncementData): Promise<Announcement> {
 - **Subscription Efficiency**: Test realtime subscription resource usage
 - **Large Dataset Handling**: Test with realistic data volumes
 
+### Shared UI Components
+
+#### AnnouncementCard Component
+```typescript
+interface AnnouncementCardProps {
+  announcement: Announcement;
+  showDeleteButton?: boolean;
+  onDelete?: (id: string) => void;
+  onLinkPress?: (url: string) => void;
+}
+
+const AnnouncementCard: React.FC<AnnouncementCardProps> = ({
+  announcement,
+  showDeleteButton = false,
+  onDelete,
+  onLinkPress
+}) => {
+  // Unified card layout with:
+  // - Colored tag based on announcement.tag
+  // - Title and message
+  // - Link button if announcement.link exists
+  // - Separator line
+  // - Creation date and creator name
+  // - Delete button (officer only)
+};
+```
+
 ## Implementation Phases
 
 ### Phase 1: Database Setup
@@ -300,13 +327,21 @@ async createAnnouncement(data: CreateAnnouncementData): Promise<Announcement> {
 1. Implement announcement and event service classes
 2. Add org_id resolution from user session
 3. Implement soft deletion logic
+4. Fix RLS policy violations for delete operations
 
-### Phase 3: Frontend Integration
-1. Modify existing screens to use dynamic data services
+### Phase 3: Shared UI Components
+1. Create unified AnnouncementCard component
+2. Implement consistent styling and layout
+3. Add conditional delete functionality for officers
+
+### Phase 4: Frontend Integration
+1. Modify existing screens to use shared AnnouncementCard component
 2. Implement realtime subscriptions with proper cleanup
-3. Add role-based UI controls (create/delete buttons)
+3. Fix instant update functionality for create/delete operations
+4. Ensure consistent UI across member and officer views
 
-### Phase 4: Testing & Validation
+### Phase 5: Testing & Validation
 1. Comprehensive manual testing of all user flows
 2. Performance testing with realistic data volumes
 3. Security validation of RLS policies and data isolation
+4. Test real-time updates and delete functionality

@@ -44,6 +44,7 @@ export interface Membership {
  * Enhanced Profile Model
  * Updated to support multi-organization membership
  * Organization membership is now handled through the memberships table
+ * org_id and role fields provide quick access to default organization context
  */
 export interface Profile {
   id: UUID;             // References auth.users.id
@@ -57,6 +58,8 @@ export interface Profile {
   is_verified: boolean;
   username?: string;
   display_name?: string;
+  org_id?: UUID;        // Default organization for quick context (references organizations.id)
+  role?: MembershipRole; // Default role for quick access
   created_at: string;
   updated_at: string;
 }
@@ -112,6 +115,7 @@ export interface VolunteerHours {
   approved_by?: UUID;   // References profiles.id
   approved_at?: string;
   attachment_file_id?: UUID; // File attachment reference
+  event_id?: UUID;      // Optional reference to organization event
 }
 
 /**

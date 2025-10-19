@@ -8,10 +8,14 @@ const Colors = {
   lightGreen: '#EBF8F2',
   lightYellow: '#FEF5E7',
   lightPurple: '#F3E8FF',
+  lightOrange: '#FEF5E7',
+  lightTeal: '#E6FFFA',
   solidBlue: '#2B5CE6',
   green: '#48BB78',
   yellow: '#ECC94B',
   purple: '#9F7AEA',
+  orange: '#ECC94B',
+  teal: '#38B2AC',
   white: '#FFFFFF',
   inactiveBackground: '#F7FAFC',
   inactiveText: '#718096',
@@ -19,7 +23,7 @@ const Colors = {
 
 interface TagProps {
   text: string;
-  variant?: 'blue' | 'green' | 'yellow' | 'purple' | 'inactive';
+  variant?: 'blue' | 'green' | 'yellow' | 'purple' | 'orange' | 'teal' | 'inactive';
   style?: any;
   active?: boolean;
 }
@@ -47,6 +51,16 @@ const Tag: React.FC<TagProps> = ({ text, variant = 'inactive', style, active = f
         return {
           backgroundColor: Colors.lightPurple,
           textColor: Colors.purple,
+        };
+      case 'orange':
+        return {
+          backgroundColor: Colors.lightOrange,
+          textColor: Colors.orange,
+        };
+      case 'teal':
+        return {
+          backgroundColor: Colors.lightTeal,
+          textColor: Colors.teal,
         };
       case 'blue':
       default:

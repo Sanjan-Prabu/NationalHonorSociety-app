@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 
 interface TabScreen {
   name: string;
@@ -28,6 +29,7 @@ export default function FallbackTabNavigator({
   screenOptions = {} 
 }: FallbackTabNavigatorProps) {
   const [activeTab, setActiveTab] = useState(0);
+  const navigation = useNavigation();
   
   // Handle empty screens array
   if (!screens || screens.length === 0) {
@@ -50,7 +52,7 @@ export default function FallbackTabNavigator({
   return (
     <View style={styles.container}>
       <View style={styles.content}>
-        {ActiveComponent && <ActiveComponent />}
+        {ActiveComponent && <ActiveComponent navigation={navigation} />}
       </View>
       <View style={styles.tabBar}>
         {screens.map((screen, index) => {

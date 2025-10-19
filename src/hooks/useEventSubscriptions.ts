@@ -1,605 +1,373 @@
 /**
- * Event Real-time Subscriptions
- * Implements Supabase real-time listeners for events table with automatic cache invalidation
- * Requirements: 7.1, 7.2, 7.3
+ * useEventSubscriptions - React hook for managing event realtime subscriptions
+ * Handles subscription lifecycle (create/cleanup) properly with organization context
+ * Requirements: 6.1, 6.2, 6.3, 6.4
  */
 
-import { useEffect, useRef } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { supabase } from '../lib/supabaseClient';
-import { RealtimeChannel } from '@supabase/supabase-js';
-import { EventData } from '../types/dataService';
-import { UUID, DATABASE_TABLES } from '../types/database';
-import { queryKeys, cacheInvalidation } from '../config/reactQuery';
+import { useEffect, useRef, useCallback } from 'react';
+import { useOrganization } from '../contexts/OrganizationContext';
+import { eventService, Event, EventFilters } from '../services/EventService';
 
 // =============================================================================
-// SUBSCRIPTION TYPES
+// SUBSCRIPTION INTERFACES
 // =============================================================================
 
-interface EventSubscriptionConfig {
-  orgId: UUID;
+interface EventSubscriptionPayload {
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+  new: Event | null;
+  old: Event | null;
+}
+
+interface UseEventSubscriptionsOptions {
+  filters?: EventFilters;
   enabled?: boolean;
-  onEventCreated?: (event: EventData) => void;
-  onEventUpdated?: (event: EventData) => void;
-  onEventDeleted?: (eventId: UUID) => void;
-}
-
-interface AttendanceSubscriptionConfig {
-  eventId: UUID;
-  enabled?: boolean;
-  onAttendanceMarked?: (attendance: any) => void;
-  onAttendanceUpdated?: (attendance: any) => void;
+  onInsert?: (event: Event) => void;
+  onUpdate?: (event: Event, oldEvent: Event) => void;
+  onDelete?: (event: Event) => void;
+  onError?: (error: Error) => void;
 }
 
 // =============================================================================
-// EVENT SUBSCRIPTIONS
+// MAIN HOOK
 // =============================================================================
 
-/**
- * Hook for real-time event subscriptions with automatic cache invalidation
- * Requirements: 7.1, 7.2, 7.3
- */
-export function useEventSubscription(config: EventSubscriptionConfig) {
-  const queryClient = useQueryClient();
-  const channelRef = useRef<RealtimeChannel | null>(null);
-  const { orgId, enabled = true, onEventCreated, onEventUpdated, onEventDeleted } = config;
-
-  useEffect(() => {
-    if (!enabled || !orgId) return;
-
-    // Create a unique channel name for this organization
-    const channelName = `events_${orgId}`;
-    
-    // Remove existing subscription if any
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
-    }
-
-    // Create new subscription
-    const channel = supabase
-      .channel(channelName)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: DATABASE_TABLES.EVENTS,
-          filter: `org_id=eq.${orgId}`,
-        },
-        (payload) => {
-          console.log('Event created:', payload);
-          
-          const newEvent = payload.new as any;
-          
-          // Invalidate event lists to refetch with new data
-          cacheInvalidation.invalidateEventQueries(queryClient, orgId);
-          
-          // Call custom callback if provided
-          if (onEventCreated && newEvent) {
-            onEventCreated(newEvent);
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: DATABASE_TABLES.EVENTS,
-          filter: `org_id=eq.${orgId}`,
-        },
-        (payload) => {
-          console.log('Event updated:', payload);
-          
-          const updatedEvent = payload.new as any;
-          const eventId = updatedEvent?.id;
-          
-          if (eventId) {
-            // Update specific event in cache
-            queryClient.setQueryData(
-              queryKeys.events.detail(eventId),
-              (oldData: EventData | undefined) => {
-                if (!oldData) return updatedEvent;
-                return { ...oldData, ...updatedEvent };
-              }
-            );
-
-            // Update in event lists
-            queryClient.setQueriesData(
-              { queryKey: queryKeys.events.lists() },
-              (oldData: EventData[] | undefined) => {
-                if (!oldData) return oldData;
-                return oldData.map(event => 
-                  event.id === eventId ? { ...event, ...updatedEvent } : event
-                );
-              }
-            );
-
-            // Call custom callback if provided
-            if (onEventUpdated) {
-              onEventUpdated(updatedEvent);
-            }
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'DELETE',
-          schema: 'public',
-          table: DATABASE_TABLES.EVENTS,
-          filter: `org_id=eq.${orgId}`,
-        },
-        (payload) => {
-          console.log('Event deleted:', payload);
-          
-          const deletedEvent = payload.old as any;
-          const eventId = deletedEvent?.id;
-          
-          if (eventId) {
-            // Remove from cache
-            queryClient.removeQueries({ queryKey: queryKeys.events.detail(eventId) });
-            queryClient.removeQueries({ queryKey: queryKeys.events.attendance(eventId) });
-            
-            // Remove from event lists
-            queryClient.setQueriesData(
-              { queryKey: queryKeys.events.lists() },
-              (oldData: EventData[] | undefined) => {
-                if (!oldData) return oldData;
-                return oldData.filter(event => event.id !== eventId);
-              }
-            );
-
-            // Call custom callback if provided
-            if (onEventDeleted) {
-              onEventDeleted(eventId);
-            }
-          }
-        }
-      )
-      .subscribe((status) => {
-        console.log(`Event subscription status for org ${orgId}:`, status);
-      });
-
-    channelRef.current = channel;
-
-    // Cleanup function
-    return () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
-    };
-  }, [orgId, enabled, queryClient, onEventCreated, onEventUpdated, onEventDeleted]);
-
-  return {
-    isSubscribed: !!channelRef.current,
-    unsubscribe: () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
-    },
-  };
-}
-
-/**
- * Hook for real-time attendance subscriptions
- * Requirements: 7.1, 7.3
- */
-export function useAttendanceSubscription(config: AttendanceSubscriptionConfig) {
-  const queryClient = useQueryClient();
-  const channelRef = useRef<RealtimeChannel | null>(null);
-  const { eventId, enabled = true, onAttendanceMarked, onAttendanceUpdated } = config;
-
-  useEffect(() => {
-    if (!enabled || !eventId) return;
-
-    // Create a unique channel name for this event's attendance
-    const channelName = `attendance_${eventId}`;
-    
-    // Remove existing subscription if any
-    if (channelRef.current) {
-      supabase.removeChannel(channelRef.current);
-    }
-
-    // Create new subscription
-    const channel = supabase
-      .channel(channelName)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: DATABASE_TABLES.ATTENDANCE,
-          filter: `event_id=eq.${eventId}`,
-        },
-        (payload) => {
-          console.log('Attendance marked:', payload);
-          
-          const newAttendance = payload.new as any;
-          
-          // Update attendance cache
-          queryClient.setQueryData(
-            queryKeys.events.attendance(eventId),
-            (oldData: any[] | undefined) => {
-              if (!oldData) return [newAttendance];
-              return [newAttendance, ...oldData];
-            }
-          );
-
-          // Update event details to reflect new attendance count
-          queryClient.setQueryData(
-            queryKeys.events.detail(eventId),
-            (oldEvent: EventData | undefined) => {
-              if (!oldEvent) return oldEvent;
-              return {
-                ...oldEvent,
-                attendee_count: (oldEvent.attendee_count || 0) + 1,
-              };
-            }
-          );
-
-          // Invalidate related queries
-          cacheInvalidation.invalidateAttendanceQueries(queryClient, undefined, eventId);
-          
-          // Call custom callback if provided
-          if (onAttendanceMarked) {
-            onAttendanceMarked(newAttendance);
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: DATABASE_TABLES.ATTENDANCE,
-          filter: `event_id=eq.${eventId}`,
-        },
-        (payload) => {
-          console.log('Attendance updated:', payload);
-          
-          const updatedAttendance = payload.new as any;
-          const attendanceId = updatedAttendance?.id;
-          
-          if (attendanceId) {
-            // Update attendance in cache
-            queryClient.setQueryData(
-              queryKeys.events.attendance(eventId),
-              (oldData: any[] | undefined) => {
-                if (!oldData) return [updatedAttendance];
-                return oldData.map(record => 
-                  record.id === attendanceId ? { ...record, ...updatedAttendance } : record
-                );
-              }
-            );
-
-            // Call custom callback if provided
-            if (onAttendanceUpdated) {
-              onAttendanceUpdated(updatedAttendance);
-            }
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'DELETE',
-          schema: 'public',
-          table: DATABASE_TABLES.ATTENDANCE,
-          filter: `event_id=eq.${eventId}`,
-        },
-        (payload) => {
-          console.log('Attendance deleted:', payload);
-          
-          const deletedAttendance = payload.old as any;
-          const attendanceId = deletedAttendance?.id;
-          
-          if (attendanceId) {
-            // Remove from attendance cache
-            queryClient.setQueryData(
-              queryKeys.events.attendance(eventId),
-              (oldData: any[] | undefined) => {
-                if (!oldData) return oldData;
-                return oldData.filter(record => record.id !== attendanceId);
-              }
-            );
-
-            // Update event details to reflect decreased attendance count
-            queryClient.setQueryData(
-              queryKeys.events.detail(eventId),
-              (oldEvent: EventData | undefined) => {
-                if (!oldEvent) return oldEvent;
-                return {
-                  ...oldEvent,
-                  attendee_count: Math.max((oldEvent.attendee_count || 1) - 1, 0),
-                };
-              }
-            );
-          }
-        }
-      )
-      .subscribe((status) => {
-        console.log(`Attendance subscription status for event ${eventId}:`, status);
-      });
-
-    channelRef.current = channel;
-
-    // Cleanup function
-    return () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
-    };
-  }, [eventId, enabled, queryClient, onAttendanceMarked, onAttendanceUpdated]);
-
-  return {
-    isSubscribed: !!channelRef.current,
-    unsubscribe: () => {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
-    },
-  };
-}
-
-// =============================================================================
-// COMBINED SUBSCRIPTION HOOKS
-// =============================================================================
-
-/**
- * Hook that combines event and attendance subscriptions for comprehensive real-time updates
- * Requirements: 7.1, 7.2, 7.3
- */
-export function useEventRealtimeSync(orgId: UUID, eventId?: UUID) {
-  const eventSubscription = useEventSubscription({
-    orgId,
-    enabled: !!orgId,
-  });
-
-  const attendanceSubscription = useAttendanceSubscription({
-    eventId: eventId || '',
-    enabled: !!eventId,
-  });
-
-  return {
-    eventSubscription,
-    attendanceSubscription,
-    isFullySubscribed: eventSubscription.isSubscribed && 
-                      (eventId ? attendanceSubscription.isSubscribed : true),
-    unsubscribeAll: () => {
-      eventSubscription.unsubscribe();
-      attendanceSubscription.unsubscribe();
-    },
-  };
-}
-
-/**
- * Hook for organization-wide event monitoring with custom handlers
- * Requirements: 7.1, 7.2
- */
-export function useOrganizationEventMonitor(
-  orgId: UUID,
-  handlers?: {
-    onEventCreated?: (event: EventData) => void;
-    onEventUpdated?: (event: EventData) => void;
-    onEventDeleted?: (eventId: UUID) => void;
-  }
+export function useEventSubscriptions(
+  callback: (payload: EventSubscriptionPayload) => void,
+  options: UseEventSubscriptionsOptions = {}
 ) {
-  return useEventSubscription({
-    orgId,
-    enabled: !!orgId,
-    ...handlers,
-  });
+  const {
+    filters,
+    enabled = true,
+    onInsert,
+    onUpdate,
+    onDelete,
+    onError
+  } = options;
+
+  const { currentOrganization } = useOrganization();
+  const unsubscribeRef = useRef<(() => void) | null>(null);
+  const mountedRef = useRef(true);
+
+  // Enhanced callback that handles specific event types
+  const enhancedCallback = useCallback((payload: EventSubscriptionPayload) => {
+    if (!mountedRef.current) return;
+
+    try {
+      // Call the main callback
+      callback(payload);
+
+      // Call specific event callbacks
+      switch (payload.eventType) {
+        case 'INSERT':
+          if (payload.new && onInsert) {
+            onInsert(payload.new);
+          }
+          break;
+
+        case 'UPDATE':
+          if (payload.new && payload.old && onUpdate) {
+            onUpdate(payload.new, payload.old);
+          }
+          break;
+
+        case 'DELETE':
+          if (payload.old && onDelete) {
+            onDelete(payload.old);
+          }
+          break;
+      }
+    } catch (error) {
+      console.error('Error in event subscription callback:', error);
+      if (onError && error instanceof Error) {
+        onError(error);
+      }
+    }
+  }, [callback, onInsert, onUpdate, onDelete, onError]);
+
+  // Setup subscription
+  const setupSubscription = useCallback(async () => {
+    if (!enabled || !currentOrganization || !mountedRef.current) {
+      return;
+    }
+
+    try {
+      console.log('Setting up event subscription for organization:', currentOrganization.slug);
+
+      const unsubscribe = await eventService.subscribeToEvents(
+        enhancedCallback,
+        filters
+      );
+
+      if (mountedRef.current) {
+        unsubscribeRef.current = unsubscribe;
+        console.log('Event subscription established successfully');
+      } else {
+        // Component unmounted while setting up subscription
+        unsubscribe();
+      }
+    } catch (error) {
+      console.error('Failed to setup event subscription:', error);
+      if (onError && error instanceof Error) {
+        onError(error);
+      }
+    }
+  }, [enabled, currentOrganization, enhancedCallback, filters, onError]);
+
+  // Cleanup subscription
+  const cleanupSubscription = useCallback(() => {
+    if (unsubscribeRef.current) {
+      console.log('Cleaning up event subscription');
+      unsubscribeRef.current();
+      unsubscribeRef.current = null;
+    }
+  }, []);
+
+  // Setup subscription when organization context is ready
+  useEffect(() => {
+    setupSubscription();
+
+    return cleanupSubscription;
+  }, [setupSubscription, cleanupSubscription]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      cleanupSubscription();
+    };
+  }, [cleanupSubscription]);
+
+  // Return subscription status and manual controls
+  return {
+    isSubscribed: !!unsubscribeRef.current,
+    resubscribe: setupSubscription,
+    unsubscribe: cleanupSubscription,
+  };
 }
 
+// =============================================================================
+// SPECIALIZED HOOKS
+// =============================================================================
+
 /**
- * Hook for event-specific monitoring with attendance tracking
- * Requirements: 7.1, 7.3
+ * Hook for event list subscriptions with automatic state management
  */
-export function useEventMonitor(
-  eventId: UUID,
-  handlers?: {
-    onAttendanceMarked?: (attendance: any) => void;
-    onAttendanceUpdated?: (attendance: any) => void;
-  }
+export function useEventListSubscription(
+  events: Event[],
+  setEvents: (events: Event[] | ((prev: Event[]) => Event[])) => void,
+  options: Omit<UseEventSubscriptionsOptions, 'onInsert' | 'onUpdate' | 'onDelete'> = {}
 ) {
-  return useAttendanceSubscription({
-    eventId,
-    enabled: !!eventId,
-    ...handlers,
-  });
-}
-
-// =============================================================================
-// SUBSCRIPTION MANAGER
-// =============================================================================
-
-/**
- * Centralized subscription manager for multiple organizations/events
- * Requirements: 7.1, 7.2, 7.3
- */
-export class EventSubscriptionManager {
-  private static instance: EventSubscriptionManager;
-  private subscriptions: Map<string, RealtimeChannel> = new Map();
-
-  static getInstance(): EventSubscriptionManager {
-    if (!EventSubscriptionManager.instance) {
-      EventSubscriptionManager.instance = new EventSubscriptionManager();
-    }
-    return EventSubscriptionManager.instance;
-  }
-
-  /**
-   * Subscribe to events for an organization
-   */
-  subscribeToOrganizationEvents(
-    orgId: UUID,
-    queryClient: any,
-    callbacks?: {
-      onEventCreated?: (event: EventData) => void;
-      onEventUpdated?: (event: EventData) => void;
-      onEventDeleted?: (eventId: UUID) => void;
-    }
-  ): string {
-    const subscriptionKey = `events_${orgId}`;
-    
-    // Remove existing subscription if any
-    this.unsubscribe(subscriptionKey);
-
-    const channel = supabase
-      .channel(subscriptionKey)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: DATABASE_TABLES.EVENTS,
-          filter: `org_id=eq.${orgId}`,
-        },
-        (payload) => {
-          const { eventType, new: newRecord, old: oldRecord } = payload;
-          
-          switch (eventType) {
-            case 'INSERT':
-              cacheInvalidation.invalidateEventQueries(queryClient, orgId);
-              callbacks?.onEventCreated?.(newRecord as EventData);
-              break;
-            case 'UPDATE':
-              if (newRecord?.id) {
-                queryClient.setQueryData(
-                  queryKeys.events.detail(newRecord.id),
-                  newRecord
-                );
-                cacheInvalidation.invalidateEventQueries(queryClient, orgId, newRecord.id);
-              }
-              callbacks?.onEventUpdated?.(newRecord as EventData);
-              break;
-            case 'DELETE':
-              if (oldRecord?.id) {
-                queryClient.removeQueries({ queryKey: queryKeys.events.detail(oldRecord.id) });
-                cacheInvalidation.invalidateEventQueries(queryClient, orgId);
-              }
-              callbacks?.onEventDeleted?.(oldRecord?.id);
-              break;
+  const handleSubscriptionUpdate = useCallback((payload: EventSubscriptionPayload) => {
+    setEvents(prev => {
+      switch (payload.eventType) {
+        case 'INSERT':
+          if (payload.new) {
+            // Add new event to the list in chronological order
+            // Check if it already exists to avoid duplicates
+            const exists = prev.some(e => e.id === payload.new!.id);
+            if (!exists) {
+              const newList = [...prev, payload.new];
+              // Sort by event_date ascending
+              return newList.sort((a, b) => {
+                const dateA = new Date(a.event_date || a.created_at);
+                const dateB = new Date(b.event_date || b.created_at);
+                return dateA.getTime() - dateB.getTime();
+              });
+            }
           }
-        }
-      )
-      .subscribe();
+          return prev;
 
-    this.subscriptions.set(subscriptionKey, channel);
-    return subscriptionKey;
-  }
-
-  /**
-   * Subscribe to attendance for an event
-   */
-  subscribeToEventAttendance(
-    eventId: UUID,
-    queryClient: any,
-    callbacks?: {
-      onAttendanceMarked?: (attendance: any) => void;
-      onAttendanceUpdated?: (attendance: any) => void;
-    }
-  ): string {
-    const subscriptionKey = `attendance_${eventId}`;
-    
-    // Remove existing subscription if any
-    this.unsubscribe(subscriptionKey);
-
-    const channel = supabase
-      .channel(subscriptionKey)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: DATABASE_TABLES.ATTENDANCE,
-          filter: `event_id=eq.${eventId}`,
-        },
-        (payload) => {
-          const { eventType, new: newRecord, old: oldRecord } = payload;
-          
-          switch (eventType) {
-            case 'INSERT':
-              cacheInvalidation.invalidateAttendanceQueries(queryClient, undefined, eventId);
-              callbacks?.onAttendanceMarked?.(newRecord);
-              break;
-            case 'UPDATE':
-              cacheInvalidation.invalidateAttendanceQueries(queryClient, undefined, eventId);
-              callbacks?.onAttendanceUpdated?.(newRecord);
-              break;
-            case 'DELETE':
-              cacheInvalidation.invalidateAttendanceQueries(queryClient, undefined, eventId);
-              break;
+        case 'UPDATE':
+          if (payload.new) {
+            // Update existing event and re-sort if date changed
+            const updated = prev.map(event => 
+              event.id === payload.new!.id ? payload.new! : event
+            );
+            // Re-sort in case the date was updated
+            return updated.sort((a, b) => {
+              const dateA = new Date(a.event_date || a.created_at);
+              const dateB = new Date(b.event_date || b.created_at);
+              return dateA.getTime() - dateB.getTime();
+            });
           }
-        }
-      )
-      .subscribe();
+          return prev;
 
-    this.subscriptions.set(subscriptionKey, channel);
-    return subscriptionKey;
-  }
+        case 'DELETE':
+          if (payload.old) {
+            // Remove deleted event
+            return prev.filter(event => event.id !== payload.old!.id);
+          }
+          return prev;
 
-  /**
-   * Unsubscribe from a specific subscription
-   */
-  unsubscribe(subscriptionKey: string): void {
-    const channel = this.subscriptions.get(subscriptionKey);
-    if (channel) {
-      supabase.removeChannel(channel);
-      this.subscriptions.delete(subscriptionKey);
-    }
-  }
-
-  /**
-   * Unsubscribe from all subscriptions
-   */
-  unsubscribeAll(): void {
-    this.subscriptions.forEach((channel) => {
-      supabase.removeChannel(channel);
+        default:
+          return prev;
+      }
     });
-    this.subscriptions.clear();
-  }
+  }, [setEvents]);
 
-  /**
-   * Get active subscription count
-   */
-  getActiveSubscriptionCount(): number {
-    return this.subscriptions.size;
-  }
-
-  /**
-   * Get list of active subscription keys
-   */
-  getActiveSubscriptions(): string[] {
-    return Array.from(this.subscriptions.keys());
-  }
-}
-
-// =============================================================================
-// UTILITY HOOKS
-// =============================================================================
-
-/**
- * Hook to use the subscription manager
- */
-export function useEventSubscriptionManager() {
-  return EventSubscriptionManager.getInstance();
+  return useEventSubscriptions(handleSubscriptionUpdate, options);
 }
 
 /**
- * Hook for cleanup on component unmount
+ * Hook for single event subscriptions
  */
-export function useSubscriptionCleanup(subscriptionKeys: string[]) {
-  const manager = useEventSubscriptionManager();
+export function useEventItemSubscription(
+  eventId: string,
+  onUpdate?: (event: Event) => void,
+  onDelete?: () => void,
+  options: Omit<UseEventSubscriptionsOptions, 'onInsert' | 'onUpdate' | 'onDelete'> = {}
+) {
+  const handleSubscriptionUpdate = useCallback((payload: EventSubscriptionPayload) => {
+    // Only handle updates for the specific event
+    const targetId = payload.new?.id || payload.old?.id;
+    if (targetId !== eventId) return;
 
-  useEffect(() => {
-    return () => {
-      subscriptionKeys.forEach(key => manager.unsubscribe(key));
-    };
-  }, [manager, subscriptionKeys]);
+    switch (payload.eventType) {
+      case 'UPDATE':
+        if (payload.new && onUpdate) {
+          onUpdate(payload.new);
+        }
+        break;
+
+      case 'DELETE':
+        if (onDelete) {
+          onDelete();
+        }
+        break;
+    }
+  }, [eventId, onUpdate, onDelete]);
+
+  return useEventSubscriptions(handleSubscriptionUpdate, {
+    ...options,
+    // Filter to only events that might affect this specific item
+    filters: {
+      ...options.filters,
+    }
+  });
+}
+
+/**
+ * Hook for upcoming events subscriptions with automatic filtering
+ */
+export function useUpcomingEventsSubscription(
+  events: Event[],
+  setEvents: (events: Event[] | ((prev: Event[]) => Event[])) => void,
+  options: Omit<UseEventSubscriptionsOptions, 'onInsert' | 'onUpdate' | 'onDelete'> = {}
+) {
+  const handleSubscriptionUpdate = useCallback((payload: EventSubscriptionPayload) => {
+    const now = new Date();
+    
+    setEvents(prev => {
+      switch (payload.eventType) {
+        case 'INSERT':
+          if (payload.new) {
+            // Only add if it's an upcoming event
+            const eventDate = new Date(payload.new.event_date || payload.new.starts_at || '');
+            if (eventDate > now) {
+              const exists = prev.some(e => e.id === payload.new!.id);
+              if (!exists) {
+                const newList = [...prev, payload.new];
+                return newList.sort((a, b) => {
+                  const dateA = new Date(a.event_date || a.starts_at || a.created_at);
+                  const dateB = new Date(b.event_date || b.starts_at || b.created_at);
+                  return dateA.getTime() - dateB.getTime();
+                });
+              }
+            }
+          }
+          return prev;
+
+        case 'UPDATE':
+          if (payload.new) {
+            const eventDate = new Date(payload.new.event_date || payload.new.starts_at || '');
+            
+            if (eventDate > now) {
+              // Update if still upcoming
+              const updated = prev.map(event => 
+                event.id === payload.new!.id ? payload.new! : event
+              );
+              return updated.sort((a, b) => {
+                const dateA = new Date(a.event_date || a.starts_at || a.created_at);
+                const dateB = new Date(b.event_date || b.starts_at || b.created_at);
+                return dateA.getTime() - dateB.getTime();
+              });
+            } else {
+              // Remove if no longer upcoming
+              return prev.filter(event => event.id !== payload.new!.id);
+            }
+          }
+          return prev;
+
+        case 'DELETE':
+          if (payload.old) {
+            return prev.filter(event => event.id !== payload.old!.id);
+          }
+          return prev;
+
+        default:
+          return prev;
+      }
+    });
+  }, [setEvents]);
+
+  return useEventSubscriptions(handleSubscriptionUpdate, {
+    ...options,
+    filters: {
+      ...options.filters,
+      upcoming: true,
+    }
+  });
+}
+
+// =============================================================================
+// UTILITY FUNCTIONS
+// =============================================================================
+
+/**
+ * Utility function to check if an event matches filters
+ */
+export function eventMatchesFilters(
+  event: Event,
+  filters?: EventFilters
+): boolean {
+  if (!filters) return true;
+
+  if (filters.category && event.category !== filters.category) {
+    return false;
+  }
+
+  if (filters.createdBy && event.created_by !== filters.createdBy) {
+    return false;
+  }
+
+  if (filters.startDate && event.event_date && event.event_date < filters.startDate) {
+    return false;
+  }
+
+  if (filters.endDate && event.event_date && event.event_date > filters.endDate) {
+    return false;
+  }
+
+  if (filters.upcoming) {
+    const eventDate = new Date(event.event_date || event.starts_at || '');
+    const now = new Date();
+    if (eventDate <= now) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Utility function to sort events by date
+ */
+export function sortEventsByDate(events: Event[], ascending: boolean = true): Event[] {
+  return [...events].sort((a, b) => {
+    const dateA = new Date(a.event_date || a.starts_at || a.created_at);
+    const dateB = new Date(b.event_date || b.starts_at || b.created_at);
+    return ascending 
+      ? dateA.getTime() - dateB.getTime()
+      : dateB.getTime() - dateA.getTime();
+  });
 }

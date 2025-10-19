@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
@@ -10,7 +10,9 @@ import ProfileButton from '../../components/ui/ProfileButton';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { useAuth } from '../../contexts/AuthContext';
 import LoadingScreen from '../../components/ui/LoadingScreen';
+import AnnouncementCard from '../../components/ui/AnnouncementCard';
 import { supabase } from '../../lib/supabaseClient';
+import { announcementService } from '../../services/AnnouncementService';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -22,12 +24,59 @@ const Colors = {
   white: '#FFFFFF',
   cardBackground: '#FFFFFF',
   dividerColor: '#D1D5DB',
-  lightBlue: '#EBF8FF', 
+  lightBlue: '#EBF8FF',
+};
+
+// Helper function to format relative time
+const getRelativeTime = (dateString: string): string => {
+  const date = new Date(dateString);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+
+  // Reset time to start of day for accurate comparison
+  const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const yesterdayOnly = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate());
+
+  if (dateOnly.getTime() === todayOnly.getTime()) {
+    return 'Today';
+  } else if (dateOnly.getTime() === yesterdayOnly.getTime()) {
+    return 'Yesterday';
+  } else {
+    const daysDiff = Math.floor((todayOnly.getTime() - dateOnly.getTime()) / (1000 * 60 * 60 * 24));
+    return daysDiff === 1 ? '1 day ago' : `${daysDiff} days ago`;
+  }
 };
 
 const MemberDashboardScreen = ({ navigation }: any) => {
   const { activeOrganization, activeMembership, isLoading: orgLoading } = useOrganization();
   const { profile, user } = useAuth();
+
+  // Function to fetch latest announcement with full data
+  const fetchLatestAnnouncement = async () => {
+    if (!activeOrganization) return;
+
+    try {
+      // Fetch latest announcement for this organization
+      const announcementsResult = await announcementService.fetchAnnouncements(
+        undefined, // no filters
+        { limit: 1 } // just get the most recent one
+      );
+
+      // Update latest announcement
+      if (announcementsResult.success && announcementsResult.data && announcementsResult.data.length > 0) {
+        const announcement = announcementsResult.data[0];
+        setLatestAnnouncement(announcement);
+      } else {
+        // No announcements available
+        setLatestAnnouncement(null);
+      }
+    } catch (error) {
+      console.error('Error fetching latest announcement:', error);
+      setLatestAnnouncement(null);
+    }
+  };
 
   // Mock user data - TODO: Replace with actual data from organization context and API
   const [userData, setUserData] = useState({
@@ -48,12 +97,7 @@ const MemberDashboardScreen = ({ navigation }: any) => {
     isTomorrow: true,
   });
 
-  const [latestAnnouncement, setLatestAnnouncement] = useState({
-    title: 'End of Year Ceremony',
-    description:
-      'Details for our annual end of year ceremony have been finalized. Please check your email for the invitation.',
-    timeAgo: '2 days ago',
-  });
+  const [latestAnnouncement, setLatestAnnouncement] = useState<any>(null);
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -83,23 +127,14 @@ const MemberDashboardScreen = ({ navigation }: any) => {
           .order('starts_at', { ascending: true })
           .limit(1);
 
-        // Fetch latest announcements for this organization
-        const { data: announcementsData } = await supabase
-          .from('events')
-          .select('*')
-          .eq('org_id', activeOrganization.id)
-          .eq('event_type', 'announcement')
-          .order('created_at', { ascending: false })
-          .limit(1);
-
         // Calculate approved hours
         const approvedHours = (hoursData || [])
           .filter(h => h.approved === true)
           .reduce((sum, h) => sum + parseFloat(h.hours || '0'), 0);
 
-        console.log('📊 Dashboard volunteer hours:', { 
-          totalEntries: hoursData?.length || 0, 
-          approvedHours 
+        console.log('📊 Dashboard volunteer hours:', {
+          totalEntries: hoursData?.length || 0,
+          approvedHours
         });
 
         // Update user data with real information
@@ -125,44 +160,66 @@ const MemberDashboardScreen = ({ navigation }: any) => {
           setUpcomingEvent({
             title: event.title || event.name,
             description: event.description || 'No description available',
-            date: eventDate.toLocaleDateString('en-US', { 
-              month: 'long', 
-              day: 'numeric', 
-              year: 'numeric' 
+            date: eventDate.toLocaleDateString('en-US', {
+              month: 'long',
+              day: 'numeric',
+              year: 'numeric'
             }),
-            time: `${new Date(event.starts_at).toLocaleTimeString('en-US', { 
-              hour: 'numeric', 
-              minute: '2-digit', 
-              hour12: true 
-            })} - ${new Date(event.ends_at).toLocaleTimeString('en-US', { 
-              hour: 'numeric', 
-              minute: '2-digit', 
-              hour12: true 
+            time: `${new Date(event.starts_at).toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true
+            })} - ${new Date(event.ends_at).toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true
             })}`,
             isToday: eventDate.toDateString() === today.toDateString(),
             isTomorrow: eventDate.toDateString() === tomorrow.toDateString(),
           });
         }
 
-        // Update latest announcement
-        if (announcementsData && announcementsData.length > 0) {
-          const announcement = announcementsData[0];
-          const createdDate = new Date(announcement.created_at);
-          const today = new Date();
-          const daysDiff = Math.floor((today.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
-          
-          setLatestAnnouncement({
-            title: announcement.title || announcement.name,
-            description: announcement.description || 'No description available',
-            timeAgo: daysDiff === 0 ? 'Today' : daysDiff === 1 ? '1 day ago' : `${daysDiff} days ago`,
-          });
-        }
+        // Fetch latest announcement
+        await fetchLatestAnnouncement();
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
       }
     };
 
-    fetchDashboardData();
+    if (activeOrganization && activeMembership) {
+      fetchDashboardData();
+
+      // Set up real-time subscription for announcements
+      const setupRealtimeSubscription = async () => {
+        const unsubscribe = await announcementService.subscribeToAnnouncements(
+          (payload) => {
+            console.log('📡 Dashboard received announcement update:', payload.eventType, payload.new?.title || payload.old?.title);
+
+            // When announcements change, refetch the latest one
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+              // Add a small delay to ensure database consistency
+              setTimeout(() => {
+                fetchLatestAnnouncement();
+              }, 100);
+            }
+          }
+        );
+
+        return unsubscribe;
+      };
+
+      let unsubscribe: (() => void) | null = null;
+      setupRealtimeSubscription().then(unsub => {
+        unsubscribe = unsub;
+      });
+
+      // Cleanup subscription on unmount
+      return () => {
+        if (unsubscribe) {
+          unsubscribe();
+        }
+      };
+    }
   }, [activeOrganization, user, profile, activeMembership]);
 
   // Refresh data when screen comes into focus (e.g., after submitting new hours)
@@ -188,9 +245,9 @@ const MemberDashboardScreen = ({ navigation }: any) => {
               .filter(h => h.approved === true)
               .reduce((sum, h) => sum + parseFloat(h.hours || '0'), 0);
 
-            console.log('📊 Dashboard refresh - volunteer hours:', { 
-              totalEntries: hoursData?.length || 0, 
-              approvedHours 
+            console.log('📊 Dashboard refresh - volunteer hours:', {
+              totalEntries: hoursData?.length || 0,
+              approvedHours
             });
 
             // Update user data with real information
@@ -198,6 +255,9 @@ const MemberDashboardScreen = ({ navigation }: any) => {
               ...prev,
               currentHours: approvedHours,
             }));
+
+            // Also refresh the latest announcement when coming back to dashboard
+            await fetchLatestAnnouncement();
 
           } catch (error) {
             console.error('Error refreshing dashboard data:', error);
@@ -211,12 +271,35 @@ const MemberDashboardScreen = ({ navigation }: any) => {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    // Trigger re-fetch of organization-specific data
+
     if (activeOrganization?.id && user?.id) {
-      // The useEffect will handle the actual data fetching
-      // We just need to trigger a re-render
-      setUserData(prev => ({ ...prev }));
+      try {
+        // Refresh volunteer hours
+        const { data: hoursData } = await supabase
+          .from('volunteer_hours')
+          .select('hours, approved')
+          .eq('org_id', activeOrganization.id)
+          .eq('member_id', user.id);
+
+        // Calculate approved hours
+        const approvedHours = (hoursData || [])
+          .filter(h => h.approved === true)
+          .reduce((sum, h) => sum + parseFloat(h.hours || '0'), 0);
+
+        // Update user data
+        setUserData(prev => ({
+          ...prev,
+          currentHours: approvedHours,
+        }));
+
+        // Refresh latest announcement
+        await fetchLatestAnnouncement();
+
+      } catch (error) {
+        console.error('Error refreshing dashboard data:', error);
+      }
     }
+
     setRefreshing(false);
   };
 
@@ -239,7 +322,7 @@ const MemberDashboardScreen = ({ navigation }: any) => {
   }
 
   const insets = useSafeAreaInsets();
-  
+
   return (
     <LinearGradient
       colors={Colors.LandingScreenGradient}
@@ -264,7 +347,7 @@ const MemberDashboardScreen = ({ navigation }: any) => {
               <Text style={styles.headerTitle}>Dashboard</Text>
               <Text style={styles.headerSubtitle}>{userData.role} • {userData.organization}</Text>
             </View>
-            <ProfileButton 
+            <ProfileButton
               color={Colors.solidBlue}
               size={moderateScale(28)}
             />
@@ -314,18 +397,36 @@ const MemberDashboardScreen = ({ navigation }: any) => {
           {/* Latest Announcement Section */}
           <View style={styles.sectionContainer}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Latest Announcement</Text>
-              <Text style={styles.timeAgo}>{latestAnnouncement.timeAgo}</Text>
-            </View>
-
-            <View style={styles.announcementCard}>
-              <Text style={styles.announcementTitle}>{latestAnnouncement.title}</Text>
-              <Text style={styles.announcementDescription}>{latestAnnouncement.description}</Text>
-              <TouchableOpacity style={styles.readMoreButton}>
-                <Text style={styles.readMoreText}>Read More</Text>
+              <View style={styles.sectionTitleContainer}>
+                <Text style={styles.sectionTitle}>Latest Announcement</Text>
+                {latestAnnouncement && (
+                  <Text style={styles.timeAgo}>
+                    {getRelativeTime(latestAnnouncement.created_at)}
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity
+                style={styles.viewAllButton}
+                onPress={() => navigation.navigate('MemberAnnouncements')}
+              >
+                <Text style={styles.viewAllText}>View All</Text>
                 <Icon name="chevron-right" size={moderateScale(16)} color={Colors.solidBlue} />
               </TouchableOpacity>
             </View>
+
+            {latestAnnouncement ? (
+              <AnnouncementCard
+                announcement={latestAnnouncement}
+                showDeleteButton={false}
+              />
+            ) : (
+              <View style={styles.noAnnouncementCard}>
+                <Text style={styles.noAnnouncementTitle}>No Recent Announcements</Text>
+                <Text style={styles.noAnnouncementDescription}>
+                  Check back later for updates from your organization.
+                </Text>
+              </View>
+            )}
           </View>
 
           {/* Bottom Spacer */}
@@ -443,6 +544,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: Colors.textDark,
   },
+  sectionTitleContainer: {
+    flex: 1,
+  },
+  timeAgo: {
+    fontSize: moderateScale(14),
+    color: Colors.textLight,
+    marginTop: verticalScale(2),
+  },
   eventBadge: {
     backgroundColor: Colors.lightBlue,
     paddingHorizontal: scale(12),
@@ -454,9 +563,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.solidBlue,
   },
-  timeAgo: {
+  viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  viewAllText: {
     fontSize: moderateScale(14),
-    color: Colors.textLight,
+    fontWeight: '600',
+    color: Colors.solidBlue,
+    marginRight: scale(4),
   },
   eventCard: {
     backgroundColor: Colors.cardBackground,
@@ -489,37 +604,29 @@ const styles = StyleSheet.create({
     color: Colors.textMedium,
     marginLeft: scale(6),
   },
-  announcementCard: {
+  noAnnouncementCard: {
     backgroundColor: Colors.cardBackground,
     borderRadius: moderateScale(12),
-    padding: scale(16),
+    padding: scale(20),
+    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: verticalScale(1) },
     shadowOpacity: 0.05,
     shadowRadius: moderateScale(4),
     elevation: 2,
   },
-  announcementTitle: {
-    fontSize: moderateScale(18),
-    fontWeight: 'bold',
-    color: Colors.textDark,
-    marginBottom: verticalScale(8),
-  },
-  announcementDescription: {
-    fontSize: moderateScale(14),
-    color: Colors.textMedium,
-    lineHeight: moderateScale(20),
-    marginBottom: verticalScale(16),
-  },
-  readMoreButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  readMoreText: {
-    fontSize: moderateScale(14),
+  noAnnouncementTitle: {
+    fontSize: moderateScale(16),
     fontWeight: '600',
-    color: Colors.solidBlue,
+    color: Colors.textMedium,
+    marginBottom: verticalScale(8),
+    textAlign: 'center',
+  },
+  noAnnouncementDescription: {
+    fontSize: moderateScale(14),
+    color: Colors.textLight,
+    textAlign: 'center',
+    lineHeight: moderateScale(20),
   },
   bottomSpacer: {
     height: verticalScale(100),

@@ -23,6 +23,8 @@ export interface Profile extends DatabaseProfile {
   // Legacy fields for backward compatibility
   organization?: string; // Will be derived from default org_id
   role?: MembershipRole; // Will be derived from default membership
+  // Organization context fields (these exist in the database schema)
+  org_id?: string; // Organization UUID for default context
 }
 
 // Enhanced user context with organization membership

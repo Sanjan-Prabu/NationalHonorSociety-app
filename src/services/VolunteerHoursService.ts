@@ -42,7 +42,8 @@ export class VolunteerHoursService extends BaseDataService {
         .select(`
           *,
           member:profiles!volunteer_hours_member_id_fkey(first_name, last_name, display_name),
-          approver:profiles!volunteer_hours_approved_by_fkey(first_name, last_name, display_name)
+          approver:profiles!volunteer_hours_approved_by_fkey(first_name, last_name, display_name),
+          event:events(id, title, event_date, starts_at)
         `)
         .eq('member_id', targetUserId)
         .eq('org_id', orgId)
@@ -128,7 +129,8 @@ export class VolunteerHoursService extends BaseDataService {
           .insert(newVolunteerHour)
           .select(`
             *,
-            member:profiles!volunteer_hours_member_id_fkey(first_name, last_name, display_name)
+            member:profiles!volunteer_hours_member_id_fkey(first_name, last_name, display_name),
+            event:events(id, title, event_date, starts_at)
           `)
           .single(),
         'submitVolunteerHours'
@@ -217,7 +219,8 @@ export class VolunteerHoursService extends BaseDataService {
           .select(`
             *,
             member:profiles!volunteer_hours_member_id_fkey(first_name, last_name, display_name),
-            approver:profiles!volunteer_hours_approved_by_fkey(first_name, last_name, display_name)
+            approver:profiles!volunteer_hours_approved_by_fkey(first_name, last_name, display_name),
+            event:events(id, title, event_date, starts_at)
           `)
           .single(),
         'updateVolunteerHours'
@@ -269,10 +272,13 @@ export class VolunteerHoursService extends BaseDataService {
         };
       }
 
-      // First get the volunteer hours
+      // First get the volunteer hours with event information
       const { data: volunteerHours, error: hoursError } = await supabase
         .from(DATABASE_TABLES.VOLUNTEER_HOURS)
-        .select('*')
+        .select(`
+          *,
+          event:events(id, title, event_date, starts_at)
+        `)
         .eq('org_id', organizationId)
         .eq('approved', false)
         .order('submitted_at', { ascending: true });
@@ -390,7 +396,8 @@ export class VolunteerHoursService extends BaseDataService {
           .select(`
             *,
             member:profiles!volunteer_hours_member_id_fkey(first_name, last_name, display_name),
-            approver:profiles!volunteer_hours_approved_by_fkey(first_name, last_name, display_name)
+            approver:profiles!volunteer_hours_approved_by_fkey(first_name, last_name, display_name),
+            event:events(id, title, event_date, starts_at)
           `)
           .single(),
         'approveVolunteerHours'
@@ -608,7 +615,8 @@ export class VolunteerHoursService extends BaseDataService {
         .select(`
           *,
           member:profiles!volunteer_hours_member_id_fkey(first_name, last_name, display_name),
-          approver:profiles!volunteer_hours_approved_by_fkey(first_name, last_name, display_name)
+          approver:profiles!volunteer_hours_approved_by_fkey(first_name, last_name, display_name),
+          event:events(id, title, event_date, starts_at)
         `)
         .eq('id', hourId)
         .single();
@@ -651,9 +659,11 @@ export class VolunteerHoursService extends BaseDataService {
       approved_by: hour.approved_by,
       approved_at: hour.approved_at,
       attachment_file_id: hour.attachment_file_id,
+      event_id: hour.event_id,
       // Computed fields
       member_name: hour.member ? this.buildDisplayName(hour.member) : undefined,
       approver_name: hour.approver ? this.buildDisplayName(hour.approver) : undefined,
+      event_name: hour.event ? hour.event.title : undefined,
       status: hour.approved ? 'approved' : 'pending',
       can_edit: !hour.approved && hour.member_id === currentUserId,
     };

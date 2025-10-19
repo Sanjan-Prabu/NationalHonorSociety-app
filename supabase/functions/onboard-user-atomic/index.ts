@@ -305,44 +305,44 @@ async function onboardUserAtomic(request: OnboardingRequest): Promise<Onboarding
       };
     }
 
-    // Step 4: Create or update profile
+    // Step 4: Create or update profile with complete organization context
     if (existingProfile) {
-      logInfo('Profile already exists, updating if needed', { user_id: request.user_id });
+      logInfo('Profile already exists, updating with organization context', { user_id: request.user_id });
       
-      // Update profile with any new information
-      const updateData: any = {};
+      // Update profile with complete information including org_id and role
+      const updateData: any = {
+        org_id: targetOrg.id,  // Set organization context
+        role: request.role,    // Set role in profile for quick access
+        updated_at: new Date().toISOString()
+      };
+      
+      // Update other fields if provided
       if (request.first_name) updateData.first_name = request.first_name;
       if (request.last_name) updateData.last_name = request.last_name;
       if (request.email) updateData.email = request.email;
       if (request.student_id) updateData.student_id = request.student_id;
       
-      if (Object.keys(updateData).length > 0) {
-        updateData.updated_at = new Date().toISOString();
-        
-        const { data: updatedProfile, error: updateError } = await supabase
-          .from('profiles')
-          .update(updateData)
-          .eq('id', request.user_id)
-          .select()
-          .single();
+      const { data: updatedProfile, error: updateError } = await supabase
+        .from('profiles')
+        .update(updateData)
+        .eq('id', request.user_id)
+        .select()
+        .single();
 
-        if (updateError) {
-          logError('Error updating profile', { user_id: request.user_id, error: updateError });
-          return {
-            success: false,
-            error: 'Failed to update profile',
-            errorType: 'DUPLICATE_MEMBERSHIP'
-          };
-        }
-        
-        profile = updatedProfile;
-      } else {
-        profile = existingProfile;
+      if (updateError) {
+        logError('Error updating profile with organization context', { user_id: request.user_id, error: updateError });
+        return {
+          success: false,
+          error: 'Failed to update profile with organization context',
+          errorType: 'DUPLICATE_MEMBERSHIP'
+        };
       }
-    } else {
-      logInfo('Creating new profile', { user_id: request.user_id });
       
-      // Create new profile
+      profile = updatedProfile;
+    } else {
+      logInfo('Creating new profile with complete organization context', { user_id: request.user_id });
+      
+      // Create new profile with all required fields for organization context
       const { data: newProfile, error: createProfileError } = await supabase
         .from('profiles')
         .insert({
@@ -351,6 +351,8 @@ async function onboardUserAtomic(request: OnboardingRequest): Promise<Onboarding
           student_id: request.student_id,
           first_name: request.first_name || null,
           last_name: request.last_name || null,
+          org_id: targetOrg.id,     // Set organization context
+          role: request.role,       // Set role for quick access
           is_verified: false,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
@@ -359,10 +361,10 @@ async function onboardUserAtomic(request: OnboardingRequest): Promise<Onboarding
         .single();
 
       if (createProfileError) {
-        logError('Error creating profile', { user_id: request.user_id, error: createProfileError });
+        logError('Error creating profile with organization context', { user_id: request.user_id, error: createProfileError });
         return {
           success: false,
-          error: 'Failed to create profile',
+          error: 'Failed to create profile with organization context',
           errorType: 'DUPLICATE_MEMBERSHIP'
         };
       }

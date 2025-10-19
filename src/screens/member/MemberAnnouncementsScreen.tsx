@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl, Linking } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import ProfileButton from '../../components/ui/ProfileButton';
+import AnnouncementCard from '../../components/ui/AnnouncementCard';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { useAuth } from '../../contexts/AuthContext';
 import LoadingScreen from '../../components/ui/LoadingScreen';
-import { supabase } from '../../lib/supabaseClient';
+import { useAnnouncementData } from '../../hooks/useAnnouncementData';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -28,68 +29,32 @@ const MemberAnnouncementsScreen = ({ navigation }: any) => {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
-  interface Announcement {
-    id: number | string;
-    type: string;
-    date: string;
-    title: string;
-    content: string;
-    image?: string;
-  }
 
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [announcementsLoading, setAnnouncementsLoading] = useState(true);
-
-  // Fetch announcements data filtered by organizationId
-  const fetchAnnouncements = async () => {
-    if (!activeOrganization?.id) return;
-
-    try {
-      setAnnouncementsLoading(true);
-
-      // Fetch announcements from events table with type='announcement' filtered by org_id
-      const { data, error } = await supabase
-        .from('events')
-        .select('*')
-        .eq('org_id', activeOrganization.id)
-        .eq('event_type', 'announcement')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching announcements:', error);
-        setAnnouncements([]);
-      } else {
-        // Transform database data to match announcement interface
-        const transformedAnnouncements = (data || []).map(announcement => ({
-          id: announcement.id,
-          type: announcement.category || 'Announcement',
-          date: new Date(announcement.created_at).toLocaleDateString('en-US', {
-            month: 'long',
-            day: 'numeric',
-            year: 'numeric'
-          }),
-          title: announcement.title || announcement.name,
-          content: announcement.description || '',
-          image: announcement.image_caption,
-        }));
-
-        setAnnouncements(transformedAnnouncements);
-      }
-    } catch (error) {
-      console.error('Error fetching announcements:', error);
-    } finally {
-      setAnnouncementsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchAnnouncements();
-  }, [activeOrganization]);
+  // Use the announcement data hook with realtime subscriptions
+  const {
+    announcements,
+    loading,
+    refreshAnnouncements,
+  } = useAnnouncementData({
+    enableRealtime: true, // Enable realtime updates for live feed
+  });
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await fetchAnnouncements();
+    await refreshAnnouncements();
     setRefreshing(false);
+  };
+
+  // Handle link press
+  const handleLinkPress = async (url: string) => {
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      }
+    } catch (error) {
+      console.error('Error opening link:', error);
+    }
   };
 
   if (orgLoading) {
@@ -137,32 +102,36 @@ const MemberAnnouncementsScreen = ({ navigation }: any) => {
             </View>
 
             {/* Announcements List */}
-            {announcementsLoading ? (
+            {loading.isLoading ? (
               <View style={styles.loadingContainer}>
                 <Text style={styles.loadingText}>Loading announcements...</Text>
               </View>
+            ) : loading.isError ? (
+              <View style={styles.errorContainer}>
+                <Icon name="error-outline" size={moderateScale(64)} color={Colors.textLight} />
+                <Text style={styles.errorTitle}>Error Loading Announcements</Text>
+                <Text style={styles.errorText}>
+                  {loading.error?.message || 'Failed to load announcements'}
+                </Text>
+                <TouchableOpacity style={styles.retryButton} onPress={onRefresh}>
+                  <Text style={styles.retryButtonText}>Try Again</Text>
+                </TouchableOpacity>
+              </View>
             ) : announcements.length > 0 ? (
               announcements.map((announcement) => (
-                <View key={announcement.id} style={styles.announcementCard}>
-                  <View style={styles.announcementHeader}>
-                    <Text style={styles.announcementType}>{announcement.type}</Text>
-                    <Text style={styles.announcementDate}>{announcement.date}</Text>
-                  </View>
-
-                  <Text style={styles.announcementTitle}>{announcement.title}</Text>
-                  <Text style={styles.announcementContent}>{announcement.content}</Text>
-
-                  {announcement.image && (
-                    <Text style={styles.announcementImageCaption}>{announcement.image}</Text>
-                  )}
-                </View>
+                <AnnouncementCard
+                  key={announcement.id}
+                  announcement={announcement}
+                  showDeleteButton={false} // Members cannot delete announcements
+                  onLinkPress={handleLinkPress}
+                />
               ))
             ) : (
               <View style={styles.emptyState}>
                 <Icon name="announcement" size={moderateScale(64)} color={Colors.textLight} />
                 <Text style={styles.emptyStateTitle}>No Announcements</Text>
                 <Text style={styles.emptyStateText}>
-                  There are no announcements for {activeOrganization.name} at this time.
+                  There are no announcements for {activeOrganization?.name} at this time.
                 </Text>
               </View>
             )}
@@ -241,48 +210,31 @@ const styles = StyleSheet.create({
     shadowRadius: moderateScale(4),
     elevation: 3,
   },
-  announcementCard: {
-    backgroundColor: Colors.cardBackground,
-    borderRadius: moderateScale(12),
-    padding: scale(16),
-    marginBottom: verticalScale(16),
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: verticalScale(1) },
-    shadowOpacity: 0.05,
-    shadowRadius: moderateScale(4),
-    elevation: 2,
-  },
-  announcementHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: verticalScale(8),
-  },
-  announcementType: {
-    fontSize: moderateScale(14),
+
+  errorTitle: {
+    fontSize: moderateScale(18),
     fontWeight: '600',
-    color: Colors.solidBlue,
-  },
-  announcementDate: {
-    fontSize: moderateScale(12),
-    color: Colors.textLight,
-  },
-  announcementTitle: {
-    fontSize: moderateScale(16),
-    fontWeight: 'bold',
     color: Colors.textDark,
+    marginTop: verticalScale(16),
     marginBottom: verticalScale(8),
   },
-  announcementContent: {
+  errorText: {
     fontSize: moderateScale(14),
     color: Colors.textMedium,
+    textAlign: 'center',
     lineHeight: moderateScale(20),
-    marginBottom: verticalScale(8),
+    marginBottom: verticalScale(16),
   },
-  announcementImageCaption: {
-    fontSize: moderateScale(12),
-    color: Colors.textLight,
-    fontStyle: 'italic',
+  retryButton: {
+    backgroundColor: Colors.solidBlue,
+    paddingHorizontal: scale(20),
+    paddingVertical: verticalScale(10),
+    borderRadius: moderateScale(8),
+  },
+  retryButtonText: {
+    color: Colors.white,
+    fontSize: moderateScale(14),
+    fontWeight: '600',
   },
   emptyState: {
     alignItems: 'center',

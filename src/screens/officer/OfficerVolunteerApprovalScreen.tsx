@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Image, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -47,13 +47,16 @@ const OfficerVerifyHours = ({ navigation }: any) => {
   const [selectedRequests, setSelectedRequests] = useState<Set<string>>(new Set());
   const [showBulkActions, setShowBulkActions] = useState(false);
 
+  // Memoize the organization ID to prevent infinite re-renders
+  const organizationId = useMemo(() => activeOrganization?.id || '', [activeOrganization?.id]);
+
   // Dynamic data hooks
   const { 
     data: pendingApprovals, 
     isLoading: approvalsLoading, 
     refetch: refetchApprovals,
     error: approvalsError 
-  } = usePendingApprovals(activeOrganization?.id);
+  } = usePendingApprovals(organizationId);
   
   const approveHoursMutation = useApproveVolunteerHours();
   const rejectHoursMutation = useRejectVolunteerHours();
@@ -205,7 +208,7 @@ const OfficerVerifyHours = ({ navigation }: any) => {
             </View>
             <ProfileButton 
               color={Colors.solidBlue}
-              size={moderateScale(28)}
+              size={moderateScale(32)}
             />
           </View>
 
@@ -310,6 +313,17 @@ const OfficerVerifyHours = ({ navigation }: any) => {
 
               {/* Event Details */}
               <View style={styles.detailsSection}>
+                {/* Event Information (if associated with an organization event) */}
+                {currentRequest.event_name && (
+                  <View style={styles.eventInfoSection}>
+                    <View style={styles.eventInfoHeader}>
+                      <Icon name="event" size={moderateScale(16)} color={Colors.solidBlue} />
+                      <Text style={styles.eventInfoLabel}>Organization Event</Text>
+                    </View>
+                    <Text style={styles.eventInfoValue}>{currentRequest.event_name}</Text>
+                  </View>
+                )}
+
                 <View style={styles.detailRow}>
                   <View style={styles.detailColumn}>
                     <Text style={styles.detailLabel}>Activity</Text>
@@ -775,6 +789,28 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: verticalScale(100),
+  },
+  eventInfoSection: {
+    backgroundColor: Colors.lightBlue,
+    borderRadius: moderateScale(8),
+    padding: scale(12),
+    marginBottom: verticalScale(12),
+  },
+  eventInfoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: verticalScale(4),
+  },
+  eventInfoLabel: {
+    fontSize: moderateScale(12),
+    fontWeight: '600',
+    color: Colors.solidBlue,
+    marginLeft: scale(6),
+  },
+  eventInfoValue: {
+    fontSize: moderateScale(14),
+    color: Colors.textDark,
+    fontWeight: '500',
   },
 });
 

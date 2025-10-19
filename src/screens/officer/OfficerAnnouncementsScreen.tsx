@@ -1,5 +1,5 @@
 // screens/OfficerAnnouncementsScreen.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -15,14 +15,16 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import * as ImagePicker from 'expo-image-picker';
+
 import Tag from 'components/ui/Tag';
+import AnnouncementCard from 'components/ui/AnnouncementCard';
 import { useToast } from 'components/ui/ToastProvider';
 import { withRoleProtection } from 'components/hoc/withRoleProtection';
 import ProfileButton from 'components/ui/ProfileButton';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../lib/supabaseClient';
+import { useAnnouncementData } from '../../hooks/useAnnouncementData';
+import { CreateAnnouncementRequest } from '../../services/AnnouncementService';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -42,26 +44,27 @@ const Colors = {
 
 type TagType = 'Event' | 'Reminder' | 'Urgent' | 'Flyer';
 
-interface Announcement {
-  id: string;
-  tag: TagType;
-  title: string;
-  message: string;
-  postedDate: Date;
-  views: number;
-  attachments: {
-    images: string[];
-    links: string[];
-  };
-}
-
 const OfficerAnnouncements = ({ navigation }: any) => {
   const { showSuccess, showError, showValidationError } = useToast();
   const { activeOrganization } = useOrganization();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
 
-  // Removed setActiveTab - navigation is handled by the main navigator
+  // Memoize the options to prevent infinite re-renders
+  const announcementDataOptions = useMemo(() => ({
+    enableRealtime: true
+  }), []);
+
+  // Use announcement data hook with realtime subscriptions
+  const {
+    announcements,
+    loading,
+    createAnnouncement,
+    deleteAnnouncement,
+    refreshAnnouncements,
+    createState,
+    deleteState
+  } = useAnnouncementData(announcementDataOptions);
 
   const [selectedTag, setSelectedTag] = useState<TagType | null>(null);
   const [title, setTitle] = useState('');
@@ -76,36 +79,15 @@ const OfficerAnnouncements = ({ navigation }: any) => {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
-
-  const [announcements, setAnnouncements] = useState<Announcement[]>([
-    {
-      id: '1',
-      tag: 'Event',
-      title: 'End of Year Ceremony',
-      message: 'Our annual End of Year Ceremony will be held on June 15th at 6:00 PM in the school auditorium. All members are required to attend in formal attire.',
-      postedDate: new Date('2023-05-10T14:30:00'),
-      views: 42,
-      attachments: { images: [], links: [] }
-    },
-    {
-      id: '2',
-      tag: 'Reminder',
-      title: 'Beach Cleanup Day',
-      message: "Don't forget about our Beach Cleanup Day this Saturday, May 15th from 9:00 AM to 12:00 PM at Sunset Beach.",
-      postedDate: new Date('2023-05-08T16:15:00'),
-      views: 38,
-      attachments: { images: [], links: [] }
-    },
-    {
-      id: '3',
-      tag: 'Urgent',
-      title: 'Hour Submission Deadline',
-      message: 'Reminder: All volunteer hours for this semester must be submitted by May 31st. Any hours submitted after this date will count towards next year\'s requirements.',
-      postedDate: new Date('2023-05-05T10:00:00'),
-      views: 65,
-      attachments: { images: [], links: [] }
-    },
-  ]);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    visible: boolean;
+    announcementId: string | null;
+    announcementTitle: string;
+  }>({
+    visible: false,
+    announcementId: null,
+    announcementTitle: '',
+  });
 
   const tagVariants: Record<TagType, 'blue' | 'green' | 'yellow' | 'purple'> = {
     'Event': 'blue',
@@ -160,28 +142,26 @@ const OfficerAnnouncements = ({ navigation }: any) => {
       ? [...attachments.links, linkUrl.trim()]
       : attachments.links;
 
-    const submissionData = {
+    const submissionData: CreateAnnouncementRequest = {
       tag: selectedTag!,
       title: title.trim(),
       message: message.trim(),
-      attachments: {
-        images: attachments.images,
-        links: finalLinks
-      },
+      link: finalLinks.length > 0 ? finalLinks[0] : undefined, // Use first link for now
     };
 
-    const newAnnouncement: Announcement = {
-      id: Date.now().toString(),
-      ...submissionData,
-      postedDate: new Date(),
-      views: 0,
-    };
+    try {
+      const result = await createAnnouncement(submissionData);
 
-    setAnnouncements(prev => [newAnnouncement, ...prev]);
-
-    console.log('Creating announcement:', submissionData);
-    showSuccess('Announcement Created', 'Your announcement has been published successfully.');
-    resetForm();
+      if (result.success) {
+        showSuccess('Announcement Created', 'Your announcement has been published successfully.');
+        resetForm();
+      } else {
+        showError('Creation Failed', result.error || 'Failed to create announcement. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error creating announcement:', error);
+      showError('Creation Failed', 'An unexpected error occurred. Please try again.');
+    }
   };
 
   const resetForm = () => {
@@ -198,35 +178,7 @@ const OfficerAnnouncements = ({ navigation }: any) => {
     setSelectedTag(tag === selectedTag ? null : tag);
   };
 
-  const pickImage = async () => {
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-      if (status !== 'granted') {
-        showError('Permission Required', 'Camera roll permissions needed to upload images.');
-        return;
-      }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets[0]) {
-        const newImage = result.assets[0].uri;
-        setAttachments(prev => ({
-          ...prev,
-          images: [...prev.images, newImage]
-        }));
-        showSuccess('Image Added', 'Image attached successfully.');
-      }
-    } catch (error) {
-      console.error('Error picking image:', error);
-      showError('Upload Error', 'Failed to select image. Please try again.');
-    }
-  };
 
   const handleAddLink = () => {
     if (!linkUrl.trim()) {
@@ -255,22 +207,41 @@ const OfficerAnnouncements = ({ navigation }: any) => {
     }));
   };
 
-  const handleDeleteAnnouncement = (id: string) => {
-    setAnnouncements(prev => prev.filter(a => a.id !== id));
-    showSuccess('Deleted', 'Announcement removed successfully.');
-  };
-
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    }) + ' • ' + date.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
+  const showDeleteConfirmation = (id: string, title: string) => {
+    setDeleteConfirmation({
+      visible: true,
+      announcementId: id,
+      announcementTitle: title,
     });
   };
+
+  const hideDeleteConfirmation = () => {
+    setDeleteConfirmation({
+      visible: false,
+      announcementId: null,
+      announcementTitle: '',
+    });
+  };
+
+  const confirmDeleteAnnouncement = async () => {
+    if (!deleteConfirmation.announcementId) return;
+
+    try {
+      const result = await deleteAnnouncement(deleteConfirmation.announcementId);
+
+      if (result.success) {
+        showSuccess('Deleted', 'Announcement removed successfully.');
+        hideDeleteConfirmation();
+      } else {
+        showError('Delete Failed', result.error || 'Failed to delete announcement. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error deleting announcement:', error);
+      showError('Delete Failed', 'An unexpected error occurred. Please try again.');
+    }
+  };
+
+
 
   // Removed handleTabPress - navigation is handled by the main navigator
 
@@ -302,15 +273,14 @@ const OfficerAnnouncements = ({ navigation }: any) => {
             <View style={styles.header}>
               <View style={styles.headerLeft}>
                 <Text style={styles.headerTitle}>Announcements</Text>
-                <Text style={styles.headerSubtitle}>Manage NHS Updates</Text>
+                <Text style={styles.headerSubtitle}>
+                  Manage {activeOrganization?.org_type === 'NHSA' ? 'NHSA' : 'NHS'} Updates
+                </Text>
               </View>
               <View style={styles.headerRight}>
-                <TouchableOpacity style={styles.addButton}>
-                  <Icon name="add" size={moderateScale(24)} color={Colors.solidBlue} />
-                </TouchableOpacity>
                 <ProfileButton
                   color={Colors.solidBlue}
-                  size={moderateScale(28)}
+                  size={moderateScale(32)}
                 />
               </View>
             </View>
@@ -369,13 +339,11 @@ const OfficerAnnouncements = ({ navigation }: any) => {
               {/* Attachments Section */}
               <Text style={styles.sectionLabel}>Attachments</Text>
               <View style={styles.attachmentsContainer}>
-                <TouchableOpacity
-                  style={styles.attachmentButton}
-                  onPress={pickImage}
-                >
-                  <Icon name="image" size={moderateScale(24)} color={Colors.solidBlue} />
-                  <Text style={styles.attachmentText}>Image</Text>
-                </TouchableOpacity>
+                <View style={[styles.attachmentButton, styles.attachmentButtonDisabled]}>
+                  <Icon name="image" size={moderateScale(24)} color={Colors.textLight} />
+                  <Text style={styles.attachmentTextDisabled}>Image</Text>
+                  <Text style={styles.comingSoonText}>Coming Soon</Text>
+                </View>
 
                 <TouchableOpacity
                   style={styles.attachmentButton}
@@ -421,22 +389,8 @@ const OfficerAnnouncements = ({ navigation }: any) => {
               )}
 
               {/* Selected Attachments */}
-              {(attachments.images.length > 0 || attachments.links.length > 0) && (
+              {attachments.links.length > 0 && (
                 <View style={styles.attachmentsList}>
-                  {attachments.images.map((image, index) => (
-                    <View key={`image-${index}`} style={styles.attachmentItem}>
-                      <Icon name="image" size={moderateScale(16)} color={Colors.textMedium} />
-                      <Text style={styles.attachmentName} numberOfLines={1}>
-                        Image {index + 1}
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() => removeAttachment('images', index)}
-                        style={styles.removeButton}
-                      >
-                        <Icon name="close" size={moderateScale(16)} color={Colors.errorRed} />
-                      </TouchableOpacity>
-                    </View>
-                  ))}
                   {attachments.links.map((link, index) => (
                     <View key={`link-${index}`} style={styles.attachmentItem}>
                       <Icon name="link" size={moderateScale(16)} color={Colors.textMedium} />
@@ -464,42 +418,80 @@ const OfficerAnnouncements = ({ navigation }: any) => {
             <View style={styles.recentSection}>
               <Text style={styles.recentTitle}>Recent Announcements</Text>
 
-              {announcements.map((announcement) => (
-                <View key={announcement.id} style={styles.announcementCard}>
-                  <View style={styles.announcementHeader}>
-                    <Tag
-                      text={announcement.tag}
-                      variant={tagVariants[announcement.tag]}
-                      active={true}
-                    />
-                    <View style={styles.announcementActions}>
-                      <TouchableOpacity
-                        style={styles.actionButton}
-                        onPress={() => handleDeleteAnnouncement(announcement.id)}
-                      >
-                        <Icon name="delete" size={moderateScale(20)} color={Colors.textMedium} />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                  <Text style={styles.announcementTitle}>{announcement.title}</Text>
-                  <Text style={styles.announcementMessage} numberOfLines={3}>
-                    {announcement.message}
-                  </Text>
-
-                  <View style={styles.announcementFooter}>
-                    <Text style={styles.announcementMeta}>
-                      Posted {formatDate(announcement.postedDate)}
-                    </Text>
-                    <Text style={styles.announcementViews}>
-                      {announcement.views} views
-                    </Text>
-                  </View>
+              {loading.isLoading ? (
+                <View style={styles.loadingContainer}>
+                  <Text style={styles.loadingText}>Loading announcements...</Text>
                 </View>
-              ))}
+              ) : loading.isError ? (
+                <View style={styles.errorContainer}>
+                  <Text style={styles.errorContainerText}>Failed to load announcements</Text>
+                  <TouchableOpacity
+                    style={styles.retryButton}
+                    onPress={refreshAnnouncements}
+                  >
+                    <Text style={styles.retryText}>Retry</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : announcements.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>No announcements yet</Text>
+                  <Text style={styles.emptySubtext}>Create your first announcement above</Text>
+                </View>
+              ) : (
+                announcements.map((announcement) => (
+                  <AnnouncementCard
+                    key={announcement.id}
+                    announcement={announcement}
+                    showDeleteButton={true} // Officers can delete announcements
+                    onDelete={(id) => showDeleteConfirmation(id, announcement.title)}
+                    deleteLoading={deleteState.isLoading}
+                  />
+                ))
+              )}
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
+
+        {/* Delete Confirmation Modal */}
+        {deleteConfirmation.visible && (
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContainer}>
+              <View style={styles.modalHeader}>
+                <Icon name="warning" size={moderateScale(24)} color={Colors.errorRed} />
+                <Text style={styles.modalTitle}>Delete Announcement</Text>
+              </View>
+
+              <Text style={styles.modalMessage}>
+                Are you sure you want to delete "{deleteConfirmation.announcementTitle}"?
+              </Text>
+
+              <Text style={styles.modalSubMessage}>
+                This action cannot be undone. The announcement will be removed from all members' feeds.
+              </Text>
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={styles.modalCancelButton}
+                  onPress={hideDeleteConfirmation}
+                  disabled={deleteState.isLoading}
+                >
+                  <Text style={styles.modalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.modalDeleteButton, deleteState.isLoading && styles.modalDeleteButtonDisabled]}
+                  onPress={confirmDeleteAnnouncement}
+                  disabled={deleteState.isLoading}
+                >
+                  <Text style={styles.modalDeleteText}>
+                    {deleteState.isLoading ? 'Deleting...' : 'Delete'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        )}
+
         {/* Navigation is handled by the main OfficerBottomNavigator */}
       </SafeAreaView>
     </LinearGradient>
@@ -632,6 +624,22 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginTop: verticalScale(6),
   },
+  attachmentButtonDisabled: {
+    backgroundColor: Colors.lightGray,
+    borderColor: Colors.textLight,
+  },
+  attachmentTextDisabled: {
+    fontSize: moderateScale(12),
+    color: Colors.textLight,
+    fontWeight: '500',
+    marginTop: verticalScale(2),
+  },
+  comingSoonText: {
+    fontSize: moderateScale(10),
+    color: Colors.textLight,
+    fontStyle: 'italic',
+    marginTop: verticalScale(2),
+  },
   linkInputContainer: {
     marginTop: verticalScale(12),
     marginBottom: verticalScale(12),
@@ -725,57 +733,137 @@ const styles = StyleSheet.create({
     color: Colors.solidBlue,
     marginBottom: verticalScale(16),
   },
-  announcementCard: {
+
+  loadingContainer: {
+    padding: scale(20),
+    alignItems: 'center',
     backgroundColor: Colors.white,
     borderRadius: moderateScale(12),
-    padding: scale(16),
     marginBottom: verticalScale(16),
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: verticalScale(1) },
-    shadowOpacity: 0.05,
-    shadowRadius: moderateScale(4),
-    elevation: 2,
   },
-  announcementHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: verticalScale(12),
-  },
-  announcementActions: {
-    flexDirection: 'row',
-    gap: scale(8),
-  },
-  actionButton: {
-    padding: scale(4),
-  },
-  announcementTitle: {
-    fontSize: moderateScale(18),
-    fontWeight: '600',
-    color: Colors.textDark,
-    marginBottom: verticalScale(8),
-  },
-  announcementMessage: {
+  loadingText: {
     fontSize: moderateScale(14),
     color: Colors.textMedium,
-    lineHeight: moderateScale(20),
+  },
+  errorContainer: {
+    padding: scale(20),
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+    borderRadius: moderateScale(12),
+    marginBottom: verticalScale(16),
+  },
+  errorContainerText: {
+    fontSize: moderateScale(14),
+    color: Colors.errorRed,
     marginBottom: verticalScale(12),
   },
-  announcementFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  retryButton: {
+    paddingHorizontal: scale(16),
+    paddingVertical: verticalScale(8),
+    backgroundColor: Colors.solidBlue,
+    borderRadius: moderateScale(6),
+  },
+  retryText: {
+    fontSize: moderateScale(12),
+    color: Colors.white,
+    fontWeight: '500',
+  },
+  emptyContainer: {
+    padding: scale(20),
     alignItems: 'center',
-    paddingTop: verticalScale(12),
-    borderTopWidth: 1,
-    borderTopColor: Colors.dividerColor,
+    backgroundColor: Colors.white,
+    borderRadius: moderateScale(12),
+    marginBottom: verticalScale(16),
   },
-  announcementMeta: {
+  emptyText: {
+    fontSize: moderateScale(16),
+    color: Colors.textMedium,
+    fontWeight: '500',
+    marginBottom: verticalScale(4),
+  },
+  emptySubtext: {
     fontSize: moderateScale(12),
     color: Colors.textLight,
   },
-  announcementViews: {
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  modalContainer: {
+    backgroundColor: Colors.white,
+    borderRadius: moderateScale(16),
+    padding: scale(24),
+    marginHorizontal: scale(32),
+    maxWidth: scale(320),
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: verticalScale(8) },
+    shadowOpacity: 0.25,
+    shadowRadius: moderateScale(16),
+    elevation: 8,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: verticalScale(16),
+  },
+  modalTitle: {
+    fontSize: moderateScale(18),
+    fontWeight: 'bold',
+    color: Colors.textDark,
+    marginLeft: scale(12),
+  },
+  modalMessage: {
+    fontSize: moderateScale(14),
+    color: Colors.textDark,
+    lineHeight: moderateScale(20),
+    marginBottom: verticalScale(8),
+  },
+  modalSubMessage: {
     fontSize: moderateScale(12),
-    color: Colors.textLight,
+    color: Colors.textMedium,
+    lineHeight: moderateScale(18),
+    marginBottom: verticalScale(24),
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: scale(12),
+  },
+  modalCancelButton: {
+    flex: 1,
+    paddingVertical: verticalScale(12),
+    borderRadius: moderateScale(8),
+    borderWidth: 1,
+    borderColor: Colors.inputBorder,
+    backgroundColor: Colors.white,
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontSize: moderateScale(14),
+    color: Colors.textMedium,
+    fontWeight: '500',
+  },
+  modalDeleteButton: {
+    flex: 1,
+    paddingVertical: verticalScale(12),
+    borderRadius: moderateScale(8),
+    backgroundColor: Colors.errorRed,
+    alignItems: 'center',
+  },
+  modalDeleteButtonDisabled: {
+    backgroundColor: Colors.textLight,
+  },
+  modalDeleteText: {
+    fontSize: moderateScale(14),
+    color: Colors.white,
+    fontWeight: '500',
   },
 });
 

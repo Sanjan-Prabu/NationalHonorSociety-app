@@ -27,11 +27,12 @@ const Colors = {
 };
 
 // Reusable component for hour entries (both pending and approved)
-const HourEntry = ({ title, date, hours, status, onPress }: { 
+const HourEntry = ({ title, date, hours, status, eventName, onPress }: { 
   title: string; 
   date: string; 
   hours: number; 
   status: 'pending' | 'approved';
+  eventName?: string;
   onPress?: () => void;
 }) => {
   return (
@@ -53,6 +54,12 @@ const HourEntry = ({ title, date, hours, status, onPress }: {
           </View>
         )}
       </View>
+      {eventName && (
+        <View style={styles.eventInfo}>
+          <Icon name="event" size={moderateScale(14)} color={Colors.primaryBlue} />
+          <Text style={styles.eventText}>{eventName}</Text>
+        </View>
+      )}
       <Text style={styles.entryDate}>{date}</Text>
       <Text style={styles.entryHours}>{hours} hour{hours !== 1 ? 's' : ''}</Text>
     </TouchableOpacity>
@@ -145,6 +152,7 @@ const LogHoursScreen = ({ navigation }: any) => {
         }),
         hours: parseFloat(hour.hours || '0'),
         status: 'pending' as const,
+        eventName: hour.event_name,
       })));
 
       setApprovedEntries(approved.slice(0, 5).map(hour => ({
@@ -157,6 +165,7 @@ const LogHoursScreen = ({ navigation }: any) => {
         }),
         hours: parseFloat(hour.hours || '0'),
         status: 'approved' as const,
+        eventName: hour.event_name,
       })));
 
       setUserData({
@@ -290,6 +299,7 @@ const LogHoursScreen = ({ navigation }: any) => {
                     date={entry.date}
                     hours={entry.hours}
                     status={entry.status}
+                    eventName={entry.eventName}
                     onPress={() => handleEntryPress(entry)}
                   />
                 ))
@@ -313,6 +323,7 @@ const LogHoursScreen = ({ navigation }: any) => {
                     date={entry.date}
                     hours={entry.hours}
                     status={entry.status}
+                    eventName={entry.eventName}
                     onPress={() => handleEntryPress(entry)}
                   />
                 ))
@@ -467,6 +478,17 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(16),
     fontWeight: 'bold',
     color: Colors.textDark,
+  },
+  eventInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: verticalScale(6),
+  },
+  eventText: {
+    fontSize: moderateScale(12),
+    color: Colors.primaryBlue,
+    marginLeft: scale(4),
+    fontWeight: '500',
   },
   emptyState: {
     backgroundColor: Colors.cardBackground,

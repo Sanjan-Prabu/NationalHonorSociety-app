@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { useAuth } from './AuthContext';
 import { Organization, OrganizationType, UserMembership } from '../types/database';
 import { OrganizationService } from '../services/OrganizationService';
+import { ProfileValidationService } from '../services/ProfileValidationService';
 
 interface OrganizationContextType {
   // Active organization state
@@ -102,9 +103,20 @@ export const OrganizationProvider: React.FC<OrganizationProviderProps> = ({ chil
       return;
     }
 
+    // Check if profile is ready for organization context loading
+    if (!ProfileValidationService.isProfileReadyForOrganizationContext(profile)) {
+      console.log('⏳ Profile not ready for organization context - waiting for profile validation');
+      setActiveOrganization(null);
+      setActiveMembership(null);
+      setError('Profile validation in progress - organization context will load automatically');
+      return;
+    }
+
     try {
       setIsLoading(true);
       setError(null);
+
+      console.log('🔄 Loading organization context with validated profile');
 
       // Fetch fresh memberships
       const memberships = await OrganizationService.getUserMemberships(session.user.id);
@@ -114,24 +126,30 @@ export const OrganizationProvider: React.FC<OrganizationProviderProps> = ({ chil
         console.log('⚠️ No memberships found for user');
         setActiveOrganization(null);
         setActiveMembership(null);
+        setError('No organization memberships found. Please contact an administrator.');
         return;
       }
 
       // Determine active membership
       let targetMembership: UserMembership | null = null;
 
-      // Priority 1: Use profile's default org_id if set
+      // Priority 1: Use profile's default org_id if set and valid
       if (profile?.org_id) {
         targetMembership = memberships.find(m => m.org_id === profile.org_id) || null;
+        if (targetMembership) {
+          console.log('✅ Using profile default organization:', targetMembership.org_name);
+        }
       }
 
       // Priority 2: Use first membership if no default set
       if (!targetMembership && memberships.length > 0) {
         targetMembership = memberships[0];
+        console.log('✅ Using first available membership:', targetMembership.org_name);
       }
 
       if (targetMembership) {
         await setActiveOrganizationFromMembership(targetMembership);
+        console.log('✅ Organization context loaded successfully');
       }
     } catch (error) {
       console.error('❌ Error refreshing organization context:', error);
@@ -139,7 +157,7 @@ export const OrganizationProvider: React.FC<OrganizationProviderProps> = ({ chil
     } finally {
       setIsLoading(false);
     }
-  }, [session?.user?.id, profile?.org_id]);
+  }, [session?.user?.id, profile?.org_id, profile?.id]);
 
   const setActiveOrganizationFromMembership = async (membership: UserMembership) => {
     try {
@@ -231,7 +249,16 @@ export const OrganizationProvider: React.FC<OrganizationProviderProps> = ({ chil
   // Update organization when profile or memberships change
   useEffect(() => {
     if (profile && session) {
-      refreshOrganization();
+      // Only refresh if profile is complete, otherwise wait
+      if (ProfileValidationService.isProfileReadyForOrganizationContext(profile)) {
+        console.log('🚀 Profile is ready - loading organization context');
+        refreshOrganization();
+      } else {
+        console.log('⏳ Profile incomplete - deferring organization context loading');
+        setActiveOrganization(null);
+        setActiveMembership(null);
+        setError('Waiting for profile validation to complete...');
+      }
     } else {
       setActiveOrganization(null);
       setActiveMembership(null);
@@ -239,7 +266,7 @@ export const OrganizationProvider: React.FC<OrganizationProviderProps> = ({ chil
       setError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile?.id, profile?.org_id, session?.user?.id]);
+  }, [profile?.id, profile?.org_id, profile?.role, profile?.is_verified, session?.user?.id]);
 
   const value: OrganizationContextType = {
     // Active organization state

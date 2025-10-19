@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -27,6 +27,7 @@ const Colors = {
   dividerColor: '#D1D5DB',
   errorRed: '#E53E3E',
   successGreen: '#38A169',
+  lightBlue: '#EBF8FF',
 };
 
 const VolunteerHoursForm = ({ navigation }: any) => {
@@ -47,12 +48,15 @@ const VolunteerHoursForm = ({ navigation }: any) => {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Memoize the organization ID to prevent infinite re-renders
+  const organizationId = useMemo(() => currentOrgId || activeOrganization?.id || '', [currentOrgId, activeOrganization?.id]);
+
   // Use dynamic data hooks
   const { 
     data: eventsData, 
     isLoading: eventsLoading, 
     isError: eventsError 
-  } = useOrganizationEvents(currentOrgId || activeOrganization?.id || '');
+  } = useOrganizationEvents(organizationId);
 
   const submitVolunteerHoursMutation = useVolunteerHourSubmission();
 
@@ -67,9 +71,9 @@ const VolunteerHoursForm = ({ navigation }: any) => {
 
     // Event validation
     if (eventType === 'club' && !selectedEvent) {
-      newErrors.event = 'Please select an event';
+      newErrors.event = 'Please select an organization event';
     } else if (eventType === 'custom' && !customEventName.trim()) {
-      newErrors.customEvent = 'Custom event name is required';
+      newErrors.customEvent = 'Custom activity name is required';
     }
 
     // Date validation
@@ -113,8 +117,8 @@ const VolunteerHoursForm = ({ navigation }: any) => {
         activity_date: date?.toISOString().split('T')[0] || '', // Format as YYYY-MM-DD
         hours: parseFloat(hours),
         description: eventType === 'club' ?
-          clubEvents.find(e => e.value === selectedEvent)?.label || 'Club Event' :
-          customEventName,
+          `Organization Event: ${clubEvents.find(e => e.value === selectedEvent)?.label || 'Unknown Event'}${additionalNotes ? ` - ${additionalNotes}` : ''}` :
+          `${customEventName}${additionalNotes ? ` - ${additionalNotes}` : ''}`,
         event_id: eventType === 'club' ? selectedEvent : undefined,
         // TODO: Handle file upload for selectedImage and notes
       };
@@ -229,20 +233,30 @@ const VolunteerHoursForm = ({ navigation }: any) => {
             {/* Form Container */}
             <View style={styles.formContainer}>
               {/* Event Type Selection */}
-              <Text style={styles.sectionTitle}>Event Information</Text>
+              <Text style={styles.sectionTitle}>Volunteer Activity Type</Text>
               <View style={styles.eventTypeContainer}>
                 <TouchableOpacity
                   style={[
                     styles.eventTypeButton,
                     eventType === 'club' && styles.eventTypeButtonActive
                   ]}
-                  onPress={() => setEventType('club')}
+                  onPress={() => {
+                    setEventType('club');
+                    setSelectedEvent('');
+                    setCustomEventName('');
+                  }}
                 >
+                  <Icon 
+                    name="event" 
+                    size={moderateScale(18)} 
+                    color={eventType === 'club' ? Colors.solidBlue : Colors.textMedium} 
+                    style={styles.eventTypeIcon}
+                  />
                   <Text style={[
                     styles.eventTypeText,
                     eventType === 'club' && styles.eventTypeTextActive
                   ]}>
-                    Club Event
+                    Organization Event
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -250,56 +264,108 @@ const VolunteerHoursForm = ({ navigation }: any) => {
                     styles.eventTypeButton,
                     eventType === 'custom' && styles.eventTypeButtonActive
                   ]}
-                  onPress={() => setEventType('custom')}
+                  onPress={() => {
+                    setEventType('custom');
+                    setSelectedEvent('');
+                    setCustomEventName('');
+                  }}
                 >
+                  <Icon 
+                    name="add-circle-outline" 
+                    size={moderateScale(18)} 
+                    color={eventType === 'custom' ? Colors.solidBlue : Colors.textMedium} 
+                    style={styles.eventTypeIcon}
+                  />
                   <Text style={[
                     styles.eventTypeText,
                     eventType === 'custom' && styles.eventTypeTextActive
                   ]}>
-                    Custom Event
+                    Custom Activity
                   </Text>
                 </TouchableOpacity>
               </View>
+              
+              {/* Helper Text */}
+              <Text style={styles.helperText}>
+                {eventType === 'club' 
+                  ? 'Select from organization events created by officers. This helps track participation in official activities.'
+                  : 'Log volunteer work done outside of organization events. Describe the activity and organization you volunteered with.'
+                }
+              </Text>
 
               {/* Event Selector or Custom Input */}
               {eventType === 'club' ? (
                 <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>Event Name</Text>
+                  <Text style={styles.inputLabel}>Organization Event</Text>
                   {eventsLoading ? (
                     <View style={[styles.dropdownContainer, styles.loadingContainer]}>
-                      <Text style={styles.dropdownPlaceholder}>Loading events...</Text>
+                      <Text style={styles.dropdownPlaceholder}>Loading organization events...</Text>
                     </View>
                   ) : eventsError ? (
                     <View style={[styles.dropdownContainer, styles.loadingContainer]}>
                       <Text style={styles.dropdownPlaceholder}>Failed to load events</Text>
                     </View>
                   ) : (
-                    <View style={[styles.dropdownContainer, errors.event && styles.inputError]}>
-                      <Text style={[
-                        styles.dropdownText,
-                        !selectedEvent && styles.dropdownPlaceholder
-                      ]}>
-                        {selectedEvent ?
-                          clubEvents.find(e => e.value === selectedEvent)?.label :
-                          clubEvents.length > 0 ? 'Select an event' : 'No events available'
-                        }
-                      </Text>
-                      <Icon name="arrow-drop-down" size={moderateScale(24)} color={Colors.textMedium} />
-                    </View>
+                    <ScrollView 
+                      style={styles.eventScrollContainer}
+                      showsVerticalScrollIndicator={false}
+                      nestedScrollEnabled={true}
+                    >
+                      {clubEvents.length > 0 ? (
+                        clubEvents.map((event) => (
+                          <TouchableOpacity
+                            key={event.value}
+                            style={[
+                              styles.eventOption,
+                              selectedEvent === event.value && styles.eventOptionSelected,
+                              errors.event && styles.inputError
+                            ]}
+                            onPress={() => setSelectedEvent(event.value)}
+                          >
+                            <View style={styles.eventOptionContent}>
+                              <Text style={[
+                                styles.eventOptionText,
+                                selectedEvent === event.value && styles.eventOptionTextSelected
+                              ]}>
+                                {event.label}
+                              </Text>
+                              {selectedEvent === event.value && (
+                                <Icon 
+                                  name="check-circle" 
+                                  size={moderateScale(20)} 
+                                  color={Colors.solidBlue} 
+                                />
+                              )}
+                            </View>
+                          </TouchableOpacity>
+                        ))
+                      ) : (
+                        <View style={styles.noEventsContainer}>
+                          <Icon name="event" size={moderateScale(32)} color={Colors.textLight} />
+                          <Text style={styles.noEventsText}>No organization events available</Text>
+                          <Text style={styles.noEventsSubtext}>
+                            Contact your officers to create events, or select "Custom Event" to log other volunteer activities.
+                          </Text>
+                        </View>
+                      )}
+                    </ScrollView>
                   )}
                   {errors.event && <Text style={styles.errorText}>{errors.event}</Text>}
                 </View>
               ) : (
                 <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>Custom Event Name</Text>
+                  <Text style={styles.inputLabel}>Custom Activity Name</Text>
                   <TextInput
                     style={[styles.textInput, errors.customEvent && styles.inputError]}
-                    placeholder="Enter event name"
+                    placeholder="e.g., Food Bank Volunteer, Community Cleanup, Tutoring"
                     placeholderTextColor={Colors.textLight}
                     value={customEventName}
                     onChangeText={setCustomEventName}
                     maxLength={100}
                   />
+                  <Text style={styles.inputHint}>
+                    Describe the volunteer activity or organization you worked with
+                  </Text>
                   {errors.customEvent && <Text style={styles.errorText}>{errors.customEvent}</Text>}
                 </View>
               )}
@@ -450,8 +516,11 @@ const styles = StyleSheet.create({
   eventTypeButton: {
     flex: 1,
     paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(8),
     borderRadius: moderateScale(6),
     alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
   },
   eventTypeButtonActive: {
     backgroundColor: Colors.white,
@@ -461,6 +530,9 @@ const styles = StyleSheet.create({
     shadowRadius: moderateScale(2),
     elevation: 2,
   },
+  eventTypeIcon: {
+    marginRight: scale(6),
+  },
   eventTypeText: {
     fontSize: moderateScale(14),
     color: Colors.textMedium,
@@ -469,6 +541,13 @@ const styles = StyleSheet.create({
   eventTypeTextActive: {
     color: Colors.solidBlue,
     fontWeight: '600',
+  },
+  helperText: {
+    fontSize: moderateScale(12),
+    color: Colors.textLight,
+    marginTop: verticalScale(8),
+    marginBottom: verticalScale(8),
+    lineHeight: moderateScale(16),
   },
   inputContainer: {
     marginBottom: verticalScale(20),
@@ -623,6 +702,62 @@ const styles = StyleSheet.create({
   errorText: {
     color: Colors.errorRed,
     fontSize: moderateScale(12),
+    marginTop: verticalScale(4),
+  },
+  eventScrollContainer: {
+    maxHeight: verticalScale(200),
+    borderWidth: 1,
+    borderColor: Colors.inputBorder,
+    borderRadius: moderateScale(8),
+    backgroundColor: Colors.white,
+  },
+  eventOption: {
+    paddingHorizontal: scale(16),
+    paddingVertical: verticalScale(12),
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.dividerColor,
+  },
+  eventOptionSelected: {
+    backgroundColor: Colors.lightBlue,
+    borderBottomColor: Colors.solidBlue,
+  },
+  eventOptionContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  eventOptionText: {
+    fontSize: moderateScale(14),
+    color: Colors.textDark,
+    flex: 1,
+    marginRight: scale(8),
+  },
+  eventOptionTextSelected: {
+    color: Colors.solidBlue,
+    fontWeight: '600',
+  },
+  noEventsContainer: {
+    padding: scale(24),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noEventsText: {
+    fontSize: moderateScale(16),
+    fontWeight: '600',
+    color: Colors.textMedium,
+    marginTop: verticalScale(12),
+    textAlign: 'center',
+  },
+  noEventsSubtext: {
+    fontSize: moderateScale(12),
+    color: Colors.textLight,
+    marginTop: verticalScale(8),
+    textAlign: 'center',
+    lineHeight: moderateScale(16),
+  },
+  inputHint: {
+    fontSize: moderateScale(12),
+    color: Colors.textLight,
     marginTop: verticalScale(4),
   },
 });

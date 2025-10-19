@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -12,6 +12,7 @@ import { useUserProfile, useCurrentOrganizationId } from 'hooks/useUserData';
 import { useOrganizationVolunteerStats, usePendingApprovals } from 'hooks/useVolunteerHoursData';
 import { useEventStats, useUpcomingEvents } from 'hooks/useEventData';
 import { useOrganization } from 'contexts/OrganizationContext';
+import { relative } from 'path';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -37,17 +38,21 @@ const OfficerDashboard = ({ navigation }: any) => {
   // Dynamic data hooks
   const { data: userProfile, isLoading: profileLoading, refetch: refetchProfile } = useUserProfile();
   const { activeOrganization } = useOrganization();
-  const orgId = activeOrganization?.id;
   
-  const { data: volunteerStats, isLoading: volunteerStatsLoading, refetch: refetchVolunteerStats } = useOrganizationVolunteerStats(orgId || '');
-  const { data: pendingApprovals, isLoading: pendingApprovalsLoading, refetch: refetchPendingApprovals } = usePendingApprovals(orgId || '');
-  const { data: eventStats, isLoading: eventStatsLoading, refetch: refetchEventStats } = useEventStats(orgId || '');
-  const { data: upcomingEvents, isLoading: upcomingEventsLoading, refetch: refetchUpcomingEvents } = useUpcomingEvents(orgId || '', 3);
+  // Memoize the organization ID to prevent infinite re-renders
+  const orgId = useMemo(() => activeOrganization?.id || '', [activeOrganization?.id]);
+  
+  const { data: volunteerStats, isLoading: volunteerStatsLoading, refetch: refetchVolunteerStats } = useOrganizationVolunteerStats(orgId);
+  const { data: pendingApprovals, isLoading: pendingApprovalsLoading, refetch: refetchPendingApprovals } = usePendingApprovals(orgId);
+  const { data: eventStats, isLoading: eventStatsLoading, refetch: refetchEventStats } = useEventStats(orgId);
+  const { data: upcomingEvents, isLoading: upcomingEventsLoading, refetch: refetchUpcomingEvents } = useUpcomingEvents(orgId, 3);
 
   // Computed dashboard data
   const dashboardData = {
     firstName: userProfile?.first_name || 'Officer',
-    role: userProfile?.role === 'officer' ? 'NHS Officer' : 'NHS Member',
+    role: userProfile?.role === 'officer' ? 
+      `${activeOrganization?.org_type || 'NHS'} Officer` : 
+      `${activeOrganization?.org_type || 'NHS'} Member`,
     officerType: 'Officer',
     totalMembers: volunteerStats?.totalMembers || 0,
     totalEvents: eventStats?.totalEvents || 0,
@@ -162,7 +167,8 @@ const OfficerDashboard = ({ navigation }: any) => {
             </View>
             <ProfileButton 
               color={Colors.solidBlue}
-              size={moderateScale(28)}
+              size={moderateScale(33)}
+              style={styles.profileButton}
             />
           </View>
 
@@ -170,7 +176,7 @@ const OfficerDashboard = ({ navigation }: any) => {
           <View style={styles.welcomeCard}>
             <Text style={styles.welcomeText}>Welcome, {dashboardData.firstName}!</Text>
             <Text style={styles.welcomeSubtext}>
-              Manage your NHS organization and track member progress.
+              Manage your {activeOrganization?.org_type || 'NHS'} organization and track member progress.
             </Text>
           </View>
 
@@ -297,7 +303,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerTitle: {
-    fontSize: moderateScale(28),
+    fontSize: moderateScale(24),
     fontWeight: 'bold',
     color: Colors.textDark,
     marginBottom: verticalScale(8),
@@ -476,6 +482,10 @@ const styles = StyleSheet.create({
   bottomSpacer: {
     height: verticalScale(100),
   },
+  profileButton: {
+    bottom: verticalScale(5),
+    right: moderateScale(-10)
+  }
 });
 
 export default withRoleProtection(OfficerDashboard, {

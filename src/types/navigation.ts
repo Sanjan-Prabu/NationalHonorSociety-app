@@ -22,6 +22,7 @@ export type OfficerStackParamList = {
   OfficerTabs: undefined;
   AttendanceSession: undefined;
   EventAttendance: { eventId: string };
+  CreateEvent: undefined;
 };
 
 // Officer Tab Parameter List - Officer bottom tab navigation

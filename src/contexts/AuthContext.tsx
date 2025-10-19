@@ -6,6 +6,7 @@ import { UserMembership } from '../types/database';
 import { OrganizationService } from '../services/OrganizationService';
 import { userDataService } from '../services/UserDataService';
 import { UserProfile } from '../types/dataService';
+import { ProfileValidationService } from '../services/ProfileValidationService';
 
 interface AuthContextType {
   session: Session | null;
@@ -149,18 +150,48 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     if (!session?.user?.id) return;
 
     try {
-      // Fetch both basic and enhanced profiles
-      const [basicProfile, enhancedProfile] = await Promise.all([
-        fetchProfile(session.user.id),
-        fetchEnhancedProfile(session.user.id)
-      ]);
+      console.log('🔄 Starting enhanced profile refresh with validation');
 
-      setProfile(basicProfile);
-      setUserProfile(enhancedProfile);
+      // Step 1: Fetch current memberships first (needed for profile validation)
+      const memberships = await fetchMemberships(session.user.id);
+      setUserMemberships(memberships);
+
+      // Step 2: Validate and auto-complete profile if needed
+      const validationResult = await ProfileValidationService.refreshAndValidateProfile(
+        session.user.id,
+        memberships
+      );
+
+      if (!validationResult.success) {
+        console.error('❌ Profile validation failed:', validationResult.error);
+        setError(validationResult.error || 'Failed to validate profile completeness');
+        
+        // Still set whatever profile data we have
+        if (validationResult.profile) {
+          setProfile(validationResult.profile);
+        }
+        return;
+      }
+
+      // Step 3: Set the validated/completed profile
+      setProfile(validationResult.profile);
+
+      if (validationResult.wasUpdated) {
+        console.log('✅ Profile was updated during validation');
+      }
+
+      // Step 4: Fetch enhanced profile data
+      try {
+        const enhancedProfile = await fetchEnhancedProfile(session.user.id);
+        setUserProfile(enhancedProfile);
+      } catch (enhancedError) {
+        console.error('⚠️ Enhanced profile fetch failed, continuing with basic profile:', enhancedError);
+        // Don't fail the entire refresh if enhanced profile fails
+      }
       
-      console.log('✅ Profile refresh completed');
+      console.log('✅ Enhanced profile refresh completed successfully');
     } catch (error) {
-      console.error('Profile refresh failed:', error);
+      console.error('❌ Profile refresh failed:', error);
       setError('Failed to refresh profile data');
     }
   };
@@ -328,15 +359,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           console.log('📡 Found current session');
           setSession(currentSession);
 
-          // Fetch profile, enhanced profile, and memberships
-          const [profileData, enhancedProfileData, memberships] = await Promise.all([
-            fetchProfile(currentSession.user.id),
-            fetchEnhancedProfile(currentSession.user.id),
-            fetchMemberships(currentSession.user.id)
-          ]);
-
-          if (!mounted) return;
-
           // Validate session is still valid and user is verified
           const now = Date.now() / 1000;
           const sessionExpired = currentSession.expires_at && currentSession.expires_at < now;
@@ -354,17 +376,48 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             return;
           }
 
-          if (profileData) {
-            setProfile(profileData);
-            setUserProfile(enhancedProfileData);
+          // Fetch memberships first (needed for profile validation)
+          const memberships = await fetchMemberships(currentSession.user.id);
+          
+          if (!mounted) return;
+
+          // Validate and auto-complete profile if needed
+          const validationResult = await ProfileValidationService.refreshAndValidateProfile(
+            currentSession.user.id,
+            memberships
+          );
+
+          if (!mounted) return;
+
+          if (validationResult.success && validationResult.profile) {
+            setProfile(validationResult.profile);
             setUserMemberships(memberships);
-            console.log('✅ Auth initialization completed successfully');
+
+            if (validationResult.wasUpdated) {
+              console.log('✅ Profile was auto-completed during initialization');
+            }
+
+            // Fetch enhanced profile in background
+            try {
+              const enhancedProfile = await fetchEnhancedProfile(currentSession.user.id);
+              if (mounted) {
+                setUserProfile(enhancedProfile);
+              }
+            } catch (enhancedError) {
+              console.error('⚠️ Enhanced profile fetch failed during initialization:', enhancedError);
+            }
+
+            console.log('✅ Auth initialization completed successfully with validated profile');
           } else {
-            console.log('⚠️ Profile not found but session is valid, continuing with limited functionality');
-            // Don't force logout immediately - let the user continue and try to create profile later
-            setProfile(null);
-            setUserProfile(null);
+            console.log('⚠️ Profile validation failed during initialization:', validationResult.error);
+            
+            // Set whatever data we have but mark as incomplete
+            setProfile(validationResult.profile);
             setUserMemberships(memberships || []);
+            setUserProfile(null);
+            
+            // Don't force logout - let user continue with limited functionality
+            // The OrganizationContext will handle the incomplete profile gracefully
           }
         } else {
           console.log('ℹ️ No session found');
@@ -417,21 +470,48 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           loadingTimeoutRef.current = null;
         }
 
-        // Fetch profiles and memberships in background - DON'T BLOCK UI
-        Promise.all([
-          fetchProfile(session.user.id),
-          fetchEnhancedProfile(session.user.id),
-          fetchMemberships(session.user.id)
-        ]).then(([profileData, enhancedProfileData, memberships]) => {
-          if (mounted) {
-            setProfile(profileData);
-            setUserProfile(enhancedProfileData);
-            setUserMemberships(memberships || []);
-          }
-        }).catch(error => {
-          console.error('Background profile fetch failed:', error);
-          if (mounted) {
-            setError('Failed to load profile data');
+        // Fetch and validate profile in background - DON'T BLOCK UI
+        Promise.resolve().then(async () => {
+          try {
+            // Fetch memberships first
+            const memberships = await fetchMemberships(session.user.id);
+            
+            // Validate and auto-complete profile
+            const validationResult = await ProfileValidationService.refreshAndValidateProfile(
+              session.user.id,
+              memberships
+            );
+
+            if (mounted) {
+              setUserMemberships(memberships);
+              
+              if (validationResult.success && validationResult.profile) {
+                setProfile(validationResult.profile);
+                
+                if (validationResult.wasUpdated) {
+                  console.log('✅ Profile auto-completed during sign-in');
+                }
+
+                // Fetch enhanced profile
+                try {
+                  const enhancedProfile = await fetchEnhancedProfile(session.user.id);
+                  if (mounted) {
+                    setUserProfile(enhancedProfile);
+                  }
+                } catch (enhancedError) {
+                  console.error('⚠️ Enhanced profile fetch failed:', enhancedError);
+                }
+              } else {
+                console.log('⚠️ Profile validation failed during sign-in:', validationResult.error);
+                setProfile(validationResult.profile);
+                setError(validationResult.error || 'Profile validation failed');
+              }
+            }
+          } catch (error) {
+            console.error('Background profile validation failed:', error);
+            if (mounted) {
+              setError('Failed to validate profile data');
+            }
           }
         });
 

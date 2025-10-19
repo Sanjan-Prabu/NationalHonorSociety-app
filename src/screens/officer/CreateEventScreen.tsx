@@ -24,7 +24,9 @@ import { useToast } from 'components/ui/ToastProvider';
 import { withRoleProtection } from 'components/hoc/withRoleProtection';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../lib/supabaseClient';
+import { eventService } from '../../services/EventService';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { OfficerStackParamList } from '../../types/navigation';
 
 const Colors = {
     LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -44,9 +46,15 @@ const Colors = {
     lightGreen: '#EBF8F2',
 };
 
-type EventCategory = 'Community Service' | 'Education' | 'Environment' | 'Fundraising' | 'Volunteer';
+type EventCategory = 'fundraiser' | 'volunteering' | 'education' | 'custom';
 
-const CreateEventScreen = ({ navigation }: any) => {
+type CreateEventScreenNavigationProp = NativeStackNavigationProp<OfficerStackParamList, 'CreateEvent'>;
+
+interface CreateEventScreenProps {
+  navigation: CreateEventScreenNavigationProp;
+}
+
+const CreateEventScreen = ({ navigation }: CreateEventScreenProps) => {
     const { showSuccess, showError, showValidationError } = useToast();
     const { activeOrganization } = useOrganization();
     const { user } = useAuth();
@@ -55,6 +63,7 @@ const CreateEventScreen = ({ navigation }: any) => {
     // Form state
     const [eventName, setEventName] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<EventCategory | null>(null);
+    const [customCategory, setCustomCategory] = useState('');
     const [date, setDate] = useState<Date | null>(null);
     const [showDatePicker, setShowDatePicker] = useState(false);
     const [startTime, setStartTime] = useState<Date | null>(null);
@@ -66,14 +75,14 @@ const CreateEventScreen = ({ navigation }: any) => {
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [refreshing, setRefreshing] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     // Category options with their tag variants
-    const categoryOptions: { label: EventCategory; variant: 'blue' | 'green' | 'yellow' | 'purple' | 'orange' | 'teal' }[] = [
-        { label: 'Volunteer', variant: 'teal' },
-        { label: 'Education', variant: 'purple' },
-        { label: 'Environment', variant: 'green' },
-        { label: 'Fundraising', variant: 'orange' },
-        { label: 'Community Service', variant: 'blue' },
+    const categoryOptions: { label: EventCategory; displayLabel: string; variant: 'blue' | 'green' | 'yellow' | 'purple' | 'orange' | 'teal' }[] = [
+        { label: 'fundraiser', displayLabel: 'Fundraiser', variant: 'orange' },
+        { label: 'volunteering', displayLabel: 'Volunteering', variant: 'teal' },
+        { label: 'education', displayLabel: 'Education', variant: 'purple' },
+        { label: 'custom', displayLabel: 'Custom', variant: 'orange' },
     ];
 
     const validateForm = () => {
@@ -89,6 +98,8 @@ const CreateEventScreen = ({ navigation }: any) => {
         // Category validation
         if (!selectedCategory) {
             newErrors.category = 'Please select a category';
+        } else if (selectedCategory === 'custom' && !customCategory.trim()) {
+            newErrors.customCategory = 'Custom category name is required';
         }
 
         // Date validation
@@ -129,6 +140,8 @@ const CreateEventScreen = ({ navigation }: any) => {
             return;
         }
 
+        setIsSubmitting(true);
+
         try {
             // Combine date and time for starts_at and ends_at
             const eventDate = date!;
@@ -142,31 +155,31 @@ const CreateEventScreen = ({ navigation }: any) => {
                 endDateTime.setHours(endTime.getHours(), endTime.getMinutes());
             }
 
-            // Insert event into database
-            const { error } = await supabase
-                .from('events')
-                .insert({
-                    org_id: activeOrganization.id,
-                    title: eventName.trim(),
-                    description: description.trim(),
-                    location: location.trim(),
-                    starts_at: startDateTime.toISOString(),
-                    ends_at: endDateTime.toISOString(),
-                    is_public: false, // Start as draft
-                    created_by: user.id
-                });
+            // Determine the final category value
+            const finalCategory = selectedCategory === 'custom' ? customCategory.trim() : selectedCategory || undefined;
 
-            if (error) {
-                console.error('Error creating event:', error);
-                showError('Creation Error', 'Failed to create event. Please try again.');
-                return;
+            // Create event using EventService
+            const result = await eventService.createEvent({
+                title: eventName.trim(),
+                description: description.trim() || undefined,
+                location: location.trim(),
+                event_date: eventDate.toISOString().split('T')[0],
+                starts_at: startDateTime.toISOString(),
+                ends_at: endDateTime.toISOString(),
+                category: finalCategory
+            });
+
+            if (result.success) {
+                showSuccess('Event Created', 'Your event has been created successfully.');
+                navigation.goBack();
+            } else {
+                showError('Creation Error', result.error || 'Failed to create event. Please try again.');
             }
-
-            showSuccess('Event Created', 'Your event has been created successfully as a draft.');
-            navigation.goBack();
         } catch (error) {
             console.error('Error creating event:', error);
             showError('Creation Error', 'Failed to create event. Please try again.');
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -345,10 +358,15 @@ const CreateEventScreen = ({ navigation }: any) => {
                                             key={category.label}
                                             style={[
                                                 styles.categoryButton,
-                                                index === categoryOptions.length - 1 && styles.categoryButtonLast,
                                                 selectedCategory === category.label && styles.categoryButtonActive
                                             ]}
-                                            onPress={() => setSelectedCategory(category.label)}
+                                            onPress={() => {
+                                                setSelectedCategory(category.label);
+                                                // Clear custom category if switching away from custom
+                                                if (category.label !== 'custom') {
+                                                    setCustomCategory('');
+                                                }
+                                            }}
                                         >
                                             <Text
                                                 style={[
@@ -358,12 +376,30 @@ const CreateEventScreen = ({ navigation }: any) => {
                                                 numberOfLines={1}
                                                 adjustsFontSizeToFit
                                             >
-                                                {category.label}
+                                                {category.displayLabel}
                                             </Text>
                                         </TouchableOpacity>
                                     ))}
                                 </View>
                                 {errors.category && <Text style={styles.errorText}>{errors.category}</Text>}
+                                
+                                {/* Custom Category Input */}
+                                {selectedCategory === 'custom' && (
+                                    <View style={styles.customCategoryContainer}>
+                                        <TextInput
+                                            style={[styles.textInput, errors.customCategory && styles.inputError]}
+                                            placeholder="Enter custom category name"
+                                            placeholderTextColor={Colors.textLight}
+                                            value={customCategory}
+                                            onChangeText={setCustomCategory}
+                                            maxLength={30}
+                                        />
+                                        <Text style={styles.charCount}>
+                                            {customCategory.length}/30 characters
+                                        </Text>
+                                        {errors.customCategory && <Text style={styles.errorText}>{errors.customCategory}</Text>}
+                                    </View>
+                                )}
                             </View>
 
                             {/* Date */}
@@ -490,8 +526,14 @@ const CreateEventScreen = ({ navigation }: any) => {
                             </View>
 
                             {/* Create Event Button */}
-                            <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
-                                <Text style={styles.submitButtonText}>Create Event</Text>
+                            <TouchableOpacity 
+                                style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]} 
+                                onPress={handleSubmit}
+                                disabled={isSubmitting}
+                            >
+                                <Text style={styles.submitButtonText}>
+                                    {isSubmitting ? 'Creating Event...' : 'Create Event'}
+                                </Text>
                             </TouchableOpacity>
                         </View>
                     </ScrollView>
@@ -699,10 +741,8 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         marginBottom: verticalScale(8),
     },
-    categoryButtonLast: {
-        flexBasis: '100%',
-        alignSelf: 'center',
-        width: '60%',
+    customCategoryContainer: {
+        marginTop: verticalScale(12),
     },
     categoryButtonActive: {
         backgroundColor: Colors.lightBlue,
@@ -844,6 +884,11 @@ const styles = StyleSheet.create({
         color: Colors.white,
         fontSize: moderateScale(16),
         fontWeight: '600',
+    },
+    submitButtonDisabled: {
+        backgroundColor: Colors.textLight,
+        shadowOpacity: 0,
+        elevation: 0,
     },
     inputError: {
         borderWidth: 1,

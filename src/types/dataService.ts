@@ -71,9 +71,11 @@ export interface VolunteerHourData {
   approved_by?: UUID;
   approved_at?: string;
   attachment_file_id?: UUID;
+  event_id?: UUID;      // Optional reference to organization event
   // Computed fields
   member_name?: string;
   approver_name?: string;
+  event_name?: string;  // Name of associated event if event_id is present
   status: 'pending' | 'approved' | 'rejected';
   can_edit?: boolean;
 }
@@ -96,6 +98,27 @@ export interface AttendanceRecord {
   event_date?: string;
   member_name?: string;
   recorded_by_name?: string;
+}
+
+/**
+ * Enhanced Announcement interface with computed fields
+ */
+export interface AnnouncementData {
+  id: UUID;
+  org_id: UUID;
+  created_by: UUID;
+  tag?: string;
+  title: string;
+  message?: string;
+  link?: string;
+  image_url?: string; // Phase 2
+  status: 'active' | 'deleted' | 'archived';
+  deleted_by?: UUID;
+  deleted_at?: string;
+  created_at: string;
+  updated_at: string;
+  // Computed fields
+  creator_name?: string;
 }
 
 // =============================================================================
@@ -154,6 +177,20 @@ export interface UpdateProfileRequest {
   display_name?: string;
 }
 
+export interface CreateAnnouncementRequest {
+  title: string;
+  message?: string;
+  tag?: string;
+  link?: string;
+}
+
+export interface UpdateAnnouncementRequest {
+  title?: string;
+  message?: string;
+  tag?: string;
+  link?: string;
+}
+
 /**
  * Response types for API operations
  */
@@ -204,6 +241,13 @@ export interface ProfileFilters {
   isVerified?: boolean;
   grade?: string;
   searchTerm?: string;
+}
+
+export interface AnnouncementFilters {
+  tag?: string;
+  createdBy?: UUID;
+  startDate?: string;
+  endDate?: string;
 }
 
 // =============================================================================
@@ -284,6 +328,19 @@ export function isAttendanceRecord(obj: any): obj is AttendanceRecord {
     typeof obj.event_id === 'string' &&
     typeof obj.member_id === 'string' &&
     typeof obj.method === 'string'
+  );
+}
+
+export function isAnnouncementData(obj: any): obj is AnnouncementData {
+  return (
+    obj &&
+    typeof obj === 'object' &&
+    typeof obj.id === 'string' &&
+    typeof obj.org_id === 'string' &&
+    typeof obj.created_by === 'string' &&
+    typeof obj.title === 'string' &&
+    typeof obj.status === 'string' &&
+    ['active', 'deleted', 'archived'].includes(obj.status)
   );
 }
 

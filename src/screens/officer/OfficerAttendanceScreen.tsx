@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, RefreshControl, Platform, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -69,12 +69,15 @@ const OfficerAttendance = ({ navigation }: any) => {
   // Active session state (simulated for now)
   const [activeSession, setActiveSession] = useState<any>(null);
 
+  // Memoize the organization ID to prevent infinite re-renders
+  const organizationId = useMemo(() => activeOrganization?.id || '', [activeOrganization?.id]);
+
   // Dynamic data hooks
   const {
     data: events,
     isLoading: eventsLoading,
     refetch: refetchEvents
-  } = useOrganizationEvents(activeOrganization?.id || '');
+  } = useOrganizationEvents(organizationId);
 
   const createEventMutation = useCreateEvent();
   const markAttendanceMutation = useAttendanceMarking();
@@ -362,7 +365,7 @@ const OfficerAttendance = ({ navigation }: any) => {
             </View>
             <ProfileButton
               color={Colors.solidBlue}
-              size={moderateScale(28)}
+              size={moderateScale(32)}
             />
           </View>
 
@@ -371,13 +374,6 @@ const OfficerAttendance = ({ navigation }: any) => {
             <View style={styles.sectionContainer}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Bluetooth Attendance</Text>
-                <TouchableOpacity
-                  style={styles.fullScreenButton}
-                  onPress={() => navigation.navigate('AttendanceSession')}
-                >
-                  <Icon name="fullscreen" size={moderateScale(16)} color={Colors.solidBlue} />
-                  <Text style={styles.fullScreenButtonText}>Full View</Text>
-                </TouchableOpacity>
               </View>
 
               <View style={styles.formCard}>
@@ -464,7 +460,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerTitle: {
-    fontSize: moderateScale(32),
+    fontSize: moderateScale(30),
     fontWeight: 'bold',
     color: Colors.textDark,
     marginBottom: verticalScale(4),

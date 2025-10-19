@@ -1,0 +1,134 @@
+# Implementation Plan
+
+- [x] 1. Create database schema and RLS policies
+  - Create announcements table with proper indexes and constraints
+  - Create events table with date/time fields and organization scoping
+  - Implement RLS policies using existing is_member_of() and is_officer_of() helper functions
+  - Test policies with different user roles to ensure proper data isolation
+  - _Requirements: 1.5, 2.5, 3.2, 5.1, 5.2, 5.3, 5.4, 5.5_
+
+- [x] 2. Implement announcement service layer
+  - [x] 2.1 Create AnnouncementService class with CRUD operations
+    - Implement createAnnouncement() with server-side org_id resolution
+    - Implement fetchAnnouncements() with organization filtering and status='active'
+    - Implement softDeleteAnnouncement() with audit trail fields
+    - _Requirements: 1.1, 1.2, 1.5, 4.1, 4.2, 4.4_
+  - [x] 2.2 Add realtime subscription support for announcements
+    - Create organization-scoped Supabase realtime subscription
+    - Handle subscription lifecycle (create/cleanup) properly
+    - _Requirements: 6.1, 6.2, 6.3, 6.4_
+
+- [x] 3. Implement event service layer
+  - [x] 3.1 Create EventService class with CRUD operations
+    - Implement createEvent() with date/time validation and org_id resolution
+    - Implement fetchEvents() with organization filtering and date ordering
+    - Implement softDeleteEvent() with audit trail fields
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 4.1, 4.2, 4.4_
+  - [x] 3.2 Add realtime subscription support for events
+    - Create organization-scoped Supabase realtime subscription for events
+    - Handle subscription lifecycle and proper cleanup
+    - _Requirements: 6.1, 6.2, 6.3, 6.4_
+
+- [x] 4. Update officer announcement screen integration
+  - [x] 4.1 Replace static JSON data with dynamic service calls
+    - Remove hardcoded announcements array and replace with fetchAnnouncements()
+    - Update form submission to call createAnnouncement() service
+    - Add realtime subscription to automatically update feed on changes
+    - _Requirements: 1.1, 1.2, 1.3, 6.1, 6.2_
+  - [x] 4.2 Implement soft deletion functionality
+    - Add confirmation modal for delete actions
+    - Call softDeleteAnnouncement() service and update UI immediately
+    - _Requirements: 4.1, 4.2, 4.5_
+  - [x] 4.3 Hide image upload controls for Phase 1
+    - Disable or hide image upload input with "Image uploads coming soon" message
+    - Ensure form validation works without image fields
+    - _Requirements: 1.1_
+
+- [x] 5. Update officer event screen integration
+  - [x] 5.1 Replace static data with dynamic service calls
+    - Remove hardcoded events and replace with fetchEvents() calls
+    - Update event creation to use createEvent() service
+    - Add realtime subscription for immediate event updates
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 6.1, 6.2_
+  - [x] 5.2 Implement soft deletion for events
+    - Add delete confirmation modal for events
+    - Call softDeleteEvent() service and update UI
+    - _Requirements: 4.1, 4.2, 4.5_
+
+- [x] 6. Update member screens for read-only access
+  - [x] 6.1 Update member announcement screen
+    - Replace static data with fetchAnnouncements() service calls
+    - Add realtime subscription for live updates
+    - Ensure no create/delete controls are visible to members
+    - _Requirements: 3.1, 3.2, 3.3, 6.1, 6.2_
+  - [x] 6.2 Update member event screen
+    - Replace static data with fetchEvents() service calls
+    - Add realtime subscription for live event updates
+    - Maintain read-only access for member role
+    - _Requirements: 3.1, 3.2, 3.3, 6.1, 6.2_
+
+- [x] 7. Fix onboarding profile data integrity
+  - [x] 7.1 Audit onboard-user-atomic edge function
+    - Review current onboarding flow to ensure complete profile creation
+    - Verify all required fields (id, first_name, last_name, email, role, org_id, is_verified) are populated
+    - Test edge cases where profile creation might partially fail
+    - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5_
+  - [x] 7.2 Implement profile completeness validation
+    - Add refreshProfile() function to verify required fields on login
+    - Implement auto-upsert for missing profile data
+    - Ensure OrganizationContext loads only after profile verification
+    - _Requirements: 7.2, 7.3, 7.4_
+
+- [x] 8. Create shared AnnouncementCard component
+  - [x] 8.1 Design unified announcement card component
+    - Create AnnouncementCard component with consistent styling
+    - Implement colored tag display based on announcement type
+    - Add title, message, and metadata sections with proper spacing
+    - Include separator line between content and metadata
+    - _Requirements: 8.1, 8.2, 8.3_
+  - [x] 8.2 Add conditional functionality for different user roles
+    - Implement showDeleteButton prop for officer-only delete functionality
+    - Add onDelete callback for delete operations
+    - Include onLinkPress callback for link handling
+    - _Requirements: 8.5_
+  - [x] 8.3 Implement link button functionality
+    - Add link button display when announcement contains links
+    - Position link button after message content
+    - Style link button consistently with overall design
+    - _Requirements: 8.4_
+
+- [x] 9. Fix announcement delete functionality and RLS policies
+  - [x] 9.1 Investigate and fix RLS policy violation for delete operations
+    - Review current RLS policies for announcements table
+    - Fix policy violations preventing soft delete operations
+    - Test delete functionality with different user roles
+    - _Requirements: 9.1, 9.2, 9.4_
+  - [x] 9.2 Implement proper soft delete with audit trail
+    - Ensure soft delete updates status to 'deleted' with proper timestamps
+    - Add deleted_by and deleted_at fields to audit trail
+    - Validate permissions before allowing delete operations
+    - _Requirements: 9.2, 9.5_
+
+- [x] 10. Implement real-time updates for instant UI refresh
+  - [x] 10.1 Fix instant creation updates
+    - Ensure new announcements appear immediately in both officer and member views
+    - Implement optimistic updates for better user experience
+    - Handle realtime subscription updates properly
+    - _Requirements: 6.1, 6.2_
+  - [x] 10.2 Fix instant deletion updates
+    - Ensure deleted announcements disappear immediately from all views
+    - Update realtime subscriptions to handle delete events
+    - Remove deleted items from local state immediately
+    - _Requirements: 6.4, 9.3_
+
+- [x] 11. Update screens to use shared AnnouncementCard component
+  - [x] 11.1 Update MemberAnnouncementsScreen
+    - Replace existing announcement rendering with AnnouncementCard component
+    - Ensure no delete functionality is shown for members
+    - Maintain existing link handling functionality
+    - _Requirements: 8.1, 8.2, 8.4_
+  - [x] 11.2 Update OfficerAnnouncementsScreen
+    - Replace existing announcement rendering with AnnouncementCard component
+    - Enable delete functionality for officers
+    - Ensure consistent styling with member view
+    - _Requirements: 8.1, 8.2, 8.5_

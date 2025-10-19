@@ -1,7 +1,7 @@
-// @ts-ignore - Deno imports
-import { serve } from "std/http/server.ts";
-// @ts-ignore - Deno imports  
-import { createClient } from "@supabase/supabase-js";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+// DEPLOYMENT MARKER: Updated with enhanced logging - 2024-10-18
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -49,15 +49,19 @@ serve(async (req: Request) => {
     const validRoles = ['member', 'officer', 'president', 'vice_president', 'admin'];
     const finalRole = (role && validRoles.includes(role)) ? role : 'member';
 
-    console.log("Raw request body:", requestBody);
-    console.log("Role from request body:", requestBody.role);
-    console.log("Final role value:", finalRole);
-    console.log("Role type:", typeof finalRole);
-    console.log("Signup request:", { email, first_name, last_name, organization, role: finalRole });
+    console.log("Signup request:", {
+      email,
+      first_name,
+      last_name,
+      organization,
+      role: finalRole,
+      hasCode: !!code,
+      codeLength: code?.length
+    });
 
-    if (!email || !password || !first_name || !last_name || !organization) {
+    if (!email || !password || !first_name || !last_name || !organization || !code) {
       return new Response(
-        JSON.stringify({ success: false, error: "Missing required fields" }),
+        JSON.stringify({ success: false, error: "Missing required fields. Verification code is required for signup." }),
         {
           status: 400,
           headers: {
@@ -69,7 +73,7 @@ serve(async (req: Request) => {
     }
 
     // Organization mapping to proper UUIDs
-    let orgUuid;
+    let orgUuid: string;
     if (organization.toLowerCase() === 'nhs') {
       orgUuid = '550e8400-e29b-41d4-a716-446655440003';
     } else if (organization.toLowerCase() === 'nhsa') {
@@ -92,64 +96,112 @@ serve(async (req: Request) => {
 
     console.log("Using org UUID:", orgUuid);
 
-    // Validate verification code if provided
+    // Validate verification code - SIMPLIFIED LOGIC FOR UNIVERSAL CODES
     if (code) {
-      // First try to find code for the specific organization
+      console.log("=== VERIFICATION CODE VALIDATION START ===");
+      console.log("Input code:", code, "type:", typeof code);
+      console.log("Role:", finalRole, "Organization:", organization);
+      console.log("Function deployment timestamp:", new Date().toISOString());
+      
+      // First check what codes exist in database
+      const { data: allCodes } = await supabase
+        .from("verification_codes")
+        .select("*");
+      console.log("All codes in database:", allCodes);
+
+      // Check for the specific verification codes - UNIVERSAL CODES ONLY
+      console.log("Looking for code:", code, "in verification_codes table");
       let { data: codeData, error: codeError } = await supabase
         .from("verification_codes")
         .select("*")
         .eq("code", code)
-        .eq("org_id", orgUuid)
         .eq("is_used", false)
         .single();
 
-      // Special handling for universal officer code 97655500
-      if ((codeError || !codeData) && finalRole === 'officer' && code === '97655500') {
-        const { data: universalCode, error: universalError } = await supabase
-          .from("verification_codes")
-          .select("*")
-          .eq("code", code)
-          .eq("is_used", false)
-          .single();
+      console.log("Code lookup result:", { codeData, codeError });
+      console.log("Code data details:", codeData);
+      console.log("Expected codes: 50082571 (member), 97655500 (officer)");
 
-        if (universalCode) {
-          codeData = universalCode;
-          codeError = null;
+      if (codeError || !codeData) {
+        console.log("=== VERIFICATION CODE VALIDATION FAILED ===");
+        console.log("Code:", code);
+        console.log("Error:", codeError);
+        console.log("Found data:", !!codeData);
+        console.log("Error details:", JSON.stringify(codeError));
+        
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "Invalid or expired verification code"
+          }),
+          {
+            status: 400,
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": "*",
+            }
+          }
+        );
+      }
+
+      // Check if code has expired
+      if (codeData.expires_at && new Date(codeData.expires_at) < new Date()) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "Verification code has expired"
+          }),
+          {
+            status: 400,
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": "*",
+            }
+          }
+        );
+      }
+
+      // Validate code type against requested role
+      // 50082571 = member code (can be used by members only)
+      // 97655500 = officer code (can be used by officers, presidents, vice_presidents, admins)
+
+      if (code === "50082571") {
+        // Member verification code - only for member role
+        if (finalRole !== 'member') {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: "This verification code is only valid for member accounts"
+            }),
+            {
+              status: 400,
+              headers: {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+              }
+            }
+          );
+        }
+      } else if (code === "97655500") {
+        // Officer verification code - for officer roles
+        if (!['officer', 'president', 'vice_president', 'admin'].includes(finalRole)) {
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: "This verification code is only valid for officer accounts"
+            }),
+            {
+              status: 400,
+              headers: {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+              }
+            }
+          );
         }
       }
 
-      if (codeError || !codeData) {
-        return new Response(
-          JSON.stringify({
-            success: false,
-            error: "Invalid or expired verification code for this organization"
-          }),
-          {
-            status: 400,
-            headers: {
-              "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": "*",
-            }
-          }
-        );
-      }
-
-      // Check if code type matches role requirement
-      if (finalRole === 'officer' && codeData.code_type !== 'officer' && codeData.code_type !== 'general') {
-        return new Response(
-          JSON.stringify({
-            success: false,
-            error: "Officer role requires an officer verification code"
-          }),
-          {
-            status: 400,
-            headers: {
-              "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": "*",
-            }
-          }
-        );
-      }
+      console.log("Verification code validation passed for", finalRole, "with code", code);
     }
 
     // Create auth user
@@ -264,22 +316,17 @@ serve(async (req: Request) => {
 
     // Mark verification code as used if provided
     if (code) {
-      // For universal officer code 97655500, mark it as used (it exists only once)
-      if (code === '97655500') {
-        const { error: codeUpdateError } = await supabase
-          .from("verification_codes")
-          .update({
-            is_used: true,
-            used_by: userId,
-            used_at: new Date().toISOString()
-          })
-          .eq("code", code);
+      console.log("Marking verification code as used:", code);
 
-        if (codeUpdateError) {
-          console.log("Failed to mark universal verification code as used:", codeUpdateError);
-        }
-      } else {
-        // For regular codes, mark the specific org's code as used
+      // For universal codes, we don't mark them as used since they can be reused
+      // Only mark specific org codes as used
+      const { data: codeInfo } = await supabase
+        .from("verification_codes")
+        .select("org")
+        .eq("code", code)
+        .single();
+
+      if (codeInfo?.org !== "UNIVERSAL") {
         const { error: codeUpdateError } = await supabase
           .from("verification_codes")
           .update({
@@ -288,11 +335,15 @@ serve(async (req: Request) => {
             used_at: new Date().toISOString()
           })
           .eq("code", code)
-          .eq("org_id", orgUuid);
+          .eq("is_used", false);
 
         if (codeUpdateError) {
           console.log("Failed to mark verification code as used:", codeUpdateError);
+        } else {
+          console.log("Verification code marked as used successfully");
         }
+      } else {
+        console.log("Universal verification code - not marking as used (can be reused)");
       }
     }
 

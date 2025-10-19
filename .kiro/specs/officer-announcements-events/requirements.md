@@ -88,6 +88,30 @@ This specification defines a robust, production-ready announcements and events s
 4. WHEN a soft-delete occurs, THE system SHALL remove the item from all connected clients' feeds in realtime
 5. THE system SHALL handle subscription cleanup when users navigate away from announcement/event screens
 
+### Requirement 8
+
+**User Story:** As a user, I want consistent announcement formatting across member and officer views, so that all announcements look professional and uniform.
+
+#### Acceptance Criteria
+
+1. THE system SHALL use a shared AnnouncementCard component for both member and officer views
+2. THE AnnouncementCard SHALL display colored tags, title, message, creation date, and creator name consistently
+3. THE AnnouncementCard SHALL include a separator line between content and metadata
+4. THE AnnouncementCard SHALL show link buttons when announcements contain links
+5. WHERE user role is officer, THE AnnouncementCard SHALL display delete functionality
+
+### Requirement 9
+
+**User Story:** As an officer, I want working delete functionality for announcements, so that I can remove outdated content without RLS policy violations.
+
+#### Acceptance Criteria
+
+1. WHEN an officer attempts to delete an announcement, THE system SHALL validate permissions without RLS violations
+2. THE system SHALL update announcement status to 'deleted' with proper audit trail
+3. THE system SHALL immediately remove deleted announcements from all user feeds
+4. THE system SHALL handle soft-delete operations through proper RLS policy compliance
+5. THE system SHALL prevent unauthorized users from deleting announcements they did not create
+
 ### Requirement 7
 
 **User Story:** As a new user, I want complete profile data during onboarding, so that I can immediately access organization-appropriate announcements and events.
