@@ -29,6 +29,7 @@ export interface Event {
   category?: string;
   actual_attendance: number;
   image_url?: string; // Phase 2
+  link?: string; // Event link for registration, forms, etc.
   status: 'active' | 'deleted' | 'archived';
   deleted_by?: UUID;
   deleted_at?: string;
@@ -47,6 +48,7 @@ export interface CreateEventRequest {
   ends_at?: string;
   capacity?: number;
   category?: string;
+  link?: string;
 }
 
 export interface UpdateEventRequest {
@@ -337,10 +339,12 @@ export class EventService extends BaseDataService {
   async softDeleteEvent(eventId: UUID): Promise<ApiResponse<boolean>> {
     try {
       const userId = await this.getCurrentUserId();
+      this.log('info', 'Starting soft delete event', { eventId, userId });
 
       // Validate that user can delete this event
       const existingEvent = await this.getEventById(eventId);
       if (!existingEvent.success || !existingEvent.data) {
+        this.log('error', 'Event not found for deletion', { eventId });
         return {
           data: false,
           error: 'Event not found',
@@ -349,8 +353,19 @@ export class EventService extends BaseDataService {
       }
 
       // Check if user is the creator or has officer permissions
-      const canDelete = existingEvent.data.created_by === userId || 
-                       await this.hasOfficerPermissions(userId, existingEvent.data.org_id);
+      const isCreator = existingEvent.data.created_by === userId;
+      const hasOfficerPerms = await this.hasOfficerPermissions(userId, existingEvent.data.org_id);
+      const canDelete = isCreator || hasOfficerPerms;
+      
+      this.log('info', 'Delete permission check', { 
+        eventId, 
+        userId, 
+        isCreator, 
+        hasOfficerPerms, 
+        canDelete,
+        eventCreator: existingEvent.data.created_by,
+        orgId: existingEvent.data.org_id
+      });
       
       if (!canDelete) {
         return {
@@ -361,6 +376,7 @@ export class EventService extends BaseDataService {
       }
 
       // Soft delete by setting status to 'deleted' and adding audit trail
+      this.log('info', 'Attempting soft delete update', { eventId, userId });
       const result = await this.executeMutation(
         supabase
           .from('events')
@@ -666,16 +682,27 @@ export class EventService extends BaseDataService {
    */
   private async hasOfficerPermissions(userId: UUID, orgId: UUID): Promise<boolean> {
     try {
-      const { data: membership } = await supabase
+      this.log('info', 'Checking officer permissions', { userId, orgId });
+      
+      const { data: membership, error } = await supabase
         .from('memberships')
-        .select('role')
+        .select('role, is_active')
         .eq('user_id', userId)
         .eq('org_id', orgId)
         .eq('is_active', true)
         .single();
 
+      this.log('info', 'Officer permissions check result', { 
+        userId, 
+        orgId, 
+        membership, 
+        error: error?.message,
+        hasOfficerRole: membership?.role === 'officer'
+      });
+
       return membership?.role === 'officer';
-    } catch {
+    } catch (error) {
+      this.log('error', 'Error checking officer permissions', { userId, orgId, error });
       return false;
     }
   }

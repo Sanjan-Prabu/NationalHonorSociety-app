@@ -18,8 +18,8 @@ import ProfileButton from 'components/ui/ProfileButton';
 import LoadingSkeleton from 'components/ui/LoadingSkeleton';
 import EmptyState from 'components/ui/EmptyState';
 import EventCard from 'components/ui/EventCard';
+import { useToast } from 'components/ui/ToastProvider';
 import { useOfficerEvents } from 'hooks/useEventData';
-import { useEventSubscriptions } from 'hooks/useEventSubscriptions';
 import { useOrganization } from 'contexts/OrganizationContext';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { OfficerStackParamList } from '../../types/navigation';
@@ -40,6 +40,7 @@ interface OfficerEventsScreenProps {
 }
 
 const OfficerEventScreen = ({ navigation }: OfficerEventsScreenProps) => {
+  const { showSuccess, showError } = useToast();
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -56,19 +57,7 @@ const OfficerEventScreen = ({ navigation }: OfficerEventsScreenProps) => {
     deleteError
   } = useOfficerEvents();
 
-  // Setup realtime subscription for immediate event updates
-  useEventSubscriptions(
-    (payload) => {
-      console.log('Event realtime update:', payload.eventType, payload.new?.title || payload.old?.title);
-      // The useOfficerEvents hook will automatically handle the UI updates through its subscription
-    },
-    {
-      enabled: !!activeOrganization,
-      onError: (error) => {
-        console.error('Event subscription error:', error);
-      }
-    }
-  );
+  // Note: useOfficerEvents already includes realtime subscriptions, so we don't need a separate useEventSubscriptions call
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -104,14 +93,16 @@ const OfficerEventScreen = ({ navigation }: OfficerEventsScreenProps) => {
           style: 'destructive',
           onPress: async () => {
             try {
-              const success = await deleteEvent(eventId);
-              if (!success) {
-                Alert.alert('Error', deleteError || 'Failed to delete event. Please try again.');
+              const result = await deleteEvent(eventId);
+              if (result.success) {
+                // Show success toast like announcements do
+                showSuccess('Deleted', 'Event removed successfully.');
+              } else {
+                showError('Delete Failed', result.error || 'Failed to delete event. Please try again.');
               }
-              // The UI will be automatically updated by the realtime subscription
             } catch (error) {
               console.error('Error deleting event:', error);
-              Alert.alert('Error', 'Failed to delete event. Please try again.');
+              showError('Delete Failed', 'An unexpected error occurred. Please try again.');
             }
           },
         },

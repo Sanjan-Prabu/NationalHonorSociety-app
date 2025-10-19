@@ -24,6 +24,7 @@ interface EventCardProps {
     starts_at?: string;
     ends_at?: string;
     category?: string;
+    link?: string;
     created_at: string;
     creator_name?: string;
   };
@@ -40,9 +41,9 @@ const EventCard: React.FC<EventCardProps> = ({
   onDelete,
   deleteLoading = false,
 }) => {
-  // Category to tag variant mapping based on design requirements
-  const categoryVariants: Record<EventCategory, 'orange' | 'teal' | 'purple'> = {
-    'fundraiser': 'orange',
+  // Category to tag variant mapping - each category gets a unique color
+  const categoryVariants: Record<EventCategory, 'green' | 'teal' | 'purple' | 'orange'> = {
+    'fundraiser': 'green',
     'volunteering': 'teal', 
     'education': 'purple',
     'custom': 'orange',
@@ -156,6 +157,16 @@ const EventCard: React.FC<EventCardProps> = ({
         </View>
       )}
 
+      {/* Link */}
+      {event.link && (
+        <View style={styles.linkContainer}>
+          <Icon name="link" size={moderateScale(16)} color={Colors.textMedium} />
+          <Text style={styles.linkText} numberOfLines={1}>
+            {event.link}
+          </Text>
+        </View>
+      )}
+
       {/* Separator Line */}
       <View style={styles.separator} />
 
@@ -230,6 +241,17 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(14),
     color: Colors.textMedium,
     marginLeft: scale(6),
+  },
+  linkContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: verticalScale(8),
+  },
+  linkText: {
+    fontSize: moderateScale(14),
+    color: Colors.solidBlue,
+    marginLeft: scale(6),
+    textDecorationLine: 'underline',
   },
   separator: {
     height: 1,

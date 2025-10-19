@@ -151,42 +151,56 @@ export function useAnnouncementData(
 
 
           setAnnouncements(prev => {
+            let updated = prev;
+            
             switch (payload.eventType) {
               case 'INSERT':
                 if (payload.new) {
-                  // Check if announcement already exists (from optimistic update)
-                  const exists = prev.some(announcement => announcement.id === payload.new!.id);
-                  if (exists) {
+                  // Robust duplicate check - prevent any duplicates
+                  const existingIndex = prev.findIndex(announcement => announcement.id === payload.new!.id);
+                  if (existingIndex !== -1) {
                     // Update the existing announcement with the real data from server
-                    return prev.map(announcement => 
-                      announcement.id === payload.new!.id ? payload.new! : announcement
-                    );
+                    updated = [...prev];
+                    updated[existingIndex] = payload.new;
                   } else {
                     // Add new announcement to the beginning of the list
-                    return [payload.new, ...prev];
+                    updated = [payload.new, ...prev];
                   }
                 }
-                return prev;
+                break;
 
               case 'UPDATE':
                 if (payload.new) {
                   // Update existing announcement
-                  return prev.map(announcement => 
+                  updated = prev.map(announcement => 
                     announcement.id === payload.new!.id ? payload.new! : announcement
                   );
                 }
-                return prev;
+                break;
 
               case 'DELETE':
                 if (payload.old) {
                   // Remove deleted announcement
-                  return prev.filter(announcement => announcement.id !== payload.old!.id);
+                  updated = prev.filter(announcement => announcement.id !== payload.old!.id);
                 }
-                return prev;
+                break;
 
               default:
-                return prev;
+                break;
             }
+
+            // Final deduplication safety check to prevent any duplicates
+            const seen = new Set();
+            const deduplicated = updated.filter(announcement => {
+              if (seen.has(announcement.id)) {
+                console.warn('Duplicate announcement detected and removed:', announcement.id);
+                return false;
+              }
+              seen.add(announcement.id);
+              return true;
+            });
+
+            return deduplicated;
           });
         },
         filters
@@ -222,9 +236,11 @@ export function useAnnouncementData(
           data: result.data,
         });
 
-        // Optimistically add to local state immediately for better UX
-        // Realtime will handle any conflicts or duplicates
-        setAnnouncements(prev => [result.data!, ...prev]);
+        // Don't do optimistic updates for creation when realtime is enabled
+        // The realtime subscription will handle the UI update to prevent duplicates
+        if (!enableRealtime) {
+          setAnnouncements(prev => [result.data!, ...prev]);
+        }
       } else {
         setCreateState({
           isLoading: false,

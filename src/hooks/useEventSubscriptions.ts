@@ -44,7 +44,7 @@ export function useEventSubscriptions(
     onError
   } = options;
 
-  const { currentOrganization } = useOrganization();
+  const { activeOrganization } = useOrganization();
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const mountedRef = useRef(true);
 
@@ -86,12 +86,12 @@ export function useEventSubscriptions(
 
   // Setup subscription
   const setupSubscription = useCallback(async () => {
-    if (!enabled || !currentOrganization || !mountedRef.current) {
+    if (!enabled || !activeOrganization || !mountedRef.current) {
       return;
     }
 
     try {
-      console.log('Setting up event subscription for organization:', currentOrganization.slug);
+      console.log('Setting up event subscription for organization:', activeOrganization.slug);
 
       const unsubscribe = await eventService.subscribeToEvents(
         enhancedCallback,
@@ -111,7 +111,7 @@ export function useEventSubscriptions(
         onError(error);
       }
     }
-  }, [enabled, currentOrganization, enhancedCallback, filters, onError]);
+  }, [enabled, activeOrganization, enhancedCallback, filters, onError]);
 
   // Cleanup subscription
   const cleanupSubscription = useCallback(() => {

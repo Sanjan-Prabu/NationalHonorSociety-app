@@ -31,7 +31,7 @@ export default function OfficerStack() {
         component={CreateEventScreen}
         options={{
           headerShown: false,
-          presentation: 'modal',
+          animation: 'slide_from_right',
         }}
       />
     </Stack.Navigator>

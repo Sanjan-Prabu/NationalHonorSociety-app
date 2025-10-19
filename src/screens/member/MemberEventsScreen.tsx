@@ -53,19 +53,31 @@ const MemberEventsScreen = ({ navigation }: any) => {
 
   const [activeFilter, setActiveFilter] = useState<'Upcoming' | 'This Week' | 'This Month'>('Upcoming');
 
+  // Memoize the options to prevent infinite re-renders
+  const eventDataOptions = useMemo(() => ({
+    filters: { upcoming: true }, // Only show active/upcoming events for members
+    enableRealtime: true, // Enable realtime updates for immediate event visibility
+  }), []);
+
   // Use the main event data hook with realtime updates enabled
   // This automatically filters by organization and shows only active events
   const {
     events: eventsData,
     loading,
     refreshEvents,
-  } = useEventData({
-    filters: { upcoming: true }, // Only show active/upcoming events for members
-    enableRealtime: true, // Enable realtime updates for immediate event visibility
-  });
+  } = useEventData(eventDataOptions);
 
   // Use events directly from the hook - no transformation needed for EventCard
   const events = eventsData || [];
+  
+  // Debug logging to help troubleshoot refresh issues
+  console.log('MemberEventsScreen - Events data:', {
+    totalEvents: events.length,
+    loading: loading.isLoading,
+    error: loading.error?.message,
+    organizationId: activeOrganization?.id,
+    organizationName: activeOrganization?.name
+  });
 
   // Remove category variants as EventCard handles this internally
 
@@ -76,7 +88,11 @@ const MemberEventsScreen = ({ navigation }: any) => {
   ];
 
   const onRefresh = async () => {
-    await refreshEvents();
+    try {
+      await refreshEvents();
+    } catch (error) {
+      console.error('Error refreshing events:', error);
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -106,6 +122,8 @@ const MemberEventsScreen = ({ navigation }: any) => {
 
   const filteredEvents = events.filter(event => {
     const now = new Date();
+    // Set time to start of day for more inclusive comparison
+    now.setHours(0, 0, 0, 0);
     const eventDate = new Date(event.event_date || event.starts_at || event.created_at);
     
     switch (activeFilter) {
@@ -121,11 +139,20 @@ const MemberEventsScreen = ({ navigation }: any) => {
         
       case 'Upcoming':
       default:
+        // Show events from today onwards (more inclusive)
         return eventDate >= now;
     }
   });
 
   const groupedEvents = groupEventsByDate(filteredEvents);
+  
+  // Debug logging for filtered events
+  console.log('MemberEventsScreen - Filtered events:', {
+    activeFilter,
+    totalEvents: events.length,
+    filteredEvents: filteredEvents.length,
+    eventTitles: filteredEvents.map(e => e.title)
+  });
 
   if (orgLoading || loading.isLoading) {
     return <LoadingScreen message="Loading events..." />;
@@ -285,6 +312,7 @@ const styles = StyleSheet.create({
     marginBottom: verticalScale(24),
   },
   retryButton: {
+    top:verticalScale(20),
     backgroundColor: Colors.solidBlue,
     paddingHorizontal: scale(24),
     paddingVertical: verticalScale(12),

@@ -18,9 +18,9 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useToast } from 'components/ui/ToastProvider';
+import Tag from 'components/ui/Tag';
 import { withRoleProtection } from 'components/hoc/withRoleProtection';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -51,7 +51,7 @@ type EventCategory = 'fundraiser' | 'volunteering' | 'education' | 'custom';
 type CreateEventScreenNavigationProp = NativeStackNavigationProp<OfficerStackParamList, 'CreateEvent'>;
 
 interface CreateEventScreenProps {
-  navigation: CreateEventScreenNavigationProp;
+    navigation: CreateEventScreenNavigationProp;
 }
 
 const CreateEventScreen = ({ navigation }: CreateEventScreenProps) => {
@@ -72,18 +72,85 @@ const CreateEventScreen = ({ navigation }: CreateEventScreenProps) => {
     const [showEndTimePicker, setShowEndTimePicker] = useState(false);
     const [location, setLocation] = useState('');
     const [description, setDescription] = useState('');
-    const [selectedImage, setSelectedImage] = useState<string | null>(null);
+    const [attachments, setAttachments] = useState<{
+        images: string[];
+        links: string[];
+    }>({
+        images: [],
+        links: [],
+    });
+    const [showLinkInput, setShowLinkInput] = useState(false);
+    const [linkUrl, setLinkUrl] = useState('');
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [refreshing, setRefreshing] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // Category options with their tag variants
+    // Category options with their tag variants - each category gets a unique color
     const categoryOptions: { label: EventCategory; displayLabel: string; variant: 'blue' | 'green' | 'yellow' | 'purple' | 'orange' | 'teal' }[] = [
-        { label: 'fundraiser', displayLabel: 'Fundraiser', variant: 'orange' },
+        { label: 'fundraiser', displayLabel: 'Fundraiser', variant: 'green' },
         { label: 'volunteering', displayLabel: 'Volunteering', variant: 'teal' },
         { label: 'education', displayLabel: 'Education', variant: 'purple' },
         { label: 'custom', displayLabel: 'Custom', variant: 'orange' },
     ];
+
+    // Get category box colors based on variant
+    const getCategoryBoxColors = (variant: string, isSelected: boolean) => {
+        const colors = {
+            green: {
+                background: isSelected ? '#EBF8F2' : '#F9FAFB',
+                border: isSelected ? '#48BB78' : '#EBF8F2'
+            },
+            teal: {
+                background: isSelected ? '#E6FFFA' : '#F9FAFB',
+                border: isSelected ? '#38B2AC' : '#E6FFFA'
+            },
+            purple: {
+                background: isSelected ? '#F3E8FF' : '#F9FAFB',
+                border: isSelected ? '#9F7AEA' : '#F3E8FF'
+            },
+            orange: {
+                background: isSelected ? '#FEF5E7' : '#F9FAFB',
+                border: isSelected ? '#ECC94B' : '#FEF5E7'
+            },
+        };
+        return colors[variant as keyof typeof colors] || colors.orange;
+    };
+
+    const isValidUrl = (url: string) => {
+        try {
+            new URL(url);
+            return true;
+        } catch {
+            return false;
+        }
+    };
+
+    const handleAddLink = () => {
+        if (!linkUrl.trim()) {
+            showValidationError('Link Required', 'Please enter a URL');
+            return;
+        }
+
+        if (!isValidUrl(linkUrl)) {
+            showValidationError('Invalid URL', 'Please enter a valid URL');
+            return;
+        }
+
+        setAttachments(prev => ({
+            ...prev,
+            links: [...prev.links, linkUrl.trim()]
+        }));
+        setLinkUrl('');
+        setShowLinkInput(false);
+        showSuccess('Link Added', 'Link attached successfully.');
+    };
+
+    const removeAttachment = (type: 'images' | 'links', index: number) => {
+        setAttachments(prev => ({
+            ...prev,
+            [type]: prev[type].filter((_, i) => i !== index)
+        }));
+    };
 
     const validateForm = () => {
         const newErrors: Record<string, string> = {};
@@ -125,6 +192,11 @@ const CreateEventScreen = ({ navigation }: CreateEventScreenProps) => {
             newErrors.description = 'Description must be 150 words or less';
         }
 
+        // Link validation
+        if (showLinkInput && linkUrl.trim() && !isValidUrl(linkUrl)) {
+            newErrors.link = 'Please enter a valid URL';
+        }
+
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
     };
@@ -158,6 +230,11 @@ const CreateEventScreen = ({ navigation }: CreateEventScreenProps) => {
             // Determine the final category value
             const finalCategory = selectedCategory === 'custom' ? customCategory.trim() : selectedCategory || undefined;
 
+            // Prepare final links (include any pending link input)
+            const finalLinks = showLinkInput && linkUrl.trim() && isValidUrl(linkUrl)
+                ? [...attachments.links, linkUrl.trim()]
+                : attachments.links;
+
             // Create event using EventService
             const result = await eventService.createEvent({
                 title: eventName.trim(),
@@ -166,7 +243,8 @@ const CreateEventScreen = ({ navigation }: CreateEventScreenProps) => {
                 event_date: eventDate.toISOString().split('T')[0],
                 starts_at: startDateTime.toISOString(),
                 ends_at: endDateTime.toISOString(),
-                category: finalCategory
+                category: finalCategory,
+                link: finalLinks.length > 0 ? finalLinks[0] : undefined, // Use first link for now
             });
 
             if (result.success) {
@@ -222,35 +300,7 @@ const CreateEventScreen = ({ navigation }: CreateEventScreenProps) => {
         }
     };
 
-    const pickImage = async () => {
-        try {
-            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-            if (status !== 'granted') {
-                Alert.alert('Permission Required', 'Sorry, we need camera roll permissions to upload images.');
-                return;
-            }
-
-            const result = await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                allowsEditing: true,
-                aspect: [4, 3],
-                quality: 0.8,
-            });
-
-            if (!result.canceled) {
-                setSelectedImage(result.assets[0].uri);
-                showSuccess('Image Added', 'Event image uploaded successfully.');
-            }
-        } catch (error) {
-            console.error('Error picking image:', error);
-            showError('Upload Error', 'Failed to select image. Please try again.');
-        }
-    };
-
-    const removeImage = () => {
-        setSelectedImage(null);
-    };
 
     const formatDate = (date: Date) => {
         return date.toLocaleDateString('en-US', {
@@ -353,36 +403,39 @@ const CreateEventScreen = ({ navigation }: CreateEventScreenProps) => {
                             <View style={styles.inputContainer}>
                                 <Text style={styles.inputLabel}>Category</Text>
                                 <View style={styles.categoriesContainer}>
-                                    {categoryOptions.map((category, index) => (
-                                        <TouchableOpacity
-                                            key={category.label}
-                                            style={[
-                                                styles.categoryButton,
-                                                selectedCategory === category.label && styles.categoryButtonActive
-                                            ]}
-                                            onPress={() => {
-                                                setSelectedCategory(category.label);
-                                                // Clear custom category if switching away from custom
-                                                if (category.label !== 'custom') {
-                                                    setCustomCategory('');
-                                                }
-                                            }}
-                                        >
-                                            <Text
+                                    {categoryOptions.map((category, index) => {
+                                        const isSelected = selectedCategory === category.label;
+                                        const boxColors = getCategoryBoxColors(category.variant, isSelected);
+
+                                        return (
+                                            <TouchableOpacity
+                                                key={category.label}
                                                 style={[
-                                                    styles.categoryText,
-                                                    selectedCategory === category.label && styles.categoryTextActive
+                                                    styles.categoryButton,
+                                                    {
+                                                        backgroundColor: boxColors.background,
+                                                        borderColor: boxColors.border,
+                                                    }
                                                 ]}
-                                                numberOfLines={1}
-                                                adjustsFontSizeToFit
+                                                onPress={() => {
+                                                    setSelectedCategory(category.label);
+                                                    // Clear custom category if switching away from custom
+                                                    if (category.label !== 'custom') {
+                                                        setCustomCategory('');
+                                                    }
+                                                }}
                                             >
-                                                {category.displayLabel}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ))}
+                                                <Tag
+                                                    text={category.displayLabel}
+                                                    variant={category.variant}
+                                                    active={isSelected}
+                                                />
+                                            </TouchableOpacity>
+                                        );
+                                    })}
                                 </View>
                                 {errors.category && <Text style={styles.errorText}>{errors.category}</Text>}
-                                
+
                                 {/* Custom Category Input */}
                                 {selectedCategory === 'custom' && (
                                     <View style={styles.customCategoryContainer}>
@@ -495,39 +548,83 @@ const CreateEventScreen = ({ navigation }: CreateEventScreenProps) => {
                                 {errors.description && <Text style={styles.errorText}>{errors.description}</Text>}
                             </View>
 
-                            {/* Event Image or Flyer */}
+                            {/* Attachments Section */}
                             <View style={styles.inputContainer}>
-                                <Text style={styles.inputLabel}>Event Image or Flyer</Text>
+                                <Text style={styles.inputLabel}>Attachments</Text>
+                                <View style={styles.attachmentsContainer}>
+                                    <View style={[styles.attachmentButton, styles.attachmentButtonDisabled]}>
+                                        <Icon name="image" size={moderateScale(24)} color={Colors.textLight} />
+                                        <Text style={styles.attachmentTextDisabled}>Image</Text>
+                                        <Text style={styles.comingSoonText}>Coming Soon</Text>
+                                    </View>
 
-                                {selectedImage ? (
-                                    <View style={styles.selectedImageContainer}>
-                                        <View style={styles.imagePreview}>
-                                            <Icon name="image" size={moderateScale(40)} color={Colors.textMedium} />
-                                            <Text style={styles.imagePreviewText}>Image Selected</Text>
+                                    <TouchableOpacity
+                                        style={styles.attachmentButton}
+                                        onPress={() => setShowLinkInput(!showLinkInput)}
+                                    >
+                                        <Icon name="link" size={moderateScale(24)} color={Colors.solidBlue} />
+                                        <Text style={styles.attachmentText}>Link</Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                {/* Link Input */}
+                                {showLinkInput && (
+                                    <View style={styles.linkInputContainer}>
+                                        <TextInput
+                                            style={[styles.textInput, errors.link && styles.inputError]}
+                                            placeholder="Paste link here..."
+                                            placeholderTextColor={Colors.textLight}
+                                            value={linkUrl}
+                                            onChangeText={setLinkUrl}
+                                            keyboardType="url"
+                                            autoCapitalize="none"
+                                            autoCorrect={false}
+                                        />
+                                        <View style={styles.linkActions}>
                                             <TouchableOpacity
-                                                style={styles.removeImageButton}
-                                                onPress={removeImage}
+                                                style={styles.cancelLinkButton}
+                                                onPress={() => {
+                                                    setShowLinkInput(false);
+                                                    setLinkUrl('');
+                                                }}
                                             >
-                                                <Icon name="close" size={moderateScale(20)} color={Colors.errorRed} />
+                                                <Text style={styles.cancelLinkText}>Cancel</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                style={styles.addLinkButton}
+                                                onPress={handleAddLink}
+                                            >
+                                                <Text style={styles.addLinkText}>Add Link</Text>
                                             </TouchableOpacity>
                                         </View>
+                                        {errors.link && <Text style={styles.errorText}>{errors.link}</Text>}
                                     </View>
-                                ) : (
-                                    <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
-                                        <Icon name="cloud-upload" size={moderateScale(24)} color={Colors.solidBlue} />
-                                        <Text style={styles.uploadButtonText}>
-                                            Upload event image or flyer
-                                        </Text>
-                                        <Text style={styles.uploadSubtext}>
-                                            PNG, JPG, PDF up to 10MB
-                                        </Text>
-                                    </TouchableOpacity>
+                                )}
+
+                                {/* Selected Attachments */}
+                                {attachments.links.length > 0 && (
+                                    <View style={styles.attachmentsList}>
+                                        {attachments.links.map((link, index) => (
+                                            <View key={`link-${index}`} style={styles.attachmentItem}>
+                                                <Icon name="link" size={moderateScale(16)} color={Colors.textMedium} />
+                                                <Text style={styles.attachmentName} numberOfLines={1}>
+                                                    {link}
+                                                </Text>
+                                                <TouchableOpacity
+                                                    onPress={() => removeAttachment('links', index)}
+                                                    style={styles.removeButton}
+                                                >
+                                                    <Icon name="close" size={moderateScale(16)} color={Colors.errorRed} />
+                                                </TouchableOpacity>
+                                            </View>
+                                        ))}
+                                    </View>
                                 )}
                             </View>
 
                             {/* Create Event Button */}
-                            <TouchableOpacity 
-                                style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]} 
+                            <TouchableOpacity
+                                style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
                                 onPress={handleSubmit}
                                 disabled={isSubmitting}
                             >
@@ -734,29 +831,13 @@ const styles = StyleSheet.create({
         paddingHorizontal: scale(12),
         paddingVertical: verticalScale(12),
         borderRadius: moderateScale(8),
-        backgroundColor: Colors.inputBackground,
-        borderWidth: 1,
-        borderColor: Colors.inputBorder,
+        borderWidth: 2,
         alignItems: 'center',
         justifyContent: 'center',
         marginBottom: verticalScale(8),
     },
     customCategoryContainer: {
         marginTop: verticalScale(12),
-    },
-    categoryButtonActive: {
-        backgroundColor: Colors.lightBlue,
-        borderColor: Colors.solidBlue,
-    },
-    categoryText: {
-        fontSize: moderateScale(13),
-        color: Colors.textMedium,
-        fontWeight: '500',
-        textAlign: 'center',
-    },
-    categoryTextActive: {
-        color: Colors.solidBlue,
-        fontWeight: '600',
     },
     dateInput: {
         height: verticalScale(52),
@@ -822,51 +903,7 @@ const styles = StyleSheet.create({
         minHeight: verticalScale(120),
         textAlignVertical: 'top',
     },
-    uploadButton: {
-        height: verticalScale(120),
-        borderWidth: 2,
-        borderColor: Colors.solidBlue,
-        borderStyle: 'dashed',
-        borderRadius: moderateScale(8),
-        backgroundColor: Colors.white,
-        justifyContent: 'center',
-        alignItems: 'center',
-        paddingHorizontal: scale(16),
-    },
-    uploadButtonText: {
-        fontSize: moderateScale(14),
-        color: Colors.solidBlue,
-        fontWeight: '500',
-        marginTop: verticalScale(8),
-        textAlign: 'center',
-    },
-    uploadSubtext: {
-        fontSize: moderateScale(12),
-        color: Colors.textLight,
-        marginTop: verticalScale(4),
-        textAlign: 'center',
-    },
-    selectedImageContainer: {
-        marginTop: verticalScale(8),
-    },
-    imagePreview: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: Colors.lightGray,
-        borderRadius: moderateScale(8),
-        padding: scale(16),
-        borderWidth: 1,
-        borderColor: Colors.inputBorder,
-    },
-    imagePreviewText: {
-        flex: 1,
-        fontSize: moderateScale(14),
-        color: Colors.textMedium,
-        marginLeft: scale(12),
-    },
-    removeImageButton: {
-        padding: scale(4),
-    },
+
     submitButton: {
         backgroundColor: Colors.solidBlue,
         borderRadius: moderateScale(8),
@@ -923,6 +960,101 @@ const styles = StyleSheet.create({
         fontSize: moderateScale(16),
         color: Colors.solidBlue,
         fontWeight: '600',
+    },
+    attachmentsContainer: {
+        flexDirection: 'row',
+        gap: scale(12),
+        marginBottom: verticalScale(12),
+    },
+    attachmentButton: {
+        flex: 1,
+        height: verticalScale(80),
+        borderWidth: 1,
+        borderStyle: 'dashed',
+        borderColor: Colors.inputBorder,
+        borderRadius: moderateScale(8),
+        backgroundColor: Colors.inputBackground,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    attachmentText: {
+        fontSize: moderateScale(12),
+        color: Colors.solidBlue,
+        fontWeight: '500',
+        marginTop: verticalScale(6),
+    },
+    attachmentButtonDisabled: {
+        backgroundColor: Colors.lightGray,
+        borderColor: Colors.textLight,
+    },
+    attachmentTextDisabled: {
+        fontSize: moderateScale(12),
+        color: Colors.textLight,
+        fontWeight: '500',
+        marginTop: verticalScale(2),
+    },
+    comingSoonText: {
+        fontSize: moderateScale(10),
+        color: Colors.textLight,
+        fontStyle: 'italic',
+        marginTop: verticalScale(2),
+    },
+    linkInputContainer: {
+        marginTop: verticalScale(12),
+        marginBottom: verticalScale(12),
+    },
+    linkActions: {
+        flexDirection: 'row',
+        gap: scale(12),
+        marginTop: verticalScale(12),
+    },
+    cancelLinkButton: {
+        flex: 1,
+        paddingVertical: verticalScale(12),
+        borderRadius: moderateScale(8),
+        borderWidth: 1,
+        borderColor: Colors.inputBorder,
+        backgroundColor: Colors.white,
+        alignItems: 'center',
+    },
+    cancelLinkText: {
+        fontSize: moderateScale(14),
+        color: Colors.textMedium,
+        fontWeight: '500',
+    },
+    addLinkButton: {
+        flex: 1,
+        paddingVertical: verticalScale(12),
+        borderRadius: moderateScale(8),
+        backgroundColor: Colors.solidBlue,
+        alignItems: 'center',
+    },
+    addLinkText: {
+        fontSize: moderateScale(14),
+        color: Colors.white,
+        fontWeight: '500',
+    },
+    attachmentsList: {
+        marginTop: verticalScale(12),
+        marginBottom: verticalScale(8),
+    },
+    attachmentItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: Colors.lightGray,
+        borderRadius: moderateScale(6),
+        paddingVertical: verticalScale(8),
+        paddingHorizontal: scale(12),
+        marginBottom: verticalScale(6),
+    },
+    attachmentName: {
+        flex: 1,
+        fontSize: moderateScale(12),
+        color: Colors.textMedium,
+        marginLeft: scale(8),
+    },
+    removeButton: {
+        padding: scale(4),
     },
 });
 

@@ -148,37 +148,61 @@ export function useEventData(
           if (!mountedRef.current) return;
 
           setEvents(prev => {
+            let updated = prev;
+            
             switch (payload.eventType) {
               case 'INSERT':
                 if (payload.new) {
-                  // Add new event in chronological order
-                  const newEvents = [...prev, payload.new];
-                  return newEvents.sort((a, b) => 
+                  // Check for duplicates before adding
+                  const existingIndex = prev.findIndex(event => event.id === payload.new!.id);
+                  if (existingIndex !== -1) {
+                    // Update existing event with server data
+                    updated = [...prev];
+                    updated[existingIndex] = payload.new;
+                  } else {
+                    // Add new event in chronological order
+                    updated = [...prev, payload.new];
+                  }
+                  // Sort by date
+                  updated = updated.sort((a, b) => 
                     new Date(a.event_date || a.created_at).getTime() - 
                     new Date(b.event_date || b.created_at).getTime()
                   );
                 }
-                return prev;
+                break;
 
               case 'UPDATE':
                 if (payload.new) {
                   // Update existing event
-                  return prev.map(event => 
+                  updated = prev.map(event => 
                     event.id === payload.new!.id ? payload.new! : event
                   );
                 }
-                return prev;
+                break;
 
               case 'DELETE':
                 if (payload.old) {
                   // Remove deleted event
-                  return prev.filter(event => event.id !== payload.old!.id);
+                  updated = prev.filter(event => event.id !== payload.old!.id);
                 }
-                return prev;
+                break;
 
               default:
-                return prev;
+                break;
             }
+
+            // Final deduplication safety check to prevent any duplicates
+            const seen = new Set();
+            const deduplicated = updated.filter(event => {
+              if (seen.has(event.id)) {
+                console.warn('Duplicate event detected and removed:', event.id);
+                return false;
+              }
+              seen.add(event.id);
+              return true;
+            });
+
+            return deduplicated;
           });
         },
         filters
@@ -332,6 +356,10 @@ export function useEventData(
       isSuccess: false,
     });
 
+    // Optimistically remove from UI immediately for better UX (like announcements)
+    const originalEvents = events;
+    setEvents(prev => prev.filter(event => event.id !== id));
+
     try {
       const result = await eventService.softDeleteEvent(id);
 
@@ -342,12 +370,10 @@ export function useEventData(
           isSuccess: true,
           data: result.data || undefined,
         });
-
-        // Optimistically remove from local state if realtime is disabled
-        if (!enableRealtime) {
-          setEvents(prev => prev.filter(event => event.id !== id));
-        }
+        // Keep the optimistic update since it was successful
       } else {
+        // Revert optimistic update on failure
+        setEvents(originalEvents);
         setDeleteState({
           isLoading: false,
           isError: true,
@@ -362,6 +388,8 @@ export function useEventData(
 
       return result;
     } catch (error) {
+      // Revert optimistic update on error
+      setEvents(originalEvents);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       setDeleteState({
         isLoading: false,
@@ -380,7 +408,7 @@ export function useEventData(
         success: false,
       };
     }
-  }, [enableRealtime]);
+  }, [events]);
 
   const refreshEvents = useCallback(async () => {
     await fetchEvents();
@@ -623,9 +651,9 @@ export function useOfficerEvents() {
     enableRealtime: true,
   });
 
-  const deleteEventWrapper = async (eventId: string): Promise<boolean> => {
+  const deleteEventWrapper = async (eventId: string): Promise<ApiResponse<boolean>> => {
     const result = await eventData.deleteEvent(eventId);
-    return result.success;
+    return result;
   };
 
   const createEventWrapper = async (data: CreateEventRequest): Promise<Event | null> => {

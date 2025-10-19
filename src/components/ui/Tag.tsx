@@ -14,7 +14,7 @@ const Colors = {
   green: '#48BB78',
   yellow: '#ECC94B',
   purple: '#9F7AEA',
-  orange: '#ECC94B',
+  orange: '#e8b569ff',
   teal: '#38B2AC',
   white: '#FFFFFF',
   inactiveBackground: '#F7FAFC',
