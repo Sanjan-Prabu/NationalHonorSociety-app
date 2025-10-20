@@ -11,8 +11,11 @@ import { useOrganization } from '../../contexts/OrganizationContext';
 import { useAuth } from '../../contexts/AuthContext';
 import LoadingScreen from '../../components/ui/LoadingScreen';
 import AnnouncementCard from '../../components/ui/AnnouncementCard';
+import EventCard from '../../components/ui/EventCard';
 import { supabase } from '../../lib/supabaseClient';
 import { announcementService } from '../../services/AnnouncementService';
+import { useEventData } from '../../hooks/useEventData';
+import { Event } from '../../services/EventService';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -53,248 +56,133 @@ const MemberDashboardScreen = ({ navigation }: any) => {
   const { activeOrganization, activeMembership, isLoading: orgLoading } = useOrganization();
   const { profile, user } = useAuth();
 
-  // Function to fetch latest announcement with full data
-  const fetchLatestAnnouncement = async () => {
-    if (!activeOrganization) return;
+  // Memoize the options to prevent infinite re-renders
+  const eventDataOptions = React.useMemo(() => ({
+    filters: { upcoming: true }, // Get upcoming events
+    enableRealtime: true, // Enable realtime updates for instant updates
+    limit: 10, // Get a few events to find the most recent
+  }), []);
 
-    try {
-      // Fetch latest announcement for this organization
-      const announcementsResult = await announcementService.fetchAnnouncements(
-        undefined, // no filters
-        { limit: 1 } // just get the most recent one
-      );
+  // Use realtime event data to get the most recent event
+  const {
+    events: eventsData,
+    loading: eventsLoading,
+  } = useEventData(eventDataOptions);
 
-      // Update latest announcement
-      if (announcementsResult.success && announcementsResult.data && announcementsResult.data.length > 0) {
-        const announcement = announcementsResult.data[0];
-        setLatestAnnouncement(announcement);
-      } else {
-        // No announcements available
-        setLatestAnnouncement(null);
-      }
-    } catch (error) {
-      console.error('Error fetching latest announcement:', error);
-      setLatestAnnouncement(null);
-    }
-  };
-
-  // Mock user data - TODO: Replace with actual data from organization context and API
+  // Simple state for user data
   const [userData, setUserData] = useState({
     firstName: profile?.first_name || 'Member',
     lastName: profile?.last_name || '',
     role: activeMembership?.role || 'Member',
-    currentHours: 5, // TODO: Fetch from volunteer_hours table filtered by org_id
-    requiredHours: 10, // TODO: Fetch from organization requirements
+    currentHours: 0,
+    requiredHours: 25,
     organization: activeOrganization?.name || 'Organization',
   });
 
-  const [upcomingEvent, setUpcomingEvent] = useState({
-    title: 'Beach Cleanup Day',
-    description: 'Join us for our monthly beach cleanup event at Sunset Beach.',
-    date: 'May 15, 2023',
-    time: '9:00 AM - 12:00 PM',
-    isToday: false,
-    isTomorrow: true,
-  });
+  // Get the most recent event from realtime data
+  const mostRecentEvent: Event | null = eventsData && eventsData.length > 0 
+    ? eventsData.sort((a, b) => {
+        const dateA = new Date(a.event_date || a.starts_at || a.created_at);
+        const dateB = new Date(b.event_date || b.starts_at || b.created_at);
+        return dateB.getTime() - dateA.getTime(); // Most recent first
+      })[0]
+    : null;
 
   const [latestAnnouncement, setLatestAnnouncement] = useState<any>(null);
-
   const [refreshing, setRefreshing] = useState(false);
 
-  // Fetch organization-specific data
+  // ULTRA SIMPLE: Only run once on mount, no dependencies
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      if (!activeOrganization?.id || !user?.id) return;
+    let isMounted = true;
+
+    const fetchAllData = async () => {
+      // Get current values at the time of execution
+      const currentOrgId = activeOrganization?.id;
+      const currentUserId = user?.id;
+      
+      if (!currentOrgId || !currentUserId) return;
 
       try {
-        // Fetch user's volunteer hours for this organization
-        const { data: hoursData, error: hoursError } = await supabase
+        // Fetch volunteer hours
+        const { data: hoursData } = await supabase
           .from('volunteer_hours')
           .select('hours, approved')
-          .eq('org_id', activeOrganization.id)
-          .eq('member_id', user.id);
+          .eq('org_id', currentOrgId)
+          .eq('member_id', currentUserId);
 
-        if (hoursError) {
-          console.error('Error fetching volunteer hours for dashboard:', hoursError);
-        }
-
-        // Fetch upcoming events for this organization
-        const { data: eventsData } = await supabase
-          .from('events')
-          .select('*')
-          .eq('org_id', activeOrganization.id)
-          .gte('starts_at', new Date().toISOString())
-          .order('starts_at', { ascending: true })
-          .limit(1);
-
-        // Calculate approved hours
         const approvedHours = (hoursData || [])
           .filter(h => h.approved === true)
           .reduce((sum, h) => sum + parseFloat(h.hours || '0'), 0);
 
-        console.log('📊 Dashboard volunteer hours:', {
-          totalEntries: hoursData?.length || 0,
-          approvedHours
-        });
-
-        // Update user data with real information
-        setUserData(prev => ({
-          ...prev,
-          firstName: profile?.first_name || 'Member',
-          lastName: profile?.last_name || '',
-          role: activeMembership?.role || 'Member',
-          organization: activeOrganization.name,
-          currentHours: approvedHours,
-          // TODO: Get required hours from organization settings
-          requiredHours: 25,
-        }));
-
-        // Update upcoming event
-        if (eventsData && eventsData.length > 0) {
-          const event = eventsData[0];
-          const eventDate = new Date(event.starts_at);
-          const today = new Date();
-          const tomorrow = new Date(today);
-          tomorrow.setDate(today.getDate() + 1);
-
-          setUpcomingEvent({
-            title: event.title || event.name,
-            description: event.description || 'No description available',
-            date: eventDate.toLocaleDateString('en-US', {
-              month: 'long',
-              day: 'numeric',
-              year: 'numeric'
-            }),
-            time: `${new Date(event.starts_at).toLocaleTimeString('en-US', {
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true
-            })} - ${new Date(event.ends_at).toLocaleTimeString('en-US', {
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true
-            })}`,
-            isToday: eventDate.toDateString() === today.toDateString(),
-            isTomorrow: eventDate.toDateString() === tomorrow.toDateString(),
-          });
-        }
-
         // Fetch latest announcement
-        await fetchLatestAnnouncement();
+        const announcementsResult = await announcementService.fetchAnnouncements(
+          undefined,
+          { limit: 1 }
+        );
+
+        if (isMounted) {
+          setUserData({
+            firstName: profile?.first_name || 'Member',
+            lastName: profile?.last_name || '',
+            role: activeMembership?.role || 'Member',
+            organization: activeOrganization?.name || 'Organization',
+            currentHours: approvedHours,
+            requiredHours: 25,
+          });
+
+          if (announcementsResult.success && announcementsResult.data && announcementsResult.data.length > 0) {
+            setLatestAnnouncement(announcementsResult.data[0]);
+          } else {
+            setLatestAnnouncement(null);
+          }
+        }
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
       }
     };
 
-    if (activeOrganization && activeMembership) {
-      fetchDashboardData();
+    fetchAllData();
 
-      // Set up real-time subscription for announcements
-      const setupRealtimeSubscription = async () => {
-        const unsubscribe = await announcementService.subscribeToAnnouncements(
-          (payload) => {
-            console.log('📡 Dashboard received announcement update:', payload.eventType, payload.new?.title || payload.old?.title);
+    return () => {
+      isMounted = false;
+    };
+  }, []); // EMPTY DEPENDENCY ARRAY - ONLY RUN ONCE
 
-            // When announcements change, refetch the latest one
-            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
-              // Add a small delay to ensure database consistency
-              setTimeout(() => {
-                fetchLatestAnnouncement();
-              }, 100);
-            }
-          }
-        );
-
-        return unsubscribe;
-      };
-
-      let unsubscribe: (() => void) | null = null;
-      setupRealtimeSubscription().then(unsub => {
-        unsubscribe = unsub;
-      });
-
-      // Cleanup subscription on unmount
-      return () => {
-        if (unsubscribe) {
-          unsubscribe();
-        }
-      };
-    }
-  }, [activeOrganization, user, profile, activeMembership]);
-
-  // Refresh data when screen comes into focus (e.g., after submitting new hours)
-  useFocusEffect(
-    React.useCallback(() => {
-      if (activeOrganization?.id && user?.id) {
-        const fetchDashboardData = async () => {
-          try {
-            // Fetch user's volunteer hours for this organization
-            const { data: hoursData, error: hoursError } = await supabase
-              .from('volunteer_hours')
-              .select('hours, approved')
-              .eq('org_id', activeOrganization.id)
-              .eq('member_id', user.id);
-
-            if (hoursError) {
-              console.error('Error fetching volunteer hours for dashboard:', hoursError);
-              return;
-            }
-
-            // Calculate approved hours
-            const approvedHours = (hoursData || [])
-              .filter(h => h.approved === true)
-              .reduce((sum, h) => sum + parseFloat(h.hours || '0'), 0);
-
-            console.log('📊 Dashboard refresh - volunteer hours:', {
-              totalEntries: hoursData?.length || 0,
-              approvedHours
-            });
-
-            // Update user data with real information
-            setUserData(prev => ({
-              ...prev,
-              currentHours: approvedHours,
-            }));
-
-            // Also refresh the latest announcement when coming back to dashboard
-            await fetchLatestAnnouncement();
-
-          } catch (error) {
-            console.error('Error refreshing dashboard data:', error);
-          }
-        };
-
-        fetchDashboardData();
-      }
-    }, [activeOrganization, user])
-  );
-
+  // Simple refresh function with NO dependencies
   const onRefresh = async () => {
     setRefreshing(true);
 
-    if (activeOrganization?.id && user?.id) {
+    // Get current values at execution time
+    const currentOrgId = activeOrganization?.id;
+    const currentUserId = user?.id;
+
+    if (currentOrgId && currentUserId) {
       try {
-        // Refresh volunteer hours
         const { data: hoursData } = await supabase
           .from('volunteer_hours')
           .select('hours, approved')
-          .eq('org_id', activeOrganization.id)
-          .eq('member_id', user.id);
+          .eq('org_id', currentOrgId)
+          .eq('member_id', currentUserId);
 
-        // Calculate approved hours
         const approvedHours = (hoursData || [])
           .filter(h => h.approved === true)
           .reduce((sum, h) => sum + parseFloat(h.hours || '0'), 0);
 
-        // Update user data
         setUserData(prev => ({
           ...prev,
           currentHours: approvedHours,
         }));
 
-        // Refresh latest announcement
-        await fetchLatestAnnouncement();
+        const announcementsResult = await announcementService.fetchAnnouncements(
+          undefined,
+          { limit: 1 }
+        );
 
+        if (announcementsResult.success && announcementsResult.data && announcementsResult.data.length > 0) {
+          setLatestAnnouncement(announcementsResult.data[0]);
+        } else {
+          setLatestAnnouncement(null);
+        }
       } catch (error) {
         console.error('Error refreshing dashboard data:', error);
       }
@@ -304,9 +192,28 @@ const MemberDashboardScreen = ({ navigation }: any) => {
   };
 
   const getEventBadgeText = () => {
-    if (upcomingEvent.isToday) return 'Today';
-    if (upcomingEvent.isTomorrow) return 'Tomorrow';
-    return upcomingEvent.date;
+    if (!mostRecentEvent) return 'No Events';
+    
+    const eventDate = new Date(mostRecentEvent.event_date || mostRecentEvent.starts_at || mostRecentEvent.created_at);
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    
+    // Reset time to start of day for accurate comparison
+    const eventDateOnly = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
+    const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const tomorrowOnly = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate());
+    
+    if (eventDateOnly.getTime() === todayOnly.getTime()) {
+      return 'Today';
+    } else if (eventDateOnly.getTime() === tomorrowOnly.getTime()) {
+      return 'Tomorrow';
+    } else {
+      return eventDate.toLocaleDateString('en-US', { 
+        month: 'short', 
+        day: 'numeric' 
+      });
+    }
   };
 
   if (orgLoading) {
@@ -377,21 +284,27 @@ const MemberDashboardScreen = ({ navigation }: any) => {
           <View style={styles.sectionContainer}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Upcoming Event</Text>
-              <View style={styles.eventBadge}>
-                <Text style={styles.eventBadgeText}>{getEventBadgeText()}</Text>
-              </View>
+              {mostRecentEvent && (
+                <View style={styles.eventBadge}>
+                  <Text style={styles.eventBadgeText}>{getEventBadgeText()}</Text>
+                </View>
+              )}
             </View>
 
-            <View style={styles.eventCard}>
-              <Text style={styles.eventTitle}>{upcomingEvent.title}</Text>
-              <Text style={styles.eventDescription}>{upcomingEvent.description}</Text>
-              <View style={styles.eventTimeContainer}>
-                <Icon name="schedule" size={moderateScale(16)} color={Colors.textMedium} />
-                <Text style={styles.eventTime}>
-                  {upcomingEvent.date} • {upcomingEvent.time}
+            {/* Most Recent Event */}
+            {mostRecentEvent ? (
+              <EventCard
+                event={mostRecentEvent}
+                showDeleteButton={false} // Members can't delete events
+              />
+            ) : (
+              <View style={styles.eventCard}>
+                <Text style={styles.eventTitle}>No Upcoming Events</Text>
+                <Text style={styles.eventDescription}>
+                  Check back later for new volunteer opportunities from your organization.
                 </Text>
               </View>
-            </View>
+            )}
           </View>
 
           {/* Latest Announcement Section */}

@@ -1,6 +1,6 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import MemberLogHoursScreen from '../screens/member/MemberLogHoursScreen';
+import MemberVolunteerHoursScreen from '../screens/member/MemberVolunteerHoursScreen';
 import MemberVolunteerHoursForm from '../screens/member/MemberVolunteerHoursForm';
 
 export type LogHoursStackParamList = {
@@ -19,7 +19,7 @@ const MemberLogHoursStack: React.FC = () => {
     >
       <Stack.Screen 
         name="LogHoursMain" 
-        component={MemberLogHoursScreen} 
+        component={MemberVolunteerHoursScreen} 
       />
       <Stack.Screen 
         name="MemberVolunteerHoursForm" 

@@ -13,6 +13,7 @@ import { useOrganizationEvents } from '../../hooks/useEventData';
 import { useVolunteerHourSubmission } from '../../hooks/useVolunteerHoursData';
 import { useCurrentOrganizationId } from '../../hooks/useUserData';
 import { CreateVolunteerHourRequest } from '../../types/dataService';
+import SearchableDropdown, { DropdownOption } from '../../components/ui/SearchableDropdown';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -61,10 +62,12 @@ const VolunteerHoursForm = ({ navigation }: any) => {
   const submitVolunteerHoursMutation = useVolunteerHourSubmission();
 
   // Transform events data for dropdown
-  const clubEvents = eventsData?.map(event => ({
-    label: event.title,
-    value: event.id
-  })) || [];
+  const clubEvents: DropdownOption[] = useMemo(() => {
+    return eventsData?.map(event => ({
+      label: event.title,
+      value: event.id
+    })) || [];
+  }, [eventsData]);
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -297,59 +300,19 @@ const VolunteerHoursForm = ({ navigation }: any) => {
               {eventType === 'club' ? (
                 <View style={styles.inputContainer}>
                   <Text style={styles.inputLabel}>Organization Event</Text>
-                  {eventsLoading ? (
-                    <View style={[styles.dropdownContainer, styles.loadingContainer]}>
-                      <Text style={styles.dropdownPlaceholder}>Loading organization events...</Text>
-                    </View>
-                  ) : eventsError ? (
-                    <View style={[styles.dropdownContainer, styles.loadingContainer]}>
-                      <Text style={styles.dropdownPlaceholder}>Failed to load events</Text>
-                    </View>
-                  ) : (
-                    <ScrollView 
-                      style={styles.eventScrollContainer}
-                      showsVerticalScrollIndicator={false}
-                      nestedScrollEnabled={true}
-                    >
-                      {clubEvents.length > 0 ? (
-                        clubEvents.map((event) => (
-                          <TouchableOpacity
-                            key={event.value}
-                            style={[
-                              styles.eventOption,
-                              selectedEvent === event.value && styles.eventOptionSelected,
-                              errors.event && styles.inputError
-                            ]}
-                            onPress={() => setSelectedEvent(event.value)}
-                          >
-                            <View style={styles.eventOptionContent}>
-                              <Text style={[
-                                styles.eventOptionText,
-                                selectedEvent === event.value && styles.eventOptionTextSelected
-                              ]}>
-                                {event.label}
-                              </Text>
-                              {selectedEvent === event.value && (
-                                <Icon 
-                                  name="check-circle" 
-                                  size={moderateScale(20)} 
-                                  color={Colors.solidBlue} 
-                                />
-                              )}
-                            </View>
-                          </TouchableOpacity>
-                        ))
-                      ) : (
-                        <View style={styles.noEventsContainer}>
-                          <Icon name="event" size={moderateScale(32)} color={Colors.textLight} />
-                          <Text style={styles.noEventsText}>No organization events available</Text>
-                          <Text style={styles.noEventsSubtext}>
-                            Contact your officers to create events, or select "Custom Event" to log other volunteer activities.
-                          </Text>
-                        </View>
-                      )}
-                    </ScrollView>
-                  )}
+                  <SearchableDropdown
+                    options={clubEvents}
+                    selectedValue={selectedEvent}
+                    onSelect={setSelectedEvent}
+                    placeholder="Select an organization event"
+                    searchPlaceholder="Search events..."
+                    isLoading={eventsLoading}
+                    isError={eventsError}
+                    hasError={!!errors.event}
+                    emptyStateTitle="No organization events available"
+                    emptyStateSubtitle="Contact your officers to create events, or select 'Custom Activity' to log other volunteer activities."
+                    maxHeight={verticalScale(250)}
+                  />
                   {errors.event && <Text style={styles.errorText}>{errors.event}</Text>}
                 </View>
               ) : (
@@ -572,27 +535,7 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(16),
     color: Colors.textDark,
   },
-  dropdownContainer: {
-    height: verticalScale(52),
-    borderWidth: 1,
-    borderColor: Colors.inputBorder,
-    borderRadius: moderateScale(8),
-    backgroundColor: Colors.white,
-    paddingHorizontal: scale(16),
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  dropdownText: {
-    fontSize: moderateScale(16),
-    color: Colors.textDark,
-  },
-  dropdownPlaceholder: {
-    color: Colors.textLight,
-  },
-  loadingContainer: {
-    opacity: 0.6,
-  },
+
   dateInput: {
     height: verticalScale(52),
     borderWidth: 1,
@@ -704,57 +647,7 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(12),
     marginTop: verticalScale(4),
   },
-  eventScrollContainer: {
-    maxHeight: verticalScale(200),
-    borderWidth: 1,
-    borderColor: Colors.inputBorder,
-    borderRadius: moderateScale(8),
-    backgroundColor: Colors.white,
-  },
-  eventOption: {
-    paddingHorizontal: scale(16),
-    paddingVertical: verticalScale(12),
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.dividerColor,
-  },
-  eventOptionSelected: {
-    backgroundColor: Colors.lightBlue,
-    borderBottomColor: Colors.solidBlue,
-  },
-  eventOptionContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  eventOptionText: {
-    fontSize: moderateScale(14),
-    color: Colors.textDark,
-    flex: 1,
-    marginRight: scale(8),
-  },
-  eventOptionTextSelected: {
-    color: Colors.solidBlue,
-    fontWeight: '600',
-  },
-  noEventsContainer: {
-    padding: scale(24),
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  noEventsText: {
-    fontSize: moderateScale(16),
-    fontWeight: '600',
-    color: Colors.textMedium,
-    marginTop: verticalScale(12),
-    textAlign: 'center',
-  },
-  noEventsSubtext: {
-    fontSize: moderateScale(12),
-    color: Colors.textLight,
-    marginTop: verticalScale(8),
-    textAlign: 'center',
-    lineHeight: moderateScale(16),
-  },
+
   inputHint: {
     fontSize: moderateScale(12),
     color: Colors.textLight,

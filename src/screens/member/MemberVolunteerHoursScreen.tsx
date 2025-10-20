@@ -1,371 +1,561 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Alert } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
+import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useOrganization } from '../../contexts/OrganizationContext';
-import { useNavigation } from '../../contexts/NavigationContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { PermissionWrapper } from '../../components/ui/PermissionWrapper';
+import { useUserVolunteerHours, useDeleteVolunteerHours } from '../../hooks/useVolunteerHoursData';
+import { useCurrentOrganizationId } from '../../hooks/useUserData';
+import { useToast } from '../../components/ui/ToastProvider';
 import LoadingScreen from '../../components/ui/LoadingScreen';
-import { VolunteerHours } from '../../types/database';
-import { supabase } from '../../lib/supabaseClient';
+import VolunteerHourCard from '../../components/ui/VolunteerHourCard';
+import { VolunteerHourData } from '../../types/dataService';
 
-const MemberVolunteerHoursScreen: React.FC = () => {
-  const { activeOrganization, activeMembership, isLoading } = useOrganization();
-  const { permissions } = useNavigation();
-  const { profile, user } = useAuth();
-  const [volunteerHours, setVolunteerHours] = useState<VolunteerHours[]>([]);
-  const [hoursLoading, setHoursLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [totalHours, setTotalHours] = useState(0);
+const Colors = {
+  LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
+  primaryBlue: '#4A90E2',
+  solidBlue: '#2B5CE6',
+  textDark: '#1A202C',
+  textMedium: '#4A5568',
+  textLight: '#718096',
+  white: '#FFFFFF',
+  lightBlue: '#EBF8FF',
+  successGreen: '#38A169',
+  warningYellow: '#ECC94B',
+  dividerColor: '#E2E8F0',
+  tabBackground: '#F7FAFC',
+  tabActiveBackground: '#FFFFFF',
+};
 
-  const fetchVolunteerHours = async () => {
-    if (!activeOrganization || !user) return;
+interface MemberVolunteerHoursScreenProps {
+  navigation: any;
+}
 
+const MemberVolunteerHoursScreen: React.FC<MemberVolunteerHoursScreenProps> = ({ navigation }) => {
+  const { activeOrganization, isLoading: orgLoading } = useOrganization();
+  const { user } = useAuth();
+  const { showSuccess, showError } = useToast();
+  const insets = useSafeAreaInsets();
+  const currentOrgId = useCurrentOrganizationId();
+
+  // State for tab management
+  const [activeTab, setActiveTab] = useState<'pending' | 'approved'>('pending');
+
+  // Memoize the organization ID to prevent infinite re-renders
+  const organizationId = useMemo(() => currentOrgId || activeOrganization?.id || '', [currentOrgId, activeOrganization?.id]);
+
+  // Data hooks
+  const { 
+    data: volunteerHours, 
+    isLoading: hoursLoading, 
+    isError: hoursError,
+    refetch: refetchHours 
+  } = useUserVolunteerHours(user?.id, undefined);
+
+  const deleteVolunteerHoursMutation = useDeleteVolunteerHours();
+
+  // Filter volunteer hours by status
+  const { pendingHours, approvedHours, rejectedHours } = useMemo(() => {
+    if (!volunteerHours) {
+      return { pendingHours: [], approvedHours: [], rejectedHours: [] };
+    }
+
+    return {
+      pendingHours: volunteerHours.filter(hour => hour.status === 'pending'),
+      approvedHours: volunteerHours.filter(hour => hour.status === 'approved'),
+      rejectedHours: volunteerHours.filter(hour => hour.status === 'rejected'),
+    };
+  }, [volunteerHours]);
+
+  // Calculate statistics
+  const { totalApprovedHours, organizationEventHours } = useMemo(() => {
+    const totalApproved = approvedHours.reduce((sum, hour) => sum + hour.hours, 0);
+    const orgEventHours = approvedHours
+      .filter(hour => hour.event_id) // Has event_id means it's an organization event
+      .reduce((sum, hour) => sum + hour.hours, 0);
+
+    return {
+      totalApprovedHours: totalApproved,
+      organizationEventHours: orgEventHours,
+    };
+  }, [approvedHours]);
+
+  // Handle refresh
+  const onRefresh = async () => {
+    await refetchHours();
+  };
+
+  // Handle delete volunteer hours
+  const handleDeleteVolunteerHours = async (hourId: string) => {
     try {
-      setHoursLoading(true);
-      
-      // Fetch volunteer hours for this user and organization
-      const { data, error } = await supabase
-        .from('volunteer_hours')
-        .select('*')
-        .eq('org_id', activeOrganization.id)
-        .eq('member_id', user.id)
-        .order('date', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching volunteer hours:', error);
-      } else {
-        setVolunteerHours(data || []);
-        
-        // Calculate total approved hours
-        const approved = (data || []).filter(h => h.status === 'approved');
-        const total = approved.reduce((sum, h) => sum + h.hours, 0);
-        setTotalHours(total);
-      }
+      await deleteVolunteerHoursMutation.mutateAsync(hourId);
+      showSuccess('Success', 'Volunteer hours deleted successfully.');
     } catch (error) {
-      console.error('Error fetching volunteer hours:', error);
-    } finally {
-      setHoursLoading(false);
+      console.error('Error deleting volunteer hours:', error);
+      showError('Error', 'Failed to delete volunteer hours. Please try again.');
     }
   };
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await fetchVolunteerHours();
-    setRefreshing(false);
+  // Handle navigation to form
+  const handleAddVolunteerHours = () => {
+    navigation.navigate('MemberVolunteerHoursForm');
   };
 
-  useEffect(() => {
-    fetchVolunteerHours();
-  }, [activeOrganization, user]);
-
-  if (isLoading) {
+  if (orgLoading || hoursLoading) {
     return <LoadingScreen message="Loading volunteer hours..." />;
   }
 
-  if (!activeOrganization || !activeMembership || !profile) {
+  if (!activeOrganization || !user) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.errorText}>No organization selected</Text>
-      </View>
+      <LinearGradient
+        colors={Colors.LandingScreenGradient}
+        style={{ flex: 1 }}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+      >
+        <SafeAreaView style={styles.container}>
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>No organization selected</Text>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
     );
   }
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'approved': return '#28a745';
-      case 'pending': return '#ffc107';
-      case 'rejected': return '#dc3545';
-      case 'needs_revision': return '#fd7e14';
-      default: return '#6c757d';
+  if (hoursError) {
+    return (
+      <LinearGradient
+        colors={Colors.LandingScreenGradient}
+        style={{ flex: 1 }}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+      >
+        <SafeAreaView style={styles.container}>
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>Failed to load volunteer hours</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={onRefresh}>
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </LinearGradient>
+    );
+  }
+
+  // Get current tab data
+  const getCurrentTabData = (): VolunteerHourData[] => {
+    switch (activeTab) {
+      case 'pending':
+        return [...pendingHours, ...rejectedHours]; // Include rejected in pending tab for management
+      case 'approved':
+        return approvedHours;
+      default:
+        return [];
     }
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
-  };
+  const currentTabData = getCurrentTabData();
 
   return (
-    <PermissionWrapper requiredRole={['member']} requiredPermissions={['canViewVolunteerHours']}>
-      <ScrollView 
-        style={styles.container}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
-        <View style={styles.header}>
-          <Text style={styles.title}>Volunteer Hours</Text>
-          <Text style={styles.subtitle}>{activeOrganization.name}</Text>
-        </View>
-
-        <View style={styles.content}>
-          {/* Hours Summary */}
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>Your Progress</Text>
-            <Text style={styles.totalHours}>{totalHours} Hours</Text>
-            <Text style={styles.summarySubtext}>Total Approved Hours</Text>
+    <LinearGradient
+      colors={Colors.LandingScreenGradient}
+      style={{ flex: 1 }}
+      start={{ x: 0.5, y: 0 }}
+      end={{ x: 0.5, y: 1 }}
+    >
+      <SafeAreaView style={{ flex: 1 }}>
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={[
+            styles.scrollContainer,
+            {
+              paddingTop: insets.top,
+              paddingBottom: insets.bottom,
+            }
+          ]}
+          refreshControl={
+            <RefreshControl 
+              refreshing={deleteVolunteerHoursMutation.isPending} 
+              onRefresh={onRefresh}
+              tintColor={Colors.solidBlue}
+            />
+          }
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => navigation.goBack()}
+            >
+              <Icon name="arrow-back" size={moderateScale(24)} color={Colors.textDark} />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Volunteer Hours</Text>
+            <View style={styles.headerPlaceholder} />
           </View>
 
-          {/* Log Hours Button */}
-          <TouchableOpacity style={styles.logButton}>
-            <Text style={styles.logButtonText}>+ Log New Hours</Text>
+          {/* Progress Summary */}
+          <View style={styles.progressContainer}>
+            <View style={styles.progressCard}>
+              <Text style={styles.progressTitle}>Your Progress</Text>
+              <View style={styles.progressStats}>
+                <View style={styles.statItem}>
+                  <Text style={styles.statNumber}>{totalApprovedHours}</Text>
+                  <Text style={styles.statLabel}>Total Hours</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <Text style={styles.statNumber}>{organizationEventHours}</Text>
+                  <Text style={styles.statLabel}>NHS Events</Text>
+                </View>
+              </View>
+              
+              {/* Progress Bar */}
+              <View style={styles.progressBarContainer}>
+                <View style={styles.progressBar}>
+                  <View 
+                    style={[
+                      styles.progressFill,
+                      { width: `${Math.min((totalApprovedHours / 40) * 100, 100)}%` }
+                    ]} 
+                  />
+                </View>
+                <Text style={styles.progressText}>
+                  {totalApprovedHours}/40 hours goal
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Add Hours Button */}
+          <TouchableOpacity 
+            style={styles.addButton} 
+            onPress={handleAddVolunteerHours}
+          >
+            <Icon name="add" size={moderateScale(20)} color={Colors.white} />
+            <Text style={styles.addButtonText}>Log New Hours</Text>
           </TouchableOpacity>
 
-          <Text style={styles.sectionTitle}>
-            {volunteerHours.length > 0 ? 'Your Volunteer History' : 'No Hours Logged Yet'}
-          </Text>
-          
-          {hoursLoading ? (
-            <View style={styles.loadingContainer}>
-              <Text style={styles.loadingText}>Loading volunteer hours...</Text>
-            </View>
-          ) : volunteerHours.length > 0 ? (
-            volunteerHours.map((hours) => (
-              <View key={hours.id} style={styles.hoursCard}>
-                <View style={styles.hoursHeader}>
-                  <Text style={styles.hoursTitle}>
-                    {hours.event_name || 'Volunteer Work'}
+          {/* Tab Navigation */}
+          <View style={styles.tabContainer}>
+            <TouchableOpacity
+              style={[
+                styles.tab,
+                activeTab === 'pending' && styles.activeTab
+              ]}
+              onPress={() => setActiveTab('pending')}
+            >
+              <Text style={[
+                styles.tabText,
+                activeTab === 'pending' && styles.activeTabText
+              ]}>
+                Pending Entries
+              </Text>
+              {(pendingHours.length + rejectedHours.length) > 0 && (
+                <View style={styles.tabBadge}>
+                  <Text style={styles.tabBadgeText}>
+                    {pendingHours.length + rejectedHours.length}
                   </Text>
-                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(hours.status) }]}>
-                    <Text style={styles.statusText}>{hours.status.toUpperCase()}</Text>
-                  </View>
                 </View>
-                
-                <Text style={styles.hoursDescription}>{hours.description}</Text>
-                
-                <View style={styles.hoursDetails}>
-                  <Text style={styles.hoursAmount}>{hours.hours} hours</Text>
-                  <Text style={styles.hoursDate}>📅 {formatDate(hours.date)}</Text>
+              )}
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[
+                styles.tab,
+                activeTab === 'approved' && styles.activeTab
+              ]}
+              onPress={() => setActiveTab('approved')}
+            >
+              <Text style={[
+                styles.tabText,
+                activeTab === 'approved' && styles.activeTabText
+              ]}>
+                Recently Approved
+              </Text>
+              {approvedHours.length > 0 && (
+                <View style={styles.tabBadge}>
+                  <Text style={styles.tabBadgeText}>{approvedHours.length}</Text>
                 </View>
-                
-                {hours.approved_at && (
-                  <Text style={styles.approvedText}>
-                    ✅ Approved on {formatDate(hours.approved_at)}
-                  </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          {/* Tab Content */}
+          <View style={styles.tabContent}>
+            {currentTabData.length > 0 ? (
+              currentTabData.map((hour) => (
+                <VolunteerHourCard
+                  key={hour.id}
+                  volunteerHour={hour}
+                  onDelete={handleDeleteVolunteerHours}
+                  showDeleteButton={activeTab === 'pending' && (hour.status === 'pending' || hour.status === 'rejected')}
+                />
+              ))
+            ) : (
+              <View style={styles.emptyState}>
+                <Icon 
+                  name={activeTab === 'pending' ? 'pending-actions' : 'check-circle-outline'} 
+                  size={moderateScale(48)} 
+                  color={Colors.textLight} 
+                />
+                <Text style={styles.emptyStateTitle}>
+                  {activeTab === 'pending' 
+                    ? 'No Pending Entries' 
+                    : 'No Approved Hours Yet'
+                  }
+                </Text>
+                <Text style={styles.emptyStateSubtitle}>
+                  {activeTab === 'pending'
+                    ? 'Your submitted volunteer hours will appear here while awaiting officer approval.'
+                    : 'Once officers approve your volunteer hours, they will appear here.'
+                  }
+                </Text>
+                {activeTab === 'pending' && (
+                  <TouchableOpacity 
+                    style={styles.emptyStateButton} 
+                    onPress={handleAddVolunteerHours}
+                  >
+                    <Text style={styles.emptyStateButtonText}>Log Your First Hours</Text>
+                  </TouchableOpacity>
                 )}
               </View>
-            ))
-          ) : (
-            <View style={styles.noHoursContainer}>
-              <Text style={styles.noHoursText}>
-                You haven't logged any volunteer hours yet.
-              </Text>
-              <Text style={styles.noHoursSubtext}>
-                Tap "Log New Hours" above to get started!
-              </Text>
-            </View>
-          )}
-        </View>
-      </ScrollView>
-    </PermissionWrapper>
+            )}
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+  },
+  scrollContainer: {
+    flexGrow: 1,
+    paddingHorizontal: scale(16),
   },
   header: {
-    backgroundColor: '#2B5CE6',
-    padding: 20,
-    paddingTop: 60,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: verticalScale(16),
+    marginBottom: verticalScale(24),
   },
-  title: {
-    fontSize: 28,
+  backButton: {
+    padding: scale(8),
+  },
+  headerTitle: {
+    fontSize: moderateScale(24),
     fontWeight: 'bold',
-    color: 'white',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)',
-  },
-  content: {
-    padding: 20,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 16,
-  },
-  placeholderText: {
-    fontSize: 14,
-    color: '#999',
-    fontStyle: 'italic',
+    color: Colors.textDark,
     textAlign: 'center',
-    padding: 20,
-    backgroundColor: 'white',
-    borderRadius: 8,
-    marginBottom: 16,
   },
-  infoCard: {
-    backgroundColor: 'white',
-    padding: 20,
-    borderRadius: 8,
-    borderLeftWidth: 4,
-    borderLeftColor: '#17a2b8',
-    marginBottom: 16,
+  headerPlaceholder: {
+    width: scale(40),
   },
-  infoTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 12,
+  progressContainer: {
+    marginBottom: verticalScale(20),
   },
-  infoText: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 4,
-  },
-  statusCard: {
-    backgroundColor: 'white',
-    padding: 20,
-    borderRadius: 8,
-    borderLeftWidth: 4,
-    borderLeftColor: '#ffc107',
-  },
-  statusTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 12,
-  },
-  statusDescription: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 4,
-  },
-  errorText: {
-    fontSize: 16,
-    color: '#dc3545',
-    textAlign: 'center',
-    marginTop: 50,
-  },
-  summaryCard: {
-    backgroundColor: 'white',
-    padding: 20,
-    borderRadius: 12,
-    marginBottom: 16,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+  progressCard: {
+    backgroundColor: Colors.white,
+    borderRadius: moderateScale(16),
+    padding: scale(20),
+    shadowColor: Colors.solidBlue,
+    shadowOffset: {
+      width: 0,
+      height: verticalScale(4),
+    },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowRadius: moderateScale(8),
+    elevation: 4,
   },
-  summaryTitle: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 8,
+  progressTitle: {
+    fontSize: moderateScale(16),
+    fontWeight: '600',
+    color: Colors.textMedium,
+    textAlign: 'center',
+    marginBottom: verticalScale(16),
   },
-  totalHours: {
-    fontSize: 36,
+  progressStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    marginBottom: verticalScale(20),
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statNumber: {
+    fontSize: moderateScale(32),
     fontWeight: 'bold',
-    color: '#2B5CE6',
-    marginBottom: 4,
+    color: Colors.solidBlue,
+    marginBottom: verticalScale(4),
   },
-  summarySubtext: {
-    fontSize: 14,
-    color: '#888',
+  statLabel: {
+    fontSize: moderateScale(14),
+    color: Colors.textMedium,
+    fontWeight: '500',
   },
-  logButton: {
-    backgroundColor: '#2B5CE6',
-    padding: 16,
-    borderRadius: 8,
+  statDivider: {
+    width: 1,
+    height: verticalScale(40),
+    backgroundColor: Colors.dividerColor,
+  },
+  progressBarContainer: {
     alignItems: 'center',
-    marginBottom: 20,
   },
-  logButtonText: {
-    color: 'white',
-    fontSize: 16,
+  progressBar: {
+    width: '100%',
+    height: verticalScale(8),
+    backgroundColor: Colors.lightBlue,
+    borderRadius: moderateScale(4),
+    overflow: 'hidden',
+    marginBottom: verticalScale(8),
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: Colors.solidBlue,
+    borderRadius: moderateScale(4),
+  },
+  progressText: {
+    fontSize: moderateScale(12),
+    color: Colors.textMedium,
+    fontWeight: '500',
+  },
+  addButton: {
+    backgroundColor: Colors.solidBlue,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: verticalScale(14),
+    paddingHorizontal: scale(20),
+    borderRadius: moderateScale(12),
+    marginBottom: verticalScale(24),
+    shadowColor: Colors.solidBlue,
+    shadowOffset: {
+      width: 0,
+      height: verticalScale(4),
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: moderateScale(6),
+    elevation: 6,
+  },
+  addButtonText: {
+    color: Colors.white,
+    fontSize: moderateScale(16),
     fontWeight: '600',
+    marginLeft: scale(8),
   },
-  loadingContainer: {
-    padding: 20,
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: Colors.tabBackground,
+    borderRadius: moderateScale(12),
+    padding: scale(4),
+    marginBottom: verticalScale(20),
+  },
+  tab: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(16),
+    borderRadius: moderateScale(8),
   },
-  loadingText: {
-    fontSize: 16,
-    color: '#666',
-  },
-  hoursCard: {
-    backgroundColor: 'white',
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+  activeTab: {
+    backgroundColor: Colors.tabActiveBackground,
+    shadowColor: Colors.solidBlue,
+    shadowOffset: {
+      width: 0,
+      height: verticalScale(2),
+    },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowRadius: moderateScale(4),
     elevation: 2,
   },
-  hoursHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
+  tabText: {
+    fontSize: moderateScale(14),
+    fontWeight: '500',
+    color: Colors.textMedium,
   },
-  hoursTitle: {
-    fontSize: 16,
+  activeTabText: {
+    color: Colors.solidBlue,
     fontWeight: '600',
-    color: '#333',
+  },
+  tabBadge: {
+    backgroundColor: Colors.solidBlue,
+    borderRadius: moderateScale(10),
+    minWidth: scale(20),
+    height: verticalScale(20),
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: scale(8),
+  },
+  tabBadgeText: {
+    color: Colors.white,
+    fontSize: moderateScale(11),
+    fontWeight: '600',
+  },
+  tabContent: {
     flex: 1,
   },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: verticalScale(40),
+    paddingHorizontal: scale(20),
   },
-  statusText: {
-    color: 'white',
-    fontSize: 10,
+  emptyStateTitle: {
+    fontSize: moderateScale(18),
+    fontWeight: '600',
+    color: Colors.textMedium,
+    marginTop: verticalScale(16),
+    marginBottom: verticalScale(8),
+    textAlign: 'center',
+  },
+  emptyStateSubtitle: {
+    fontSize: moderateScale(14),
+    color: Colors.textLight,
+    textAlign: 'center',
+    lineHeight: moderateScale(20),
+    marginBottom: verticalScale(24),
+  },
+  emptyStateButton: {
+    backgroundColor: Colors.solidBlue,
+    paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(24),
+    borderRadius: moderateScale(8),
+  },
+  emptyStateButtonText: {
+    color: Colors.white,
+    fontSize: moderateScale(14),
     fontWeight: '600',
   },
-  hoursDescription: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 12,
-    lineHeight: 20,
-  },
-  hoursDetails: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: scale(20),
   },
-  hoursAmount: {
-    fontSize: 16,
+  errorText: {
+    fontSize: moderateScale(16),
+    color: Colors.textMedium,
+    textAlign: 'center',
+    marginBottom: verticalScale(16),
+  },
+  retryButton: {
+    backgroundColor: Colors.solidBlue,
+    paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(24),
+    borderRadius: moderateScale(8),
+  },
+  retryButtonText: {
+    color: Colors.white,
+    fontSize: moderateScale(14),
     fontWeight: '600',
-    color: '#2B5CE6',
-  },
-  hoursDate: {
-    fontSize: 14,
-    color: '#666',
-  },
-  approvedText: {
-    fontSize: 12,
-    color: '#28a745',
-    marginTop: 8,
-  },
-  noHoursContainer: {
-    padding: 20,
-    alignItems: 'center',
-  },
-  noHoursText: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  noHoursSubtext: {
-    fontSize: 14,
-    color: '#888',
-    textAlign: 'center',
   },
 });
 

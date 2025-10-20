@@ -72,11 +72,15 @@ export interface VolunteerHourData {
   approved_at?: string;
   attachment_file_id?: UUID;
   event_id?: UUID;      // Optional reference to organization event
+  // Verification fields
+  status: 'pending' | 'verified' | 'rejected';
+  rejection_reason?: string;
+  verified_by?: UUID;
+  verified_at?: string;
   // Computed fields
   member_name?: string;
   approver_name?: string;
   event_name?: string;  // Name of associated event if event_id is present
-  status: 'pending' | 'approved' | 'rejected';
   can_edit?: boolean;
 }
 

@@ -49,6 +49,11 @@ export const queryKeys = {
     list: (userId: string, filters?: Record<string, any>) => 
       [...queryKeys.volunteerHours.lists(), userId, filters] as const,
     pending: (orgId: string) => [...queryKeys.volunteerHours.all, 'pending', orgId] as const,
+    verified: (orgId: string) => [...queryKeys.volunteerHours.all, 'verified', orgId] as const,
+    rejected: (orgId: string) => [...queryKeys.volunteerHours.all, 'rejected', orgId] as const,
+    status: (status: string, orgId: string, memberId?: string) => 
+      [...queryKeys.volunteerHours.all, 'status', status, orgId, memberId] as const,
+    verificationStats: (orgId: string) => [...queryKeys.volunteerHours.all, 'verification-stats', orgId] as const,
     stats: (userId: string) => [...queryKeys.volunteerHours.all, 'stats', userId] as const,
   },
 
@@ -380,10 +385,20 @@ export const cacheInvalidation = {
    */
   invalidateVolunteerHoursQueries: (queryClient: QueryClient, userId?: string, orgId?: string, options?: {
     invalidatePending?: boolean;
+    invalidateVerified?: boolean;
+    invalidateRejected?: boolean;
     invalidateStats?: boolean;
+    invalidateVerificationStats?: boolean;
     invalidateDashboard?: boolean;
   }) => {
-    const { invalidatePending = true, invalidateStats = true, invalidateDashboard = true } = options || {};
+    const { 
+      invalidatePending = true, 
+      invalidateVerified = true,
+      invalidateRejected = true,
+      invalidateStats = true, 
+      invalidateVerificationStats = true,
+      invalidateDashboard = true 
+    } = options || {};
     
     if (userId) {
       queryClient.invalidateQueries({ queryKey: queryKeys.volunteerHours.list(userId) });
@@ -394,8 +409,27 @@ export const cacheInvalidation = {
       }
     }
     
-    if (orgId && invalidatePending) {
-      queryClient.invalidateQueries({ queryKey: queryKeys.volunteerHours.pending(orgId) });
+    if (orgId) {
+      if (invalidatePending) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.volunteerHours.pending(orgId) });
+      }
+      if (invalidateVerified) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.volunteerHours.verified(orgId) });
+      }
+      if (invalidateRejected) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.volunteerHours.rejected(orgId) });
+      }
+      if (invalidateVerificationStats) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.volunteerHours.verificationStats(orgId) });
+      }
+      
+      // Invalidate status-based queries
+      queryClient.invalidateQueries({ 
+        predicate: (query) => {
+          const key = query.queryKey;
+          return key.includes('volunteerHours') && key.includes('status') && key.includes(orgId);
+        }
+      });
       
       if (invalidateDashboard) {
         queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.officer(orgId) });

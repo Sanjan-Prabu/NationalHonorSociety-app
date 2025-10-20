@@ -1,9 +1,10 @@
 /**
  * Volunteer Hours Data React Query Hooks
  * Provides hooks for volunteer hours data management with submission and approval workflows
- * Requirements: 2.1, 3.2
+ * Requirements: 2.1, 3.2, 5.3, 5.4, 5.5
  */
 
+import React from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { volunteerHoursService } from '../services/VolunteerHoursService';
 import { 
@@ -48,7 +49,7 @@ export function useUserVolunteerHours(userId?: UUID, filters?: VolunteerHourFilt
 
 /**
  * Hook for officer approval screen to get pending volunteer hours
- * Requirements: 3.2
+ * Requirements: 3.2, 5.3
  */
 export function usePendingApprovals(orgId?: UUID) {
   return useQuery({
@@ -62,6 +63,103 @@ export function usePendingApprovals(orgId?: UUID) {
     },
     staleTime: 30 * 1000, // 30 seconds - pending approvals change frequently
     gcTime: 2 * 60 * 1000, // 2 minutes
+    retry: (failureCount, error) => {
+      // Don't retry permission errors
+      if (error.message?.includes('permission') || error.message?.includes('unauthorized')) {
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
+/**
+ * Hook for getting volunteer hours with status filtering
+ * Requirements: 5.3
+ */
+export function useVolunteerHoursByStatus(
+  status: 'pending' | 'verified' | 'rejected',
+  orgId?: UUID,
+  memberId?: UUID
+) {
+  return useQuery({
+    queryKey: [...queryKeys.volunteerHours.all, 'status', status, orgId || 'current', memberId || 'current'],
+    queryFn: async (): Promise<VolunteerHourData[]> => {
+      if (status === 'pending') {
+        const response = await volunteerHoursService.getPendingApprovals(orgId);
+        if (!response.success || !response.data) {
+          throw new Error(response.error || 'Failed to fetch pending requests');
+        }
+        return response.data;
+      } else if (status === 'verified') {
+        const response = await volunteerHoursService.getVerifiedApprovals(orgId);
+        if (!response.success || !response.data) {
+          throw new Error(response.error || 'Failed to fetch verified requests');
+        }
+        return response.data;
+      } else if (status === 'rejected') {
+        const response = await volunteerHoursService.getRejectedApprovals(orgId);
+        if (!response.success || !response.data) {
+          throw new Error(response.error || 'Failed to fetch rejected requests');
+        }
+        return response.data;
+      }
+      return [];
+    },
+    staleTime: status === 'pending' ? 30 * 1000 : 2 * 60 * 1000, // Pending updates more frequently
+    gcTime: 5 * 60 * 1000, // 5 minutes
+    retry: (failureCount, error) => {
+      // Don't retry permission errors
+      if (error.message?.includes('permission') || error.message?.includes('unauthorized')) {
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
+/**
+ * Hook for officer approval screen to get verified volunteer hours
+ * Requirements: 2.2, 2.3
+ */
+export function useVerifiedApprovals(orgId?: UUID) {
+  return useQuery({
+    queryKey: [...queryKeys.volunteerHours.all, 'verified', orgId || 'current'],
+    queryFn: async (): Promise<VolunteerHourData[]> => {
+      const response = await volunteerHoursService.getVerifiedApprovals(orgId);
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Failed to fetch verified approvals');
+      }
+      return response.data;
+    },
+    staleTime: 2 * 60 * 1000, // 2 minutes - verified approvals change less frequently
+    gcTime: 5 * 60 * 1000, // 5 minutes
+    retry: (failureCount, error) => {
+      // Don't retry permission errors
+      if (error.message?.includes('permission') || error.message?.includes('unauthorized')) {
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
+/**
+ * Hook for officer approval screen to get rejected volunteer hours
+ * Requirements: 2.2, 2.4
+ */
+export function useRejectedApprovals(orgId?: UUID) {
+  return useQuery({
+    queryKey: [...queryKeys.volunteerHours.all, 'rejected', orgId || 'current'],
+    queryFn: async (): Promise<VolunteerHourData[]> => {
+      const response = await volunteerHoursService.getRejectedApprovals(orgId);
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Failed to fetch rejected approvals');
+      }
+      return response.data;
+    },
+    staleTime: 2 * 60 * 1000, // 2 minutes - rejected approvals change less frequently
+    gcTime: 5 * 60 * 1000, // 5 minutes
     retry: (failureCount, error) => {
       // Don't retry permission errors
       if (error.message?.includes('permission') || error.message?.includes('unauthorized')) {
@@ -293,7 +391,7 @@ export function useUpdateVolunteerHours() {
 
 /**
  * Mutation hook for approving volunteer hours (officer only)
- * Requirements: 3.2
+ * Requirements: 3.2, 5.4
  */
 export function useApproveVolunteerHours() {
   const queryClient = useQueryClient();
@@ -342,6 +440,30 @@ export function useApproveVolunteerHours() {
         }
       );
 
+      // Add to verified approvals cache
+      queryClient.setQueryData(
+        [...queryKeys.volunteerHours.all, 'verified', approvedHour.org_id],
+        (oldData: VolunteerHourData[] | undefined) => {
+          if (!oldData) return [approvedHour];
+          return [approvedHour, ...oldData].sort((a, b) => 
+            new Date(b.verified_at || b.approved_at || b.submitted_at).getTime() - 
+            new Date(a.verified_at || a.approved_at || a.submitted_at).getTime()
+          );
+        }
+      );
+
+      // Update status-based cache
+      queryClient.setQueryData(
+        [...queryKeys.volunteerHours.all, 'status', 'verified', approvedHour.org_id, 'current'],
+        (oldData: VolunteerHourData[] | undefined) => {
+          if (!oldData) return [approvedHour];
+          return [approvedHour, ...oldData].sort((a, b) => 
+            new Date(b.verified_at || b.approved_at || b.submitted_at).getTime() - 
+            new Date(a.verified_at || a.approved_at || a.submitted_at).getTime()
+          );
+        }
+      );
+
       // Update the member's volunteer hours cache if it exists
       queryClient.setQueryData(
         queryKeys.volunteerHours.list(approvedHour.member_id),
@@ -365,18 +487,18 @@ export function useApproveVolunteerHours() {
 
 /**
  * Mutation hook for rejecting volunteer hours (officer only)
- * Requirements: 3.2
+ * Requirements: 3.2, 5.4
  */
 export function useRejectVolunteerHours() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (params: { hourId: UUID; reason?: string }): Promise<boolean> => {
+    mutationFn: async (params: { hourId: UUID; reason?: string }): Promise<VolunteerHourData> => {
       const response = await volunteerHoursService.rejectVolunteerHours(params.hourId, params.reason);
-      if (!response.success) {
+      if (!response.success || !response.data) {
         throw new Error(response.error || 'Failed to reject volunteer hours');
       }
-      return response.data || false;
+      return response.data;
     },
     onMutate: async ({ hourId }) => {
       // Cancel any outgoing refetches
@@ -407,23 +529,52 @@ export function useRejectVolunteerHours() {
         queryClient.setQueryData(queryKeys.volunteerHours.pending('current'), context.previousPendingHours);
       }
     },
-    onSuccess: (success, { hourId }, context) => {
-      if (success && context?.hourBeingRejected) {
-        const rejectedHour = context.hourBeingRejected;
+    onSuccess: (rejectedHour, { hourId }, context) => {
+      // Remove from pending approvals cache
+      queryClient.setQueryData(
+        queryKeys.volunteerHours.pending(rejectedHour.org_id),
+        (oldData: VolunteerHourData[] | undefined) => {
+          if (!oldData) return oldData;
+          return oldData.filter(hour => hour.id !== hourId);
+        }
+      );
 
-        // Remove from member's volunteer hours cache as well
-        queryClient.setQueryData(
-          queryKeys.volunteerHours.list(rejectedHour.member_id),
-          (oldData: VolunteerHourData[] | undefined) => {
-            if (!oldData) return oldData;
-            return oldData.filter(hour => hour.id !== hourId);
-          }
-        );
+      // Add to rejected approvals cache
+      queryClient.setQueryData(
+        [...queryKeys.volunteerHours.all, 'rejected', rejectedHour.org_id],
+        (oldData: VolunteerHourData[] | undefined) => {
+          if (!oldData) return [rejectedHour];
+          return [rejectedHour, ...oldData].sort((a, b) => 
+            new Date(b.verified_at || b.submitted_at).getTime() - new Date(a.verified_at || a.submitted_at).getTime()
+          );
+        }
+      );
 
-        // Invalidate related queries
-        cacheInvalidation.invalidateVolunteerHoursQueries(queryClient, rejectedHour.member_id, rejectedHour.org_id);
-        cacheInvalidation.invalidateDashboardQueries(queryClient, rejectedHour.member_id, rejectedHour.org_id);
-      }
+      // Update status-based cache
+      queryClient.setQueryData(
+        [...queryKeys.volunteerHours.all, 'status', 'rejected', rejectedHour.org_id, 'current'],
+        (oldData: VolunteerHourData[] | undefined) => {
+          if (!oldData) return [rejectedHour];
+          return [rejectedHour, ...oldData].sort((a, b) => 
+            new Date(b.verified_at || b.submitted_at).getTime() - new Date(a.verified_at || a.submitted_at).getTime()
+          );
+        }
+      );
+
+      // Update member's volunteer hours cache
+      queryClient.setQueryData(
+        queryKeys.volunteerHours.list(rejectedHour.member_id),
+        (oldData: VolunteerHourData[] | undefined) => {
+          if (!oldData) return oldData;
+          return oldData.map(hour => 
+            hour.id === rejectedHour.id ? rejectedHour : hour
+          );
+        }
+      );
+
+      // Invalidate related queries
+      cacheInvalidation.invalidateVolunteerHoursQueries(queryClient, rejectedHour.member_id, rejectedHour.org_id);
+      cacheInvalidation.invalidateDashboardQueries(queryClient, rejectedHour.member_id, rejectedHour.org_id);
     },
     onError: (error) => {
       console.error('Failed to reject volunteer hours:', error);
@@ -432,8 +583,73 @@ export function useRejectVolunteerHours() {
 }
 
 /**
+ * Mutation hook for deleting volunteer hours (member can delete their own pending/rejected requests)
+ * Requirements: 4.1, 4.2
+ */
+export function useDeleteVolunteerHours() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (hourId: UUID): Promise<boolean> => {
+      const response = await volunteerHoursService.deleteVolunteerHours(hourId);
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to delete volunteer hours');
+      }
+      return response.data || false;
+    },
+    onMutate: async (hourId) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: queryKeys.volunteerHours.lists() });
+
+      // Snapshot the previous values
+      const previousUserHours = queryClient.getQueryData<VolunteerHourData[]>(
+        queryKeys.volunteerHours.list('current')
+      );
+      const previousPendingHours = queryClient.getQueryData<VolunteerHourData[]>(
+        queryKeys.volunteerHours.pending('current')
+      );
+
+      // Get the hour being deleted for context
+      const hourBeingDeleted = previousUserHours?.find(hour => hour.id === hourId);
+
+      // Optimistically remove from caches
+      const removeHourFromList = (oldData: VolunteerHourData[] | undefined) => {
+        if (!oldData) return oldData;
+        return oldData.filter(hour => hour.id !== hourId);
+      };
+
+      queryClient.setQueryData(queryKeys.volunteerHours.list('current'), removeHourFromList);
+      queryClient.setQueryData(queryKeys.volunteerHours.pending('current'), removeHourFromList);
+
+      return { previousUserHours, previousPendingHours, hourBeingDeleted };
+    },
+    onError: (error, hourId, context) => {
+      // Rollback on error
+      if (context?.previousUserHours) {
+        queryClient.setQueryData(queryKeys.volunteerHours.list('current'), context.previousUserHours);
+      }
+      if (context?.previousPendingHours) {
+        queryClient.setQueryData(queryKeys.volunteerHours.pending('current'), context.previousPendingHours);
+      }
+    },
+    onSuccess: (success, hourId, context) => {
+      if (success && context?.hourBeingDeleted) {
+        const deletedHour = context.hourBeingDeleted;
+
+        // Invalidate related queries
+        cacheInvalidation.invalidateVolunteerHoursQueries(queryClient, deletedHour.member_id, deletedHour.org_id);
+        cacheInvalidation.invalidateDashboardQueries(queryClient, deletedHour.member_id, deletedHour.org_id);
+      }
+    },
+    onError: (error) => {
+      console.error('Failed to delete volunteer hours:', error);
+    },
+  });
+}
+
+/**
  * Mutation hook for bulk approval of volunteer hours (officer only)
- * Requirements: 3.2
+ * Requirements: 3.2, 5.4
  */
 export function useBulkApproveVolunteerHours() {
   const queryClient = useQueryClient();
@@ -476,6 +692,41 @@ export function useBulkApproveVolunteerHours() {
         }
       );
 
+      // Add to verified approvals cache for each organization
+      const orgGroups = new Map<string, VolunteerHourData[]>();
+      approvedHours.forEach(hour => {
+        const orgHours = orgGroups.get(hour.org_id) || [];
+        orgHours.push(hour);
+        orgGroups.set(hour.org_id, orgHours);
+      });
+
+      orgGroups.forEach((hours, orgId) => {
+        queryClient.setQueryData(
+          [...queryKeys.volunteerHours.all, 'verified', orgId],
+          (oldData: VolunteerHourData[] | undefined) => {
+            if (!oldData) return hours;
+            const combined = [...hours, ...oldData];
+            return combined.sort((a, b) => 
+              new Date(b.verified_at || b.approved_at || b.submitted_at).getTime() - 
+              new Date(a.verified_at || a.approved_at || a.submitted_at).getTime()
+            );
+          }
+        );
+
+        // Update status-based cache
+        queryClient.setQueryData(
+          [...queryKeys.volunteerHours.all, 'status', 'verified', orgId, 'current'],
+          (oldData: VolunteerHourData[] | undefined) => {
+            if (!oldData) return hours;
+            const combined = [...hours, ...oldData];
+            return combined.sort((a, b) => 
+              new Date(b.verified_at || b.approved_at || b.submitted_at).getTime() - 
+              new Date(a.verified_at || a.approved_at || a.submitted_at).getTime()
+            );
+          }
+        );
+      });
+
       // Update individual member caches
       approvedHours.forEach(approvedHour => {
         queryClient.setQueryData(
@@ -509,6 +760,114 @@ export function useBulkApproveVolunteerHours() {
   });
 }
 
+/**
+ * Mutation hook for updating verification request status
+ * Requirements: 5.4
+ */
+export function useUpdateVerificationStatus() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (params: {
+      requestId: UUID;
+      status: 'pending' | 'verified' | 'rejected';
+      rejectionReason?: string;
+    }): Promise<VolunteerHourData> => {
+      const { requestId, status, rejectionReason } = params;
+      
+      if (status === 'verified') {
+        const response = await volunteerHoursService.approveVolunteerHours(requestId);
+        if (!response.success || !response.data) {
+          throw new Error(response.error || 'Failed to verify request');
+        }
+        return response.data;
+      } else if (status === 'rejected') {
+        const response = await volunteerHoursService.rejectVolunteerHours(requestId, rejectionReason);
+        if (!response.success || !response.data) {
+          throw new Error(response.error || 'Failed to reject request');
+        }
+        return response.data;
+      } else {
+        throw new Error('Invalid status update');
+      }
+    },
+    onSuccess: (updatedRequest, { status }) => {
+      // Update all relevant caches based on the new status
+      const orgId = updatedRequest.org_id;
+      const memberId = updatedRequest.member_id;
+
+      // Remove from pending if it was pending
+      queryClient.setQueryData(
+        queryKeys.volunteerHours.pending(orgId),
+        (oldData: VolunteerHourData[] | undefined) => {
+          if (!oldData) return oldData;
+          return oldData.filter(hour => hour.id !== updatedRequest.id);
+        }
+      );
+
+      // Add to appropriate status cache
+      if (status === 'verified') {
+        queryClient.setQueryData(
+          [...queryKeys.volunteerHours.all, 'verified', orgId],
+          (oldData: VolunteerHourData[] | undefined) => {
+            if (!oldData) return [updatedRequest];
+            return [updatedRequest, ...oldData].sort((a, b) => 
+              new Date(b.verified_at || b.submitted_at).getTime() - 
+              new Date(a.verified_at || a.submitted_at).getTime()
+            );
+          }
+        );
+      } else if (status === 'rejected') {
+        queryClient.setQueryData(
+          [...queryKeys.volunteerHours.all, 'rejected', orgId],
+          (oldData: VolunteerHourData[] | undefined) => {
+            if (!oldData) return [updatedRequest];
+            return [updatedRequest, ...oldData].sort((a, b) => 
+              new Date(b.verified_at || b.submitted_at).getTime() - 
+              new Date(a.verified_at || a.submitted_at).getTime()
+            );
+          }
+        );
+      }
+
+      // Update status-based caches
+      queryClient.setQueryData(
+        [...queryKeys.volunteerHours.all, 'status', status, orgId, 'current'],
+        (oldData: VolunteerHourData[] | undefined) => {
+          if (!oldData) return [updatedRequest];
+          return [updatedRequest, ...oldData].sort((a, b) => 
+            new Date(b.verified_at || b.submitted_at).getTime() - 
+            new Date(a.verified_at || a.submitted_at).getTime()
+          );
+        }
+      );
+
+      // Update member's cache
+      queryClient.setQueryData(
+        queryKeys.volunteerHours.list(memberId),
+        (oldData: VolunteerHourData[] | undefined) => {
+          if (!oldData) return oldData;
+          return oldData.map(hour => 
+            hour.id === updatedRequest.id ? updatedRequest : hour
+          );
+        }
+      );
+
+      // Invalidate verification statistics
+      queryClient.invalidateQueries({ 
+        queryKey: [...queryKeys.volunteerHours.all, 'verification-stats', orgId] 
+      });
+
+      // Invalidate related queries
+      cacheInvalidation.invalidateVolunteerHoursQueries(queryClient, memberId, orgId);
+      cacheInvalidation.invalidateDashboardQueries(queryClient, memberId, orgId);
+    },
+    onError: (error) => {
+      console.error('Failed to update verification status:', error);
+    },
+  });
+}
+
 // =============================================================================
 // UTILITY HOOKS
 // =============================================================================
@@ -536,21 +895,148 @@ export function useVolunteerHoursWithStats(userId?: UUID, filters?: VolunteerHou
 
 /**
  * Hook for officer dashboard combining pending approvals with org stats
- * Requirements: 3.2
+ * Requirements: 3.2, 5.5
  */
 export function useOfficerVolunteerHoursData(orgId?: UUID) {
   const pendingQuery = usePendingApprovals(orgId);
   const statsQuery = useOrganizationVolunteerStats(orgId);
+  const verificationStatsQuery = useVerificationStatistics(orgId);
 
   return {
     pendingApprovals: pendingQuery.data,
     organizationStats: statsQuery.data,
-    isLoading: pendingQuery.isLoading || statsQuery.isLoading,
-    isError: pendingQuery.isError || statsQuery.isError,
-    error: pendingQuery.error || statsQuery.error,
+    verificationStats: verificationStatsQuery.data,
+    isLoading: pendingQuery.isLoading || statsQuery.isLoading || verificationStatsQuery.isLoading,
+    isError: pendingQuery.isError || statsQuery.isError || verificationStatsQuery.isError,
+    error: pendingQuery.error || statsQuery.error || verificationStatsQuery.error,
     refetch: () => {
       pendingQuery.refetch();
       statsQuery.refetch();
+      verificationStatsQuery.refetch();
+    },
+  };
+}
+
+/**
+ * Hook to get verification statistics for officer dashboard
+ * Requirements: 5.5
+ */
+export function useVerificationStatistics(orgId?: UUID) {
+  return useQuery({
+    queryKey: [...queryKeys.volunteerHours.all, 'verification-stats', orgId || 'current'],
+    queryFn: async () => {
+      const organizationId = orgId || 'current';
+      
+      // Get all status-based data
+      const [pendingResponse, verifiedResponse, rejectedResponse] = await Promise.all([
+        volunteerHoursService.getPendingApprovals(orgId),
+        volunteerHoursService.getVerifiedApprovals(orgId),
+        volunteerHoursService.getRejectedApprovals(orgId),
+      ]);
+
+      const pendingCount = pendingResponse.success ? (pendingResponse.data?.length || 0) : 0;
+      const verifiedCount = verifiedResponse.success ? (verifiedResponse.data?.length || 0) : 0;
+      const rejectedCount = rejectedResponse.success ? (rejectedResponse.data?.length || 0) : 0;
+      
+      const totalRequests = pendingCount + verifiedCount + rejectedCount;
+      const approvalRate = totalRequests > 0 ? (verifiedCount / totalRequests) * 100 : 0;
+      const rejectionRate = totalRequests > 0 ? (rejectedCount / totalRequests) * 100 : 0;
+
+      // Calculate recent activity (last 7 days)
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      
+      const recentVerified = verifiedResponse.data?.filter(hour => 
+        hour.verified_at && new Date(hour.verified_at) >= sevenDaysAgo
+      ) || [];
+      
+      const recentRejected = rejectedResponse.data?.filter(hour => 
+        hour.verified_at && new Date(hour.verified_at) >= sevenDaysAgo
+      ) || [];
+
+      return {
+        pendingCount,
+        verifiedCount,
+        rejectedCount,
+        totalRequests,
+        approvalRate,
+        rejectionRate,
+        recentActivity: {
+          verified: recentVerified.length,
+          rejected: recentRejected.length,
+          total: recentVerified.length + recentRejected.length,
+        },
+        averageProcessingTime: 0, // TODO: Calculate based on submitted_at vs verified_at
+      };
+    },
+    staleTime: 30 * 1000, // 30 seconds - verification stats change frequently
+    gcTime: 2 * 60 * 1000, // 2 minutes
+    retry: (failureCount, error) => {
+      // Don't retry permission errors
+      if (error.message?.includes('permission') || error.message?.includes('unauthorized')) {
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+}
+
+/**
+ * Hook for real-time volunteer hours updates with status filtering
+ * Requirements: 5.5
+ */
+export function useRealTimeVolunteerHours(
+  orgId?: UUID, 
+  options?: {
+    enableRealTime?: boolean;
+    refetchInterval?: number;
+  }
+) {
+  const { enableRealTime = true, refetchInterval = 30000 } = options || {};
+
+  const pendingQuery = useVolunteerHoursByStatus('pending', orgId);
+  const verifiedQuery = useVolunteerHoursByStatus('verified', orgId);
+  const rejectedQuery = useVolunteerHoursByStatus('rejected', orgId);
+
+  // Enable real-time updates if requested
+  React.useEffect(() => {
+    if (!enableRealTime) return;
+
+    const interval = setInterval(() => {
+      pendingQuery.refetch();
+      verifiedQuery.refetch();
+      rejectedQuery.refetch();
+    }, refetchInterval);
+
+    return () => clearInterval(interval);
+  }, [enableRealTime, refetchInterval, pendingQuery.refetch, verifiedQuery.refetch, rejectedQuery.refetch]);
+
+  return {
+    pending: {
+      data: pendingQuery.data,
+      isLoading: pendingQuery.isLoading,
+      error: pendingQuery.error,
+      refetch: pendingQuery.refetch,
+    },
+    verified: {
+      data: verifiedQuery.data,
+      isLoading: verifiedQuery.isLoading,
+      error: verifiedQuery.error,
+      refetch: verifiedQuery.refetch,
+    },
+    rejected: {
+      data: rejectedQuery.data,
+      isLoading: rejectedQuery.isLoading,
+      error: rejectedQuery.error,
+      refetch: rejectedQuery.refetch,
+    },
+    isLoading: pendingQuery.isLoading || verifiedQuery.isLoading || rejectedQuery.isLoading,
+    isError: pendingQuery.isError || verifiedQuery.isError || rejectedQuery.isError,
+    error: pendingQuery.error || verifiedQuery.error || rejectedQuery.error,
+    refetchAll: () => {
+      pendingQuery.refetch();
+      verifiedQuery.refetch();
+      rejectedQuery.refetch();
     },
   };
 }

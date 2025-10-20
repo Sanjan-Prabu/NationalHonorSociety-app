@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Image, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Alert, FlatList } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -9,8 +9,17 @@ import { useToast } from 'components/ui/ToastProvider';
 import { withRoleProtection } from 'components/hoc/withRoleProtection';
 import LoadingSkeleton from 'components/ui/LoadingSkeleton';
 import EmptyState from 'components/ui/EmptyState';
+import VerificationCard from 'components/ui/VerificationCard';
 import { useOrganization } from '../../contexts/OrganizationContext';
-import { usePendingApprovals, useApproveVolunteerHours, useRejectVolunteerHours, useBulkApproveVolunteerHours } from 'hooks/useVolunteerHoursData';
+import { 
+  usePendingApprovals, 
+  useVerifiedApprovals, 
+  useRejectedApprovals,
+  useApproveVolunteerHours, 
+  useRejectVolunteerHours, 
+  useBulkApproveVolunteerHours 
+} from 'hooks/useVolunteerHoursData';
+import { VolunteerHourData } from '../../types/dataService';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -36,14 +45,16 @@ const Colors = {
 
 // Remove interface since we'll use VolunteerHourData from types
 
+type TabType = 'pending' | 'verified' | 'rejected';
+
 const OfficerVerifyHours = ({ navigation }: any) => {
   const { showSuccess, showError } = useToast();
   const { activeOrganization } = useOrganization();
   const insets = useSafeAreaInsets();
 
-  const [currentRequestIndex, setCurrentRequestIndex] = useState(0);
+  const [activeTab, setActiveTab] = useState<TabType>('pending');
   const [rejectionReason, setRejectionReason] = useState('');
-  const [showRejectionInput, setShowRejectionInput] = useState(false);
+  const [showRejectionInput, setShowRejectionInput] = useState<string | null>(null);
   const [selectedRequests, setSelectedRequests] = useState<Set<string>>(new Set());
   const [showBulkActions, setShowBulkActions] = useState(false);
 
@@ -53,91 +64,89 @@ const OfficerVerifyHours = ({ navigation }: any) => {
   // Dynamic data hooks
   const { 
     data: pendingApprovals, 
-    isLoading: approvalsLoading, 
-    refetch: refetchApprovals,
-    error: approvalsError 
+    isLoading: pendingLoading, 
+    refetch: refetchPending,
+    error: pendingError 
   } = usePendingApprovals(organizationId);
+
+  const { 
+    data: verifiedApprovals, 
+    isLoading: verifiedLoading, 
+    refetch: refetchVerified,
+    error: verifiedError 
+  } = useVerifiedApprovals(organizationId);
+
+  const { 
+    data: rejectedApprovals, 
+    isLoading: rejectedLoading, 
+    refetch: refetchRejected,
+    error: rejectedError 
+  } = useRejectedApprovals(organizationId);
   
   const approveHoursMutation = useApproveVolunteerHours();
   const rejectHoursMutation = useRejectVolunteerHours();
   const bulkApproveMutation = useBulkApproveVolunteerHours();
 
-  const currentRequest = pendingApprovals?.[currentRequestIndex];
+  // Get current tab data
+  const getCurrentTabData = () => {
+    switch (activeTab) {
+      case 'pending':
+        return { data: pendingApprovals || [], loading: pendingLoading, error: pendingError };
+      case 'verified':
+        return { data: verifiedApprovals || [], loading: verifiedLoading, error: verifiedError };
+      case 'rejected':
+        return { data: rejectedApprovals || [], loading: rejectedLoading, error: rejectedError };
+      default:
+        return { data: [], loading: false, error: null };
+    }
+  };
+
+  const { data: currentTabData, loading: currentTabLoading, error: currentTabError } = getCurrentTabData();
 
   // Helper functions
-  const getMemberInitials = (memberName?: string): string => {
-    if (!memberName) return 'MU';
-    const parts = memberName.split(' ');
-    if (parts.length >= 2) {
-      return `${parts[0].charAt(0)}${parts[parts.length - 1].charAt(0)}`.toUpperCase();
-    }
-    return memberName.substring(0, 2).toUpperCase();
+  const getTabCounts = () => {
+    return {
+      pending: pendingApprovals?.length || 0,
+      verified: verifiedApprovals?.length || 0,
+      rejected: rejectedApprovals?.length || 0,
+    };
   };
 
-  const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric'
-    });
-  };
-
-  const formatSubmittedTime = (dateString: string): string => {
-    return new Date(dateString).toLocaleDateString();
-  };
-
-  const handleVerify = async () => {
-    if (!currentRequest) return;
-
+  const handleVerify = async (request: VolunteerHourData) => {
     try {
-      await approveHoursMutation.mutateAsync(currentRequest.id);
-      showSuccess('Hours Verified', `${currentRequest.member_name}'s hours have been verified.`);
-      
-      // Move to next request or reset
-      if (currentRequestIndex >= (pendingApprovals?.length || 1) - 1) {
-        setCurrentRequestIndex(0);
-      }
-      
-      setShowRejectionInput(false);
-      setRejectionReason('');
+      await approveHoursMutation.mutateAsync(request.id);
+      showSuccess('Hours Verified', `${request.member_name}'s hours have been verified.`);
     } catch (error) {
       console.error('Error approving hours:', error);
       showError('Error', 'Failed to approve hours. Please try again.');
     }
   };
 
-  const handleReject = async () => {
-    if (!currentRequest) return;
-
-    if (!showRejectionInput) {
-      setShowRejectionInput(true);
-      return;
-    }
-
-    if (!rejectionReason.trim()) {
-      showError('Validation Error', 'Please provide a reason for rejection');
-      return;
-    }
-
-    try {
-      await rejectHoursMutation.mutateAsync({ 
-        hourId: currentRequest.id, 
-        reason: rejectionReason 
-      });
-      showSuccess('Hours Rejected', `${currentRequest.member_name} has been notified.`);
-      
-      // Move to next request or reset
-      if (currentRequestIndex < (pendingApprovals?.length || 1) - 1) {
-        setCurrentRequestIndex(prev => prev + 1);
-      } else {
-        setCurrentRequestIndex(0);
+  const handleReject = async (request: VolunteerHourData) => {
+    if (showRejectionInput === request.id) {
+      // Confirm rejection with reason
+      if (!rejectionReason.trim()) {
+        showError('Validation Error', 'Please provide a reason for rejection');
+        return;
       }
-      
-      setShowRejectionInput(false);
+
+      try {
+        await rejectHoursMutation.mutateAsync({ 
+          hourId: request.id, 
+          reason: rejectionReason 
+        });
+        showSuccess('Hours Rejected', `${request.member_name} has been notified.`);
+        
+        setShowRejectionInput(null);
+        setRejectionReason('');
+      } catch (error) {
+        console.error('Error rejecting hours:', error);
+        showError('Error', 'Failed to reject hours. Please try again.');
+      }
+    } else {
+      // Show rejection input
+      setShowRejectionInput(request.id);
       setRejectionReason('');
-    } catch (error) {
-      console.error('Error rejecting hours:', error);
-      showError('Error', 'Failed to reject hours. Please try again.');
     }
   };
 
@@ -181,7 +190,81 @@ const OfficerVerifyHours = ({ navigation }: any) => {
     setSelectedRequests(newSelection);
   };
 
-  const pendingCount = pendingApprovals?.length || 0;
+  const handleRefresh = () => {
+    switch (activeTab) {
+      case 'pending':
+        refetchPending();
+        break;
+      case 'verified':
+        refetchVerified();
+        break;
+      case 'rejected':
+        refetchRejected();
+        break;
+    }
+  };
+
+  const tabCounts = getTabCounts();
+
+  const renderRequestItem = ({ item }: { item: VolunteerHourData }) => (
+    <VerificationCard
+      request={item}
+      onVerify={activeTab === 'pending' ? () => handleVerify(item) : undefined}
+      onReject={activeTab === 'pending' ? () => handleReject(item) : undefined}
+      onSelect={() => toggleRequestSelection(item.id)}
+      isSelected={selectedRequests.has(item.id)}
+      showBulkActions={showBulkActions && activeTab === 'pending'}
+      isLoading={approveHoursMutation.isPending || rejectHoursMutation.isPending}
+      rejectionReason={item.rejection_reason}
+    />
+  );
+
+  const renderRejectionInput = () => {
+    if (!showRejectionInput) return null;
+
+    return (
+      <View style={styles.rejectionInputContainer}>
+        <Text style={styles.rejectionInputLabel}>Reason for Rejection (max 50 words)</Text>
+        <TextInput
+          style={styles.rejectionInput}
+          placeholder="Explain why these hours are being rejected..."
+          placeholderTextColor={Colors.textLight}
+          value={rejectionReason}
+          onChangeText={setRejectionReason}
+          multiline
+          numberOfLines={3}
+          textAlignVertical="top"
+          maxLength={300} // Approximately 50 words
+        />
+        <Text style={styles.wordCount}>
+          {rejectionReason.split(/\s+/).filter(word => word.length > 0).length}/50 words
+        </Text>
+        <View style={styles.rejectionInputButtons}>
+          <TouchableOpacity 
+            style={styles.rejectionCancelButton}
+            onPress={() => {
+              setShowRejectionInput(null);
+              setRejectionReason('');
+            }}
+          >
+            <Text style={styles.rejectionCancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.rejectionConfirmButton}
+            onPress={() => {
+              const request = currentTabData.find(r => r.id === showRejectionInput);
+              if (request) handleReject(request);
+            }}
+            disabled={!rejectionReason.trim() || rejectHoursMutation.isPending}
+          >
+            <Text style={styles.rejectionConfirmButtonText}>
+              {rejectHoursMutation.isPending ? 'Rejecting...' : 'Confirm Reject'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
 
   return (
     <LinearGradient
@@ -191,15 +274,7 @@ const OfficerVerifyHours = ({ navigation }: any) => {
       end={{ x: 0.5, y: 1 }}
     >
       <SafeAreaView style={{ flex: 1 }}>
-        <ScrollView
-          contentContainerStyle={{
-            flexGrow: 1,
-            paddingTop: insets.top,
-            paddingBottom: insets.bottom,
-            paddingHorizontal: scale(16),
-          }}
-          showsVerticalScrollIndicator={false}
-        >
+        <View style={styles.container}>
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerLeft}>
@@ -212,12 +287,54 @@ const OfficerVerifyHours = ({ navigation }: any) => {
             />
           </View>
 
-          {/* Pending Count Badge and Bulk Actions */}
-          <View style={styles.headerActions}>
-            <View style={styles.pendingBadge}>
-              <Text style={styles.pendingBadgeText}>{pendingCount} pending</Text>
-            </View>
-            {pendingCount > 1 && (
+          {/* Tab Navigation */}
+          <View style={styles.tabContainer}>
+            <TouchableOpacity 
+              style={[styles.tab, activeTab === 'pending' && styles.activeTab]}
+              onPress={() => setActiveTab('pending')}
+            >
+              <Text style={[styles.tabText, activeTab === 'pending' && styles.activeTabText]}>
+                Pending
+              </Text>
+              {tabCounts.pending > 0 && (
+                <View style={styles.tabBadge}>
+                  <Text style={styles.tabBadgeText}>{tabCounts.pending}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.tab, activeTab === 'verified' && styles.activeTab]}
+              onPress={() => setActiveTab('verified')}
+            >
+              <Text style={[styles.tabText, activeTab === 'verified' && styles.activeTabText]}>
+                Verified
+              </Text>
+              {tabCounts.verified > 0 && (
+                <View style={[styles.tabBadge, styles.verifiedBadge]}>
+                  <Text style={styles.tabBadgeText}>{tabCounts.verified}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.tab, activeTab === 'rejected' && styles.activeTab]}
+              onPress={() => setActiveTab('rejected')}
+            >
+              <Text style={[styles.tabText, activeTab === 'rejected' && styles.activeTabText]}>
+                Rejected
+              </Text>
+              {tabCounts.rejected > 0 && (
+                <View style={[styles.tabBadge, styles.rejectedBadge]}>
+                  <Text style={styles.tabBadgeText}>{tabCounts.rejected}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          {/* Bulk Actions Bar - Only show for pending tab */}
+          {activeTab === 'pending' && tabCounts.pending > 1 && (
+            <View style={styles.headerActions}>
               <TouchableOpacity 
                 style={styles.bulkActionButton}
                 onPress={() => setShowBulkActions(!showBulkActions)}
@@ -225,11 +342,10 @@ const OfficerVerifyHours = ({ navigation }: any) => {
                 <Icon name="checklist" size={moderateScale(20)} color={Colors.solidBlue} />
                 <Text style={styles.bulkActionText}>Bulk Actions</Text>
               </TouchableOpacity>
-            )}
-          </View>
+            </View>
+          )}
 
-          {/* Bulk Actions Bar */}
-          {showBulkActions && (
+          {showBulkActions && activeTab === 'pending' && (
             <View style={styles.bulkActionsBar}>
               <Text style={styles.bulkActionsText}>
                 {selectedRequests.size} selected
@@ -257,213 +373,62 @@ const OfficerVerifyHours = ({ navigation }: any) => {
             </View>
           )}
 
-          {/* Loading State */}
-          {approvalsLoading ? (
-            <LoadingSkeleton height={verticalScale(400)} />
-          ) : approvalsError ? (
-            <EmptyState
-              icon="error"
-              title="Error Loading Approvals"
-              description="Failed to load pending volunteer hours. Please try again."
-              actionText="Retry"
-              onActionPress={refetchApprovals}
-            />
-          ) : pendingCount === 0 ? (
-            <EmptyState
-              icon="check-circle"
-              title="All Caught Up!"
-              description="No volunteer hours pending approval at this time."
-            />
-          ) : currentRequest ? (
-            <View style={styles.requestCard}>
-              {/* Selection Checkbox for Bulk Actions */}
-              {showBulkActions && (
-                <TouchableOpacity 
-                  style={styles.selectionCheckbox}
-                  onPress={() => toggleRequestSelection(currentRequest.id)}
-                >
-                  <Icon 
-                    name={selectedRequests.has(currentRequest.id) ? "check-box" : "check-box-outline-blank"} 
-                    size={moderateScale(24)} 
-                    color={selectedRequests.has(currentRequest.id) ? Colors.solidBlue : Colors.textMedium} 
-                  />
-                </TouchableOpacity>
-              )}
+          {/* Rejection Input Modal */}
+          {renderRejectionInput()}
 
-              {/* Member Header */}
-              <View style={styles.memberHeader}>
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>
-                    {getMemberInitials(currentRequest.member_name)}
-                  </Text>
-                </View>
-                <View style={styles.memberInfo}>
-                  <Text style={styles.memberName}>{currentRequest.member_name || 'Unknown Member'}</Text>
-                  <Text style={styles.submittedTime}>
-                    Submitted {formatSubmittedTime(currentRequest.submitted_at)}
-                  </Text>
-                </View>
-                <View style={styles.pendingTag}>
-                  <Text style={styles.pendingTagText}>Pending</Text>
-                </View>
-              </View>
-
-              {/* Divider */}
-              <View style={styles.divider} />
-
-              {/* Event Details */}
-              <View style={styles.detailsSection}>
-                {/* Event Information (if associated with an organization event) */}
-                {currentRequest.event_name && (
-                  <View style={styles.eventInfoSection}>
-                    <View style={styles.eventInfoHeader}>
-                      <Icon name="event" size={moderateScale(16)} color={Colors.solidBlue} />
-                      <Text style={styles.eventInfoLabel}>Organization Event</Text>
-                    </View>
-                    <Text style={styles.eventInfoValue}>{currentRequest.event_name}</Text>
-                  </View>
-                )}
-
-                <View style={styles.detailRow}>
-                  <View style={styles.detailColumn}>
-                    <Text style={styles.detailLabel}>Activity</Text>
-                    <Text style={styles.detailValue}>
-                      {currentRequest.description || 'Volunteer Work'}
-                    </Text>
-                  </View>
-                  <View style={styles.detailColumn}>
-                    <Text style={styles.detailLabel}>Hours</Text>
-                    <Text style={styles.detailValue}>{currentRequest.hours} hours</Text>
-                  </View>
-                </View>
-
-                <View style={styles.detailRow}>
-                  <View style={styles.detailColumn}>
-                    <Text style={styles.detailLabel}>Date</Text>
-                    <Text style={styles.detailValue}>
-                      {currentRequest.activity_date ? formatDate(currentRequest.activity_date) : 'No date provided'}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* Notes Section */}
-              <View style={styles.notesSection}>
-                <Text style={styles.detailLabel}>Description</Text>
-                <Text style={styles.notesText}>
-                  {currentRequest.description || 'No description provided'}
-                </Text>
-              </View>
-
-              {/* Proof of Service Section */}
-              <View style={styles.proofSection}>
-                <Text style={styles.detailLabel}>Proof of Service</Text>
-                {currentRequest.attachment_file_id ? (
-                  <TouchableOpacity style={styles.proofImageContainer}>
-                    <View style={styles.proofPlaceholder}>
-                      <Icon name="attachment" size={moderateScale(24)} color={Colors.textMedium} />
-                      <Text style={styles.proofText}>Attachment provided</Text>
-                    </View>
-                  </TouchableOpacity>
-                ) : (
-                  <View style={styles.noProofContainer}>
-                    <Icon name="image" size={moderateScale(24)} color={Colors.textLight} />
-                    <Text style={styles.noProofText}>No proof image provided</Text>
-                  </View>
-                )}
-              </View>
-
-              {/* Rejection Reason Input */}
-              {showRejectionInput && (
-                <View style={styles.rejectionInputContainer}>
-                  <Text style={styles.rejectionInputLabel}>Reason for Rejection (max 50 words)</Text>
-                  <TextInput
-                    style={styles.rejectionInput}
-                    placeholder="Explain why these hours are being rejected..."
-                    placeholderTextColor={Colors.textLight}
-                    value={rejectionReason}
-                    onChangeText={setRejectionReason}
-                    multiline
-                    numberOfLines={3}
-                    textAlignVertical="top"
-                    maxLength={300} // Approximately 50 words
-                  />
-                  <Text style={styles.wordCount}>
-                    {rejectionReason.split(/\s+/).filter(word => word.length > 0).length}/50 words
-                  </Text>
-                </View>
-              )}
-
-              {/* Action Buttons */}
-              <View style={styles.actionButtons}>
-                <TouchableOpacity 
-                  style={[styles.actionButton, styles.verifyButton]}
-                  onPress={handleVerify}
-                  disabled={approveHoursMutation.isPending}
-                >
-                  <Icon name="check" size={moderateScale(20)} color={Colors.white} />
-                  <Text style={styles.verifyButtonText}>
-                    {approveHoursMutation.isPending ? 'Approving...' : 'Verify'}
-                  </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={[styles.actionButton, styles.rejectButton]}
-                  onPress={handleReject}
-                  disabled={rejectHoursMutation.isPending}
-                >
-                  <Icon name="close" size={moderateScale(20)} color={Colors.white} />
-                  <Text style={styles.rejectButtonText}>
-                    {rejectHoursMutation.isPending ? 'Rejecting...' : 
-                     showRejectionInput ? 'Confirm Reject' : 'Reject'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Request Counter */}
-              <View style={styles.requestCounter}>
-                <Text style={styles.requestCounterText}>
-                  Request {currentRequestIndex + 1} of {pendingCount}
-                </Text>
-                {pendingCount > 1 && (
-                  <View style={styles.navigationButtons}>
-                    <TouchableOpacity 
-                      style={styles.navButton}
-                      onPress={() => setCurrentRequestIndex(Math.max(0, currentRequestIndex - 1))}
-                      disabled={currentRequestIndex === 0}
-                    >
-                      <Icon name="chevron-left" size={moderateScale(20)} color={Colors.textMedium} />
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={styles.navButton}
-                      onPress={() => setCurrentRequestIndex(Math.min(pendingCount - 1, currentRequestIndex + 1))}
-                      disabled={currentRequestIndex === pendingCount - 1}
-                    >
-                      <Icon name="chevron-right" size={moderateScale(20)} color={Colors.textMedium} />
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            </View>
-          ) : null}
-
-          {/* Bottom Spacer */}
-          <View style={styles.bottomSpacer} />
-        </ScrollView>
-
-        {/* Navigation is handled by the main OfficerBottomNavigator */}
+          {/* Content */}
+          <View style={styles.content}>
+            {currentTabLoading ? (
+              <LoadingSkeleton height={verticalScale(400)} />
+            ) : currentTabError ? (
+              <EmptyState
+                icon="error"
+                title="Error Loading Data"
+                description={`Failed to load ${activeTab} volunteer hours. Please try again.`}
+                actionText="Retry"
+                onActionPress={handleRefresh}
+              />
+            ) : currentTabData.length === 0 ? (
+              <EmptyState
+                icon={activeTab === 'pending' ? "check-circle" : activeTab === 'verified' ? "verified" : "cancel"}
+                title={
+                  activeTab === 'pending' ? "All Caught Up!" :
+                  activeTab === 'verified' ? "No Verified Hours" :
+                  "No Rejected Hours"
+                }
+                description={
+                  activeTab === 'pending' ? "No volunteer hours pending approval at this time." :
+                  activeTab === 'verified' ? "No volunteer hours have been verified yet." :
+                  "No volunteer hours have been rejected."
+                }
+              />
+            ) : (
+              <FlatList
+                data={currentTabData}
+                renderItem={renderRequestItem}
+                keyExtractor={(item) => item.id}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.listContainer}
+              />
+            )}
+          </View>
+        </View>
       </SafeAreaView>
     </LinearGradient>
   );
 };
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    paddingHorizontal: scale(16),
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginTop: verticalScale(16),
-    marginBottom: verticalScale(16),
+    marginBottom: verticalScale(20),
   },
   headerLeft: {
     flex: 1,
@@ -478,217 +443,63 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(16),
     color: Colors.textMedium,
   },
-  pendingBadge: {
-    backgroundColor: Colors.pendingYellow,
-    paddingHorizontal: scale(16),
-    paddingVertical: verticalScale(8),
-    borderRadius: moderateScale(16),
-    alignSelf: 'flex-start',
-    marginBottom: verticalScale(20),
-  },
-  pendingBadgeText: {
-    fontSize: moderateScale(14),
-    fontWeight: '600',
-    color: Colors.white,
-  },
-  requestCard: {
+  tabContainer: {
+    flexDirection: 'row',
     backgroundColor: Colors.cardBackground,
     borderRadius: moderateScale(12),
-    padding: scale(20),
+    padding: scale(4),
+    marginBottom: verticalScale(16),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: verticalScale(2) },
     shadowOpacity: 0.1,
     shadowRadius: moderateScale(8),
     elevation: 4,
   },
-  memberHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: verticalScale(16),
-  },
-  avatar: {
-    width: scale(44),
-    height: scale(44),
-    borderRadius: moderateScale(22),
-    backgroundColor: Colors.avatarBackground,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: scale(12),
-  },
-  avatarText: {
-    fontSize: moderateScale(16),
-    fontWeight: 'bold',
-    color: Colors.white,
-  },
-  memberInfo: {
-    flex: 1,
-  },
-  memberName: {
-    fontSize: moderateScale(18),
-    fontWeight: 'bold',
-    color: Colors.textDark,
-    marginBottom: verticalScale(2),
-  },
-  submittedTime: {
-    fontSize: moderateScale(14),
-    color: Colors.textLight,
-  },
-  pendingTag: {
-    backgroundColor: Colors.lightBlue,
-    paddingHorizontal: scale(12),
-    paddingVertical: verticalScale(6),
-    borderRadius: moderateScale(12),
-  },
-  pendingTagText: {
-    fontSize: moderateScale(12),
-    fontWeight: '600',
-    color: Colors.solidBlue,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: Colors.dividerColor,
-    marginVertical: verticalScale(16),
-  },
-  detailsSection: {
-    marginBottom: verticalScale(20),
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: verticalScale(16),
-  },
-  detailColumn: {
-    flex: 1,
-  },
-  detailLabel: {
-    fontSize: moderateScale(14),
-    fontWeight: '600',
-    color: Colors.solidBlue,
-    marginBottom: verticalScale(4),
-  },
-  detailValue: {
-    fontSize: moderateScale(16),
-    fontWeight: '600',
-    color: Colors.textDark,
-    marginBottom: verticalScale(2),
-  },
-  detailSubValue: {
-    fontSize: moderateScale(14),
-    color: Colors.textMedium,
-  },
-  notesSection: {
-    marginBottom: verticalScale(20),
-  },
-  notesText: {
-    fontSize: moderateScale(14),
-    color: Colors.textDark,
-    lineHeight: moderateScale(20),
-    marginTop: verticalScale(4),
-  },
-  proofSection: {
-    marginBottom: verticalScale(20),
-  },
-  proofImageContainer: {
-    height: verticalScale(200),
-    borderRadius: moderateScale(8),
-    backgroundColor: Colors.inputBackground,
-    marginTop: verticalScale(8),
-    overflow: 'hidden',
-  },
-  proofImage: {
-    width: '100%',
-    height: '100%',
-  },
-  noProofContainer: {
-    height: verticalScale(100),
-    borderRadius: moderateScale(8),
-    backgroundColor: Colors.inputBackground,
-    marginTop: verticalScale(8),
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.dividerColor,
-    borderStyle: 'dashed',
-  },
-  noProofText: {
-    fontSize: moderateScale(14),
-    color: Colors.textLight,
-    marginTop: verticalScale(8),
-  },
-  rejectionInputContainer: {
-    marginBottom: verticalScale(20),
-  },
-  rejectionInputLabel: {
-    fontSize: moderateScale(14),
-    fontWeight: '600',
-    color: Colors.errorRed,
-    marginBottom: verticalScale(8),
-  },
-  rejectionInput: {
-    borderWidth: 1,
-    borderColor: Colors.errorRed,
-    borderRadius: moderateScale(8),
-    backgroundColor: Colors.inputBackground,
-    paddingHorizontal: scale(16),
-    paddingVertical: scale(12),
-    fontSize: moderateScale(14),
-    color: Colors.textDark,
-    minHeight: verticalScale(80),
-    textAlignVertical: 'top',
-  },
-  wordCount: {
-    fontSize: moderateScale(12),
-    color: Colors.textLight,
-    textAlign: 'right',
-    marginTop: verticalScale(4),
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: verticalScale(16),
-  },
-  actionButton: {
+  tab: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(16),
     borderRadius: moderateScale(8),
-    marginHorizontal: scale(6),
   },
-  verifyButton: {
-    backgroundColor: Colors.successGreen,
-    shadowColor: Colors.successGreen,
-    shadowOffset: { width: 0, height: verticalScale(2) },
-    shadowOpacity: 0.2,
-    shadowRadius: moderateScale(4),
-    elevation: 3,
+  activeTab: {
+    backgroundColor: Colors.solidBlue,
   },
-  rejectButton: {
-    backgroundColor: Colors.errorRed,
-    shadowColor: Colors.errorRed,
-    shadowOffset: { width: 0, height: verticalScale(2) },
-    shadowOpacity: 0.2,
-    shadowRadius: moderateScale(4),
-    elevation: 3,
-  },
-  verifyButtonText: {
-    color: Colors.white,
+  tabText: {
     fontSize: moderateScale(16),
     fontWeight: '600',
-    marginLeft: scale(8),
+    color: Colors.textMedium,
   },
-  rejectButtonText: {
+  activeTabText: {
     color: Colors.white,
-    fontSize: moderateScale(16),
-    fontWeight: '600',
-    marginLeft: scale(8),
+  },
+  tabBadge: {
+    backgroundColor: Colors.pendingYellow,
+    borderRadius: moderateScale(10),
+    paddingHorizontal: scale(6),
+    paddingVertical: verticalScale(2),
+    marginLeft: scale(6),
+    minWidth: scale(20),
+    alignItems: 'center',
+  },
+  verifiedBadge: {
+    backgroundColor: Colors.verifiedGreen,
+  },
+  rejectedBadge: {
+    backgroundColor: Colors.rejectedRed,
+  },
+  tabBadgeText: {
+    fontSize: moderateScale(12),
+    fontWeight: 'bold',
+    color: Colors.white,
   },
   headerActions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    marginBottom: verticalScale(20),
+    marginBottom: verticalScale(16),
   },
   bulkActionButton: {
     flexDirection: 'row',
@@ -739,7 +550,7 @@ const styles = StyleSheet.create({
     color: Colors.white,
   },
   bulkCancelButton: {
-    backgroundColor: Colors.lightGray,
+    backgroundColor: '#F7FAFC',
     paddingHorizontal: scale(16),
     paddingVertical: verticalScale(8),
     borderRadius: moderateScale(8),
@@ -749,68 +560,78 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.textMedium,
   },
-  selectionCheckbox: {
+  rejectionInputContainer: {
     position: 'absolute',
-    top: scale(16),
-    right: scale(16),
-    zIndex: 1,
-  },
-  proofPlaceholder: {
-    height: verticalScale(100),
-    borderRadius: moderateScale(8),
-    backgroundColor: Colors.inputBackground,
-    marginTop: verticalScale(8),
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    zIndex: 1000,
+    paddingHorizontal: scale(20),
+  },
+  rejectionInputLabel: {
+    fontSize: moderateScale(16),
+    fontWeight: '600',
+    color: Colors.textDark,
+    marginBottom: verticalScale(12),
+    textAlign: 'center',
+  },
+  rejectionInput: {
+    backgroundColor: Colors.white,
+    borderRadius: moderateScale(12),
+    padding: scale(16),
+    fontSize: moderateScale(14),
+    color: Colors.textDark,
+    minHeight: verticalScale(120),
+    textAlignVertical: 'top',
+    width: '100%',
     borderWidth: 1,
     borderColor: Colors.dividerColor,
   },
-  proofText: {
-    fontSize: moderateScale(14),
-    color: Colors.textMedium,
-    marginTop: verticalScale(8),
-  },
-  requestCounter: {
-    alignItems: 'center',
-  },
-  requestCounterText: {
-    fontSize: moderateScale(14),
-    color: Colors.textLight,
-    marginBottom: verticalScale(8),
-  },
-  navigationButtons: {
-    flexDirection: 'row',
-    gap: scale(8),
-  },
-  navButton: {
-    padding: scale(8),
-    borderRadius: moderateScale(20),
-    backgroundColor: Colors.lightGray,
-  },
-  bottomSpacer: {
-    height: verticalScale(100),
-  },
-  eventInfoSection: {
-    backgroundColor: Colors.lightBlue,
-    borderRadius: moderateScale(8),
-    padding: scale(12),
-    marginBottom: verticalScale(12),
-  },
-  eventInfoHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: verticalScale(4),
-  },
-  eventInfoLabel: {
+  wordCount: {
     fontSize: moderateScale(12),
-    fontWeight: '600',
-    color: Colors.solidBlue,
-    marginLeft: scale(6),
+    color: Colors.textLight,
+    textAlign: 'right',
+    marginTop: verticalScale(8),
+    marginBottom: verticalScale(16),
   },
-  eventInfoValue: {
-    fontSize: moderateScale(14),
-    color: Colors.textDark,
-    fontWeight: '500',
+  rejectionInputButtons: {
+    flexDirection: 'row',
+    gap: scale(12),
+    width: '100%',
+  },
+  rejectionCancelButton: {
+    flex: 1,
+    backgroundColor: '#F7FAFC',
+    paddingVertical: verticalScale(12),
+    borderRadius: moderateScale(8),
+    alignItems: 'center',
+  },
+  rejectionCancelButtonText: {
+    fontSize: moderateScale(16),
+    fontWeight: '600',
+    color: Colors.textMedium,
+  },
+  rejectionConfirmButton: {
+    flex: 1,
+    backgroundColor: Colors.errorRed,
+    paddingVertical: verticalScale(12),
+    borderRadius: moderateScale(8),
+    alignItems: 'center',
+  },
+  rejectionConfirmButtonText: {
+    fontSize: moderateScale(16),
+    fontWeight: '600',
+    color: Colors.white,
+  },
+  content: {
+    flex: 1,
+  },
+  listContainer: {
+    paddingBottom: verticalScale(20),
   },
 });
 

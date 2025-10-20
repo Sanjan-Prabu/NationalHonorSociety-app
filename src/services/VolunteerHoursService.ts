@@ -41,8 +41,8 @@ export class VolunteerHoursService extends BaseDataService {
         .from(DATABASE_TABLES.VOLUNTEER_HOURS)
         .select(`
           *,
-          member:profiles!volunteer_hours_member_id_fkey(first_name, last_name, display_name),
-          approver:profiles!volunteer_hours_approved_by_fkey(first_name, last_name, display_name),
+          member:profiles!volunteer_hours_member_id_profiles_fkey(first_name, last_name, display_name),
+          approver:profiles!volunteer_hours_verified_by_fkey(first_name, last_name, display_name),
           event:events(id, title, event_date, starts_at)
         `)
         .eq('member_id', targetUserId)
@@ -72,7 +72,7 @@ export class VolunteerHoursService extends BaseDataService {
 
       if (result.success && result.data) {
         // Transform database volunteer hours to VolunteerHourData format
-        const transformedHours = result.data.map((hour: any) => 
+        const transformedHours = (result.data as any[]).map((hour: any) => 
           this.transformVolunteerHourData(hour, targetUserId)
         );
 
@@ -83,7 +83,11 @@ export class VolunteerHoursService extends BaseDataService {
         };
       }
 
-      return result;
+      return {
+        data: null,
+        error: result.error || 'Failed to get user volunteer hours',
+        success: false,
+      };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.log('error', 'Failed to get user volunteer hours', { userId, filters, error: errorMessage });
@@ -129,7 +133,7 @@ export class VolunteerHoursService extends BaseDataService {
           .insert(newVolunteerHour)
           .select(`
             *,
-            member:profiles!volunteer_hours_member_id_fkey(first_name, last_name, display_name),
+            member:profiles!volunteer_hours_member_id_profiles_fkey(first_name, last_name, display_name),
             event:events(id, title, event_date, starts_at)
           `)
           .single(),
@@ -137,7 +141,7 @@ export class VolunteerHoursService extends BaseDataService {
       );
 
       if (result.success && result.data) {
-        const transformedHour = this.transformVolunteerHourData(result.data, userId);
+        const transformedHour = this.transformVolunteerHourData(result.data as any, userId);
         
         this.log('info', 'Volunteer hours submitted successfully', { 
           hourId: transformedHour.id, 
@@ -153,7 +157,11 @@ export class VolunteerHoursService extends BaseDataService {
         };
       }
 
-      return result;
+      return {
+        data: null,
+        error: result.error || 'Failed to submit volunteer hours',
+        success: false,
+      };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.log('error', 'Failed to submit volunteer hours', { hourData, error: errorMessage });
@@ -218,8 +226,8 @@ export class VolunteerHoursService extends BaseDataService {
           .eq('id', hourId)
           .select(`
             *,
-            member:profiles!volunteer_hours_member_id_fkey(first_name, last_name, display_name),
-            approver:profiles!volunteer_hours_approved_by_fkey(first_name, last_name, display_name),
+            member:profiles!volunteer_hours_member_id_profiles_fkey(first_name, last_name, display_name),
+            approver:profiles!volunteer_hours_verified_by_fkey(first_name, last_name, display_name),
             event:events(id, title, event_date, starts_at)
           `)
           .single(),
@@ -227,7 +235,7 @@ export class VolunteerHoursService extends BaseDataService {
       );
 
       if (result.success && result.data) {
-        const transformedHour = this.transformVolunteerHourData(result.data, userId);
+        const transformedHour = this.transformVolunteerHourData(result.data as any, userId);
         
         this.log('info', 'Volunteer hours updated successfully', { 
           hourId, 
@@ -241,7 +249,11 @@ export class VolunteerHoursService extends BaseDataService {
         };
       }
 
-      return result;
+      return {
+        data: null,
+        error: result.error || 'Failed to update volunteer hours',
+        success: false,
+      };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.log('error', 'Failed to update volunteer hours', { hourId, updates, error: errorMessage });
@@ -345,6 +357,192 @@ export class VolunteerHoursService extends BaseDataService {
   }
 
   /**
+   * Gets verified volunteer hours for officer review
+   * Requirements: 2.2, 2.3
+   */
+  async getVerifiedApprovals(orgId?: UUID): Promise<ApiResponse<VolunteerHourData[]>> {
+    try {
+      const userId = await this.getCurrentUserId();
+      const organizationId = orgId || await this.getCurrentOrganizationId();
+
+      // Verify user has officer permissions
+      const hasPermissions = await this.hasOfficerPermissions(userId, organizationId);
+      if (!hasPermissions) {
+        return {
+          data: null,
+          error: 'Permission denied: Officer access required',
+          success: false,
+        };
+      }
+
+      // Get verified volunteer hours with event information
+      const { data: volunteerHours, error: hoursError } = await supabase
+        .from(DATABASE_TABLES.VOLUNTEER_HOURS)
+        .select(`
+          *,
+          event:events(id, title, event_date, starts_at)
+        `)
+        .eq('org_id', organizationId)
+        .eq('status', 'verified')
+        .order('verified_at', { ascending: false });
+
+      if (hoursError) {
+        throw new Error(hoursError.message);
+      }
+
+      if (!volunteerHours || volunteerHours.length === 0) {
+        return {
+          data: [],
+          error: null,
+          success: true,
+        };
+      }
+
+      // Get member and approver profiles
+      const memberIds = [...new Set(volunteerHours.map((h: any) => h.member_id))];
+      const approverIds = [...new Set(volunteerHours.map((h: any) => h.verified_by).filter(Boolean))];
+      const allProfileIds = [...new Set([...memberIds, ...approverIds])];
+
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name, display_name, student_id')
+        .in('id', allProfileIds);
+
+      if (profilesError) {
+        // Profile fetch failed - continue without profiles
+      }
+
+      // Create a map of profiles for easy lookup
+      const profileMap = new Map();
+      (profiles || []).forEach((profile: any) => {
+        profileMap.set(profile.id, profile);
+      });
+
+      // Combine volunteer hours with profile data
+      const combinedData = volunteerHours.map((hour: any) => ({
+        ...hour,
+        member: profileMap.get(hour.member_id) || null,
+        approver: profileMap.get(hour.verified_by) || null
+      }));
+
+      // Transform verified hours data
+      const transformedHours = combinedData.map((hour: any) => 
+        this.transformVolunteerHourData(hour, hour.member_id)
+      );
+
+      this.log('info', 'Successfully retrieved verified approvals', { 
+        count: transformedHours.length,
+        orgId: organizationId 
+      });
+
+      return {
+        data: transformedHours,
+        error: null,
+        success: true,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.log('error', 'Failed to get verified approvals', { orgId, error: errorMessage });
+      return {
+        data: null,
+        error: errorMessage,
+        success: false,
+      };
+    }
+  }
+
+  /**
+   * Gets rejected volunteer hours for officer review
+   * Requirements: 2.2, 2.4
+   */
+  async getRejectedApprovals(orgId?: UUID): Promise<ApiResponse<VolunteerHourData[]>> {
+    try {
+      const userId = await this.getCurrentUserId();
+      const organizationId = orgId || await this.getCurrentOrganizationId();
+
+      // Verify user has officer permissions
+      const hasPermissions = await this.hasOfficerPermissions(userId, organizationId);
+      if (!hasPermissions) {
+        return {
+          data: null,
+          error: 'Permission denied: Officer access required',
+          success: false,
+        };
+      }
+
+      // Get rejected volunteer hours with event information
+      const { data: volunteerHours, error: hoursError } = await supabase
+        .from(DATABASE_TABLES.VOLUNTEER_HOURS)
+        .select(`
+          *,
+          event:events(id, title, event_date, starts_at)
+        `)
+        .eq('org_id', organizationId)
+        .eq('status', 'rejected')
+        .order('updated_at', { ascending: false });
+
+      if (hoursError) {
+        throw new Error(hoursError.message);
+      }
+
+      if (!volunteerHours || volunteerHours.length === 0) {
+        return {
+          data: [],
+          error: null,
+          success: true,
+        };
+      }
+
+      // Get member profiles
+      const memberIds = [...new Set(volunteerHours.map((h: any) => h.member_id))];
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, first_name, last_name, display_name, student_id')
+        .in('id', memberIds);
+
+      if (profilesError) {
+        // Profile fetch failed - continue without profiles
+      }
+
+      // Create a map of profiles for easy lookup
+      const profileMap = new Map();
+      (profiles || []).forEach((profile: any) => {
+        profileMap.set(profile.id, profile);
+      });
+
+      // Combine volunteer hours with profile data
+      const combinedData = volunteerHours.map((hour: any) => ({
+        ...hour,
+        member: profileMap.get(hour.member_id) || null
+      }));
+
+      // Transform rejected hours data
+      const transformedHours = combinedData.map((hour: any) => 
+        this.transformVolunteerHourData(hour, hour.member_id)
+      );
+
+      this.log('info', 'Successfully retrieved rejected approvals', { 
+        count: transformedHours.length,
+        orgId: organizationId 
+      });
+
+      return {
+        data: transformedHours,
+        error: null,
+        success: true,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.log('error', 'Failed to get rejected approvals', { orgId, error: errorMessage });
+      return {
+        data: null,
+        error: errorMessage,
+        success: false,
+      };
+    }
+  }
+
+  /**
    * Approves volunteer hours (officer only)
    * Requirements: 3.2, 5.2
    */
@@ -384,8 +582,11 @@ export class VolunteerHoursService extends BaseDataService {
       // Approve the volunteer hours
       const approvalData = {
         approved: true,
+        status: 'verified',
         approved_by: userId,
         approved_at: new Date().toISOString(),
+        verified_by: userId,
+        verified_at: new Date().toISOString(),
       };
 
       const result = await this.executeMutation(
@@ -395,8 +596,8 @@ export class VolunteerHoursService extends BaseDataService {
           .eq('id', hourId)
           .select(`
             *,
-            member:profiles!volunteer_hours_member_id_fkey(first_name, last_name, display_name),
-            approver:profiles!volunteer_hours_approved_by_fkey(first_name, last_name, display_name),
+            member:profiles!volunteer_hours_member_id_profiles_fkey(first_name, last_name, display_name),
+            approver:profiles!volunteer_hours_verified_by_fkey(first_name, last_name, display_name),
             event:events(id, title, event_date, starts_at)
           `)
           .single(),
@@ -404,13 +605,14 @@ export class VolunteerHoursService extends BaseDataService {
       );
 
       if (result.success && result.data) {
-        const transformedHour = this.transformVolunteerHourData(result.data, result.data.member_id);
+        const hourData = result.data as any;
+        const transformedHour = this.transformVolunteerHourData(hourData, hourData.member_id);
         
         this.log('info', 'Volunteer hours approved successfully', { 
           hourId, 
           approvedBy: userId,
-          memberId: result.data.member_id,
-          hours: result.data.hours
+          memberId: hourData.member_id,
+          hours: hourData.hours
         });
 
         return {
@@ -420,7 +622,11 @@ export class VolunteerHoursService extends BaseDataService {
         };
       }
 
-      return result;
+      return {
+        data: null,
+        error: result.error || 'Failed to approve volunteer hours',
+        success: false,
+      };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.log('error', 'Failed to approve volunteer hours', { hourId, error: errorMessage });
@@ -436,7 +642,7 @@ export class VolunteerHoursService extends BaseDataService {
    * Rejects volunteer hours (officer only)
    * Requirements: 3.2, 5.2
    */
-  async rejectVolunteerHours(hourId: UUID, reason?: string): Promise<ApiResponse<boolean>> {
+  async rejectVolunteerHours(hourId: UUID, reason?: string): Promise<ApiResponse<VolunteerHourData>> {
     try {
       const userId = await this.getCurrentUserId();
 
@@ -444,7 +650,7 @@ export class VolunteerHoursService extends BaseDataService {
       const existingHour = await this.getVolunteerHourById(hourId);
       if (!existingHour.success || !existingHour.data) {
         return {
-          data: false,
+          data: null,
           error: 'Volunteer hour record not found',
           success: false,
         };
@@ -454,26 +660,119 @@ export class VolunteerHoursService extends BaseDataService {
       const hasOfficerPermissions = await this.hasOfficerPermissions(userId, existingHour.data.org_id);
       if (!hasOfficerPermissions) {
         return {
-          data: false,
+          data: null,
           error: 'Permission denied: Officer access required',
           success: false,
         };
       }
 
-      // Delete the volunteer hour record (rejection)
+      // Update the volunteer hour record with rejection status and reason
+      const rejectionData = {
+        status: 'rejected',
+        rejection_reason: reason || 'No reason provided',
+        verified_by: userId,
+        verified_at: new Date().toISOString(),
+      };
+
+      const result = await this.executeMutation(
+        supabase
+          .from(DATABASE_TABLES.VOLUNTEER_HOURS)
+          .update(rejectionData)
+          .eq('id', hourId)
+          .select(`
+            *,
+            member:profiles!volunteer_hours_member_id_profiles_fkey(first_name, last_name, display_name),
+            approver:profiles!volunteer_hours_verified_by_fkey(first_name, last_name, display_name),
+            event:events(id, title, event_date, starts_at)
+          `)
+          .single(),
+        'rejectVolunteerHours'
+      );
+
+      if (result.success && result.data) {
+        const hourData = result.data as any;
+        const transformedHour = this.transformVolunteerHourData(hourData, hourData.member_id);
+        
+        this.log('info', 'Volunteer hours rejected successfully', { 
+          hourId, 
+          rejectedBy: userId,
+          reason,
+          memberId: hourData.member_id
+        });
+
+        return {
+          data: transformedHour,
+          error: null,
+          success: true,
+        };
+      }
+
+      return {
+        data: null,
+        error: result.error || 'Failed to reject volunteer hours',
+        success: false,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.log('error', 'Failed to reject volunteer hours', { hourId, reason, error: errorMessage });
+      return {
+        data: null,
+        error: errorMessage,
+        success: false,
+      };
+    }
+  }
+
+  /**
+   * Deletes volunteer hours (member can delete their own pending/rejected requests)
+   * Requirements: 4.1, 4.2
+   */
+  async deleteVolunteerHours(hourId: UUID): Promise<ApiResponse<boolean>> {
+    try {
+      const userId = await this.getCurrentUserId();
+
+      // Get the volunteer hour record to check ownership and status
+      const existingHour = await this.getVolunteerHourById(hourId);
+      if (!existingHour.success || !existingHour.data) {
+        return {
+          data: false,
+          error: 'Volunteer hour record not found',
+          success: false,
+        };
+      }
+
+      // Check if user owns this record
+      if (existingHour.data.member_id !== userId) {
+        return {
+          data: false,
+          error: 'Permission denied: Cannot delete this volunteer hour record',
+          success: false,
+        };
+      }
+
+      // Check if record can be deleted (not approved)
+      if (existingHour.data.approved) {
+        return {
+          data: false,
+          error: 'Cannot delete approved volunteer hours',
+          success: false,
+        };
+      }
+
+      // Delete the volunteer hour record
       const result = await this.executeMutation(
         supabase
           .from(DATABASE_TABLES.VOLUNTEER_HOURS)
           .delete()
           .eq('id', hourId),
-        'rejectVolunteerHours'
+        'deleteVolunteerHours'
       );
 
       if (result.success) {
-        this.log('info', 'Volunteer hours rejected successfully', { 
+        this.log('info', 'Volunteer hours deleted successfully', { 
           hourId, 
-          rejectedBy: userId,
-          reason 
+          deletedBy: userId,
+          hours: existingHour.data.hours
         });
 
         return {
@@ -485,12 +784,12 @@ export class VolunteerHoursService extends BaseDataService {
 
       return {
         data: false,
-        error: result.error || 'Failed to reject volunteer hours',
+        error: result.error || 'Failed to delete volunteer hours',
         success: false,
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.log('error', 'Failed to reject volunteer hours', { hourId, reason, error: errorMessage });
+      this.log('error', 'Failed to delete volunteer hours', { hourId, error: errorMessage });
       return {
         data: false,
         error: errorMessage,
@@ -550,7 +849,7 @@ export class VolunteerHoursService extends BaseDataService {
         .select(`
           member_id,
           hours,
-          member:profiles!volunteer_hours_member_id_fkey(first_name, last_name, display_name)
+          member:profiles!volunteer_hours_member_id_profiles_fkey(first_name, last_name, display_name)
         `)
         .eq('org_id', organizationId)
         .eq('approved', true);
@@ -614,8 +913,8 @@ export class VolunteerHoursService extends BaseDataService {
         .from(DATABASE_TABLES.VOLUNTEER_HOURS)
         .select(`
           *,
-          member:profiles!volunteer_hours_member_id_fkey(first_name, last_name, display_name),
-          approver:profiles!volunteer_hours_approved_by_fkey(first_name, last_name, display_name),
+          member:profiles!volunteer_hours_member_id_profiles_fkey(first_name, last_name, display_name),
+          approver:profiles!volunteer_hours_verified_by_fkey(first_name, last_name, display_name),
           event:events(id, title, event_date, starts_at)
         `)
         .eq('id', hourId)
@@ -624,7 +923,8 @@ export class VolunteerHoursService extends BaseDataService {
       const result = await this.executeQuery(query, 'getVolunteerHourById');
 
       if (result.success && result.data) {
-        const transformedHour = this.transformVolunteerHourData(result.data, result.data.member_id);
+        const hourData = result.data as any;
+        const transformedHour = this.transformVolunteerHourData(hourData, hourData.member_id);
         return {
           data: transformedHour,
           error: null,
@@ -632,7 +932,11 @@ export class VolunteerHoursService extends BaseDataService {
         };
       }
 
-      return result;
+      return {
+        data: null,
+        error: result.error || 'Failed to get volunteer hour by ID',
+        success: false,
+      };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return {
@@ -660,11 +964,15 @@ export class VolunteerHoursService extends BaseDataService {
       approved_at: hour.approved_at,
       attachment_file_id: hour.attachment_file_id,
       event_id: hour.event_id,
+      // Verification fields
+      status: hour.status || (hour.approved ? 'verified' : 'pending'),
+      rejection_reason: hour.rejection_reason,
+      verified_by: hour.verified_by,
+      verified_at: hour.verified_at,
       // Computed fields
       member_name: hour.member ? this.buildDisplayName(hour.member) : undefined,
       approver_name: hour.approver ? this.buildDisplayName(hour.approver) : undefined,
       event_name: hour.event ? hour.event.title : undefined,
-      status: hour.approved ? 'approved' : 'pending',
       can_edit: !hour.approved && hour.member_id === currentUserId,
     };
 

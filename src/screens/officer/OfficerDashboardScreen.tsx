@@ -9,7 +9,7 @@ import ProfileButton from 'components/ui/ProfileButton';
 import LoadingSkeleton from 'components/ui/LoadingSkeleton';
 import EmptyState from 'components/ui/EmptyState';
 import { useUserProfile, useCurrentOrganizationId } from 'hooks/useUserData';
-import { useOrganizationVolunteerStats, usePendingApprovals } from 'hooks/useVolunteerHoursData';
+import { useOrganizationVolunteerStats, usePendingApprovals, useVerificationStatistics } from 'hooks/useVolunteerHoursData';
 import { useEventStats, useUpcomingEvents } from 'hooks/useEventData';
 import { useOrganization } from 'contexts/OrganizationContext';
 import { relative } from 'path';
@@ -44,6 +44,7 @@ const OfficerDashboard = ({ navigation }: any) => {
   
   const { data: volunteerStats, isLoading: volunteerStatsLoading, refetch: refetchVolunteerStats } = useOrganizationVolunteerStats(orgId);
   const { data: pendingApprovals, isLoading: pendingApprovalsLoading, refetch: refetchPendingApprovals } = usePendingApprovals(orgId);
+  const { data: verificationStats, isLoading: verificationStatsLoading, refetch: refetchVerificationStats } = useVerificationStatistics(orgId);
   const { data: eventStats, isLoading: eventStatsLoading, refetch: refetchEventStats } = useEventStats(orgId);
   const { data: upcomingEvents, isLoading: upcomingEventsLoading, refetch: refetchUpcomingEvents } = useUpcomingEvents(orgId, 3);
 
@@ -51,14 +52,22 @@ const OfficerDashboard = ({ navigation }: any) => {
   const dashboardData = {
     firstName: userProfile?.first_name || 'Officer',
     role: userProfile?.role === 'officer' ? 
-      `${activeOrganization?.org_type || 'NHS'} Officer` : 
-      `${activeOrganization?.org_type || 'NHS'} Member`,
+      `${activeOrganization?.name || 'NHS'} Officer` : 
+      `${activeOrganization?.name || 'NHS'} Member`,
     officerType: 'Officer',
     totalMembers: volunteerStats?.totalMembers || 0,
     totalEvents: eventStats?.totalEvents || 0,
     upcomingEvents: eventStats?.upcomingEvents || 0,
     totalVolunteerHours: volunteerStats?.approvedHours || 0,
     pendingApprovals: pendingApprovals?.length || 0,
+    // Verification statistics
+    verificationStats: {
+      pendingCount: verificationStats?.pendingCount || 0,
+      verifiedCount: verificationStats?.verifiedCount || 0,
+      rejectedCount: verificationStats?.rejectedCount || 0,
+      approvalRate: verificationStats?.approvalRate || 0,
+      recentActivity: verificationStats?.recentActivity || { verified: 0, rejected: 0, total: 0 },
+    },
   };
 
   // Quick actions data - easily modifiable and extensible
@@ -122,6 +131,7 @@ const OfficerDashboard = ({ navigation }: any) => {
         refetchProfile(),
         refetchVolunteerStats(),
         refetchPendingApprovals(),
+        refetchVerificationStats(),
         refetchEventStats(),
         refetchUpcomingEvents(),
       ]);
@@ -132,7 +142,7 @@ const OfficerDashboard = ({ navigation }: any) => {
     }
   };
 
-  const isLoading = profileLoading || volunteerStatsLoading || eventStatsLoading;
+  const isLoading = profileLoading || volunteerStatsLoading || verificationStatsLoading || eventStatsLoading;
 
   // Removed handleTabPress - navigation is handled by the main navigator
 
@@ -176,7 +186,7 @@ const OfficerDashboard = ({ navigation }: any) => {
           <View style={styles.welcomeCard}>
             <Text style={styles.welcomeText}>Welcome, {dashboardData.firstName}!</Text>
             <Text style={styles.welcomeSubtext}>
-              Manage your {activeOrganization?.org_type || 'NHS'} organization and track member progress.
+              Manage your {activeOrganization?.name || 'NHS'} organization and track member progress.
             </Text>
           </View>
 
@@ -211,6 +221,42 @@ const OfficerDashboard = ({ navigation }: any) => {
                 <Text style={styles.statNumber}>{dashboardData.totalVolunteerHours}</Text>
                 <Text style={styles.statLabel}>Approved Hours</Text>
               </View>
+            </View>
+          )}
+
+          {/* Verification Statistics Section */}
+          {!isLoading && (
+            <View style={styles.sectionContainer}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Verification Overview</Text>
+                <Text style={styles.approvalRate}>
+                  {dashboardData.verificationStats.approvalRate.toFixed(1)}% approval rate
+                </Text>
+              </View>
+              
+              <View style={styles.verificationStatsContainer}>
+                <View style={[styles.verificationStatCard, { borderLeftColor: Colors.warningOrange }]}>
+                  <Text style={styles.verificationStatNumber}>{dashboardData.verificationStats.pendingCount}</Text>
+                  <Text style={styles.verificationStatLabel}>Pending</Text>
+                </View>
+                <View style={[styles.verificationStatCard, { borderLeftColor: Colors.successGreen }]}>
+                  <Text style={styles.verificationStatNumber}>{dashboardData.verificationStats.verifiedCount}</Text>
+                  <Text style={styles.verificationStatLabel}>Verified</Text>
+                </View>
+                <View style={[styles.verificationStatCard, { borderLeftColor: '#E53E3E' }]}>
+                  <Text style={styles.verificationStatNumber}>{dashboardData.verificationStats.rejectedCount}</Text>
+                  <Text style={styles.verificationStatLabel}>Rejected</Text>
+                </View>
+              </View>
+
+              {dashboardData.verificationStats.recentActivity.total > 0 && (
+                <View style={styles.recentActivityCard}>
+                  <Text style={styles.recentActivityTitle}>Recent Activity (7 days)</Text>
+                  <Text style={styles.recentActivityText}>
+                    {dashboardData.verificationStats.recentActivity.verified} verified, {dashboardData.verificationStats.recentActivity.rejected} rejected
+                  </Text>
+                </View>
+              )}
             </View>
           )}
 
@@ -485,7 +531,57 @@ const styles = StyleSheet.create({
   profileButton: {
     bottom: verticalScale(5),
     right: moderateScale(-10)
-  }
+  },
+  approvalRate: {
+    fontSize: moderateScale(14),
+    color: Colors.successGreen,
+    fontWeight: '600',
+  },
+  verificationStatsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: verticalScale(16),
+  },
+  verificationStatCard: {
+    backgroundColor: Colors.cardBackground,
+    borderRadius: moderateScale(8),
+    padding: scale(12),
+    width: '31%',
+    alignItems: 'center',
+    borderLeftWidth: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: verticalScale(1) },
+    shadowOpacity: 0.05,
+    shadowRadius: moderateScale(4),
+    elevation: 2,
+  },
+  verificationStatNumber: {
+    fontSize: moderateScale(20),
+    fontWeight: 'bold',
+    color: Colors.textDark,
+    marginBottom: verticalScale(4),
+  },
+  verificationStatLabel: {
+    fontSize: moderateScale(12),
+    color: Colors.textMedium,
+    textAlign: 'center',
+  },
+  recentActivityCard: {
+    backgroundColor: Colors.lightBlue,
+    borderRadius: moderateScale(8),
+    padding: scale(12),
+    marginTop: verticalScale(8),
+  },
+  recentActivityTitle: {
+    fontSize: moderateScale(14),
+    fontWeight: '600',
+    color: Colors.textDark,
+    marginBottom: verticalScale(4),
+  },
+  recentActivityText: {
+    fontSize: moderateScale(12),
+    color: Colors.textMedium,
+  },
 });
 
 export default withRoleProtection(OfficerDashboard, {
