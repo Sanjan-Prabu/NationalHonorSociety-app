@@ -194,7 +194,7 @@ export class VolunteerHoursService extends BaseDataService {
         };
       }
 
-      // Check if user owns this record and it's not approved yet
+      // Check if user owns this record
       if (existingHour.data.member_id !== userId) {
         return {
           data: null,
@@ -203,10 +203,11 @@ export class VolunteerHoursService extends BaseDataService {
         };
       }
 
-      if (existingHour.data.approved) {
+      // Allow updates for pending and rejected requests, but not verified ones
+      if (existingHour.data.status === 'verified') {
         return {
           data: null,
-          error: 'Cannot update approved volunteer hours',
+          error: 'Cannot update verified volunteer hours',
           success: false,
         };
       }
@@ -293,6 +294,7 @@ export class VolunteerHoursService extends BaseDataService {
         `)
         .eq('org_id', organizationId)
         .eq('approved', false)
+        .is('rejection_reason', null)
         .order('submitted_at', { ascending: true });
 
       if (hoursError) {
@@ -383,8 +385,8 @@ export class VolunteerHoursService extends BaseDataService {
           event:events(id, title, event_date, starts_at)
         `)
         .eq('org_id', organizationId)
-        .eq('status', 'verified')
-        .order('verified_at', { ascending: false });
+        .eq('approved', true)
+        .order('approved_at', { ascending: false });
 
       if (hoursError) {
         throw new Error(hoursError.message);
@@ -478,7 +480,8 @@ export class VolunteerHoursService extends BaseDataService {
           event:events(id, title, event_date, starts_at)
         `)
         .eq('org_id', organizationId)
-        .eq('status', 'rejected')
+        .eq('approved', false)
+        .not('rejection_reason', 'is', null)
         .order('updated_at', { ascending: false });
 
       if (hoursError) {
@@ -582,7 +585,7 @@ export class VolunteerHoursService extends BaseDataService {
       // Approve the volunteer hours
       const approvalData = {
         approved: true,
-        status: 'verified',
+        status: 'verified' as const,
         approved_by: userId,
         approved_at: new Date().toISOString(),
         verified_by: userId,
@@ -668,7 +671,7 @@ export class VolunteerHoursService extends BaseDataService {
 
       // Update the volunteer hour record with rejection status and reason
       const rejectionData = {
-        status: 'rejected',
+        status: 'rejected' as const,
         rejection_reason: reason || 'No reason provided',
         verified_by: userId,
         verified_at: new Date().toISOString(),
@@ -795,6 +798,98 @@ export class VolunteerHoursService extends BaseDataService {
         error: errorMessage,
         success: false,
       };
+    }
+  }
+
+  /**
+   * Subscribe to volunteer hours changes with real-time updates
+   * Requirements: 5.5, 6.1
+   */
+  async subscribeToVolunteerHours(
+    callback: (payload: {
+      eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+      new: VolunteerHourData | null;
+      old: VolunteerHourData | null;
+    }) => void,
+    orgId?: UUID
+  ): Promise<() => void> {
+    try {
+      const organizationId = orgId || await this.getCurrentOrganizationId();
+      
+      // Create organization-scoped subscription
+      const subscription = supabase
+        .channel(`volunteer_hours:org_id=eq.${organizationId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'volunteer_hours',
+            filter: `org_id=eq.${organizationId}`
+          },
+          async (payload: any) => {
+            // ⚡ INSTANT logging for blazing fast updates
+            console.log('⚡ REALTIME:', payload.eventType, payload.new?.id || payload.old?.id);
+
+            // Transform the data before calling callback
+            let transformedNew: VolunteerHourData | null = null;
+            let transformedOld: VolunteerHourData | null = null;
+
+            if (payload.new) {
+              // Fetch member and approver info for new record
+              const { data: profiles } = await supabase
+                .from('profiles')
+                .select('id, first_name, last_name, display_name')
+                .in('id', [payload.new.member_id, payload.new.verified_by].filter(Boolean));
+
+              const memberProfile = profiles?.find(p => p.id === payload.new.member_id);
+              const approverProfile = profiles?.find(p => p.id === payload.new.verified_by);
+
+              // Fetch event info if present
+              let eventData = null;
+              if (payload.new.event_id) {
+                const { data: event } = await supabase
+                  .from('events')
+                  .select('id, title, event_date, starts_at')
+                  .eq('id', payload.new.event_id)
+                  .single();
+                eventData = event;
+              }
+
+              const enrichedData = {
+                ...payload.new,
+                member: memberProfile,
+                approver: approverProfile,
+                event: eventData
+              };
+
+              transformedNew = this.transformVolunteerHourData(enrichedData, payload.new.member_id);
+            }
+
+            if (payload.old) {
+              transformedOld = this.transformVolunteerHourData(payload.old, payload.old.member_id);
+            }
+
+            callback({
+              eventType: payload.eventType,
+              new: transformedNew,
+              old: transformedOld,
+            });
+          }
+        )
+        .subscribe();
+
+      this.log('info', 'Volunteer hours realtime subscription established', { organizationId });
+
+      // Return unsubscribe function
+      return () => {
+        subscription.unsubscribe();
+        this.log('info', 'Volunteer hours realtime subscription closed', { organizationId });
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.log('error', 'Failed to setup volunteer hours realtime subscription', { orgId, error: errorMessage });
+      throw error;
     }
   }
 
@@ -964,11 +1059,11 @@ export class VolunteerHoursService extends BaseDataService {
       approved_at: hour.approved_at,
       attachment_file_id: hour.attachment_file_id,
       event_id: hour.event_id,
-      // Verification fields
-      status: hour.status || (hour.approved ? 'verified' : 'pending'),
+      // Verification fields - handle both new status field and legacy approved field
+      status: hour.status || (hour.approved ? 'verified' : (hour.rejection_reason ? 'rejected' : 'pending')),
       rejection_reason: hour.rejection_reason,
-      verified_by: hour.verified_by,
-      verified_at: hour.verified_at,
+      verified_by: hour.verified_by || hour.approved_by,
+      verified_at: hour.verified_at || hour.approved_at,
       // Computed fields
       member_name: hour.member ? this.buildDisplayName(hour.member) : undefined,
       approver_name: hour.approver ? this.buildDisplayName(hour.approver) : undefined,

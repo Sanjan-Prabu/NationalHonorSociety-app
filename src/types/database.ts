@@ -111,11 +111,16 @@ export interface VolunteerHours {
   description?: string; // Optional in actual DB
   activity_date?: string; // Date field in DB
   submitted_at: string;
-  approved: boolean;    // Boolean field in actual DB, not enum
+  approved: boolean;    // Legacy boolean field (kept for backward compatibility)
   approved_by?: UUID;   // References profiles.id
   approved_at?: string;
   attachment_file_id?: UUID; // File attachment reference
   event_id?: UUID;      // Optional reference to organization event
+  // New status system fields
+  status: VolunteerHoursStatus; // Current status: pending, verified, rejected
+  rejection_reason?: string;    // Required when status is rejected
+  verified_by?: UUID;          // Officer who verified (required when verified)
+  verified_at?: string;        // Timestamp when verified (required when verified)
 }
 
 /**
@@ -220,8 +225,8 @@ export type EventCategory = 'volunteer' | 'meeting' | 'social' | 'fundraising' |
 
 export type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
 
-// Note: VolunteerHours uses boolean 'approved' field, not status enum
-export type VolunteerHoursStatus = 'pending' | 'approved' | 'rejected' | 'needs_revision';
+// VolunteerHours status enum - matches database enum values
+export type VolunteerHoursStatus = 'pending' | 'verified' | 'rejected';
 
 export type VerificationCodeType = 'signup' | 'officer_promotion' | 'event_access' | 'admin_access';
 

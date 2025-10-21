@@ -22,13 +22,17 @@ const Colors = {
 interface VolunteerHourCardProps {
   volunteerHour: VolunteerHourData;
   onDelete?: (hourId: string) => void;
+  onEdit?: (hourId: string) => void;
   showDeleteButton?: boolean;
+  showEditButton?: boolean;
 }
 
 const VolunteerHourCard: React.FC<VolunteerHourCardProps> = ({
   volunteerHour,
   onDelete,
+  onEdit,
   showDeleteButton = false,
+  showEditButton = false,
 }) => {
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'No date';
@@ -42,10 +46,10 @@ const VolunteerHourCard: React.FC<VolunteerHourCardProps> = ({
 
   const getStatusTagProps = (status: string) => {
     switch (status) {
-      case 'approved':
-        return { variant: 'green' as const, text: 'Approved', active: true };
+      case 'verified':
+        return { variant: 'green' as const, text: 'Verified', active: true };
       case 'rejected':
-        return { variant: 'orange' as const, text: 'Rejected', active: true };
+        return { variant: 'red' as const, text: 'Rejected', active: true };
       case 'pending':
       default:
         return { variant: 'yellow' as const, text: 'Pending', active: true };
@@ -76,72 +80,95 @@ const VolunteerHourCard: React.FC<VolunteerHourCardProps> = ({
 
   return (
     <View style={styles.card}>
-      {/* Header with status and delete button */}
+      {/* Header with status and action buttons */}
       <View style={styles.header}>
         <Tag {...statusTagProps} />
-        {showDeleteButton && onDelete && (
-          <TouchableOpacity
-            style={styles.deleteButton}
-            onPress={handleDelete}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Icon name="delete-outline" size={moderateScale(20)} color={Colors.errorRed} />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Event/Activity Name */}
-      <Text style={styles.activityName}>
-        {volunteerHour.event_name || 'Custom Volunteer Activity'}
-      </Text>
-
-      {/* Description */}
-      {volunteerHour.description && (
-        <Text style={styles.description} numberOfLines={3}>
-          {volunteerHour.description}
-        </Text>
-      )}
-
-      {/* Hours and Date */}
-      <View style={styles.detailsRow}>
-        <View style={styles.hoursContainer}>
-          <Icon name="schedule" size={moderateScale(16)} color={Colors.primaryBlue} />
-          <Text style={styles.hoursText}>{volunteerHour.hours} hours</Text>
-        </View>
-        <View style={styles.dateContainer}>
-          <Icon name="calendar-today" size={moderateScale(16)} color={Colors.textMedium} />
-          <Text style={styles.dateText}>{formatDate(volunteerHour.activity_date)}</Text>
+        <View style={styles.actionButtons}>
+          {showEditButton && onEdit && (
+            <TouchableOpacity
+              style={styles.editButton}
+              onPress={() => onEdit(volunteerHour.id)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Icon name="edit" size={moderateScale(20)} color={Colors.primaryBlue} />
+            </TouchableOpacity>
+          )}
+          {showDeleteButton && onDelete && (
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={handleDelete}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Icon name="delete-outline" size={moderateScale(20)} color={Colors.errorRed} />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
-      {/* Organization Event Indicator */}
-      {volunteerHour.event_id && (
-        <View style={styles.orgEventIndicator}>
-          <Icon name="event" size={moderateScale(14)} color={Colors.solidBlue} />
-          <Text style={styles.orgEventText}>Organization Event</Text>
+      {/* Card Content - Vertical Layout */}
+      <View style={styles.cardContent}>
+        <View style={styles.detailSection}>
+          <Text style={styles.detailLabel}>Activity:</Text>
+          <Text style={styles.detailValue}>
+            {volunteerHour.event_name || (() => {
+              if (!volunteerHour.description) return 'Custom Volunteer Activity';
+              const match = volunteerHour.description.match(/^(External Hours: |Internal Hours: )(.+?)( - (.+))?$/);
+              return match ? match[2] : volunteerHour.description.split(' - ')[0].replace(/^(External Hours: |Internal Hours: )/, '');
+            })()}
+          </Text>
         </View>
-      )}
+
+        <View style={styles.detailSection}>
+          <Text style={styles.detailLabel}>Hours:</Text>
+          <Text style={styles.detailValue}>{volunteerHour.hours} hours</Text>
+        </View>
+
+        <View style={styles.detailSection}>
+          <Text style={styles.detailLabel}>Date:</Text>
+          <Text style={styles.detailValue}>{formatDate(volunteerHour.activity_date)}</Text>
+        </View>
+
+        {volunteerHour.description && (() => {
+          const match = volunteerHour.description.match(/^(External Hours: |Internal Hours: )(.+?)( - (.+))?$/);
+          const descriptionOnly = match && match[4] ? match[4] : (volunteerHour.description.includes(' - ') ? volunteerHour.description.split(' - ').slice(1).join(' - ') : '');
+          return descriptionOnly ? (
+            <View style={styles.detailSection}>
+              <Text style={styles.detailLabel}>Description:</Text>
+              <Text style={styles.detailValue}>
+                {descriptionOnly}
+              </Text>
+            </View>
+          ) : null;
+        })()}
+
+        <View style={styles.detailSection}>
+          <Text style={styles.detailLabel}>Proof of Service:</Text>
+          <Text style={styles.detailValue}>
+            {volunteerHour.attachment_file_id ? 'Uploaded' : 'Not provided'}
+          </Text>
+        </View>
+      </View>
 
       {/* Verification Details */}
-      {volunteerHour.status === 'approved' && volunteerHour.approver_name && (
+      {volunteerHour.status === 'verified' && volunteerHour.approver_name && (
         <View style={styles.verificationInfo}>
           <Text style={styles.verificationText}>
-            ✓ Approved by {volunteerHour.approver_name}
+            ✓ Verified by {volunteerHour.approver_name}
           </Text>
-          {volunteerHour.approved_at && (
+          {volunteerHour.verified_at && (
             <Text style={styles.verificationDate}>
-              on {formatDate(volunteerHour.approved_at)}
+              on {formatDate(volunteerHour.verified_at)}
             </Text>
           )}
         </View>
       )}
 
-      {/* Rejection Reason */}
-      {volunteerHour.status === 'rejected' && (
+      {/* Rejection Reason - Only show for rejected status */}
+      {volunteerHour.status === 'rejected' && volunteerHour.rejection_reason && (
         <View style={styles.rejectionInfo}>
-          <Text style={styles.rejectionLabel}>Reason for rejection:</Text>
+          <Text style={styles.rejectionLabel}>Rejection Reason:</Text>
           <Text style={styles.rejectionReason}>
-            Officer feedback will be displayed here when available
+            {volunteerHour.rejection_reason}
           </Text>
         </View>
       )}
@@ -175,8 +202,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: verticalScale(12),
   },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: scale(8),
+  },
+  editButton: {
+    padding: scale(4),
+  },
   deleteButton: {
     padding: scale(4),
+  },
+  cardContent: {
+    marginBottom: verticalScale(8),
+  },
+  detailSection: {
+    marginBottom: verticalScale(12),
+  },
+  detailLabel: {
+    fontSize: moderateScale(14),
+    fontWeight: '600',
+    color: Colors.textDark,
+    marginBottom: verticalScale(4),
+  },
+  detailValue: {
+    fontSize: moderateScale(14),
+    color: Colors.textMedium,
+    lineHeight: moderateScale(20),
+    paddingLeft: scale(8),
   },
   activityName: {
     fontSize: moderateScale(16),

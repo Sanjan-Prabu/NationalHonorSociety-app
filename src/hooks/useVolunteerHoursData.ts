@@ -1101,3 +1101,64 @@ export function usePrefetchVolunteerHoursData() {
     },
   };
 }
+/**
+ * E
+nhanced real-time volunteer hours hook with Supabase subscriptions
+ * Provides instant updates across all views when volunteer hours change
+ * Requirements: 5.5, 6.1
+ */
+export function useVolunteerHoursRealTime(orgId?: UUID) {
+  const queryClient = useQueryClient();
+  const unsubscribeRef = React.useRef<(() => void) | null>(null);
+  const mountedRef = React.useRef(true);
+
+  // Setup real-time subscription
+  React.useEffect(() => {
+    const setupSubscription = async () => {
+      try {
+        const unsubscribe = await volunteerHoursService.subscribeToVolunteerHours(
+          (payload) => {
+            if (!mountedRef.current) return;
+
+            // ⚡ BLAZING FAST batch invalidation - INSTANT updates!
+            const queries = [
+              'volunteer-hours',
+              'pending-approvals', 
+              'verified-approvals',
+              'rejected-approvals',
+              'user-volunteer-hours'
+            ];
+            
+            // Batch invalidate for maximum speed ⚡
+            queries.forEach(key => {
+              queryClient.invalidateQueries({ queryKey: [key] });
+            });
+            
+            console.log('⚡ INSTANT UPDATE:', payload.eventType);
+          },
+          orgId
+        );
+        unsubscribeRef.current = unsubscribe;
+      } catch (error) {
+        console.error('Failed to setup volunteer hours subscription:', error);
+      }
+    };
+
+    setupSubscription();
+
+    return () => {
+      mountedRef.current = false;
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+        unsubscribeRef.current = null;
+      }
+    };
+  }, [orgId, queryClient]);
+
+  // Cleanup on unmount
+  React.useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+}

@@ -6,7 +6,7 @@ import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { useUserVolunteerHours, useDeleteVolunteerHours } from '../../hooks/useVolunteerHoursData';
+import { useUserVolunteerHours, useDeleteVolunteerHours, useVolunteerHoursRealTime } from '../../hooks/useVolunteerHoursData';
 import { useCurrentOrganizationId } from '../../hooks/useUserData';
 import { useToast } from '../../components/ui/ToastProvider';
 import LoadingScreen from '../../components/ui/LoadingScreen';
@@ -46,6 +46,9 @@ const MemberVolunteerHoursScreen: React.FC<MemberVolunteerHoursScreenProps> = ({
   // Memoize the organization ID to prevent infinite re-renders
   const organizationId = useMemo(() => currentOrgId || activeOrganization?.id || '', [currentOrgId, activeOrganization?.id]);
 
+  // Setup real-time subscription for instant updates
+  useVolunteerHoursRealTime(organizationId);
+
   // Data hooks
   const { 
     data: volunteerHours, 
@@ -64,21 +67,23 @@ const MemberVolunteerHoursScreen: React.FC<MemberVolunteerHoursScreenProps> = ({
 
     return {
       pendingHours: volunteerHours.filter(hour => hour.status === 'pending'),
-      approvedHours: volunteerHours.filter(hour => hour.status === 'approved'),
+      approvedHours: volunteerHours.filter(hour => hour.status === 'verified'),
       rejectedHours: volunteerHours.filter(hour => hour.status === 'rejected'),
     };
   }, [volunteerHours]);
 
   // Calculate statistics
-  const { totalApprovedHours, organizationEventHours } = useMemo(() => {
+  const { totalApprovedHours, internalHours, externalHours } = useMemo(() => {
     const totalApproved = approvedHours.reduce((sum, hour) => sum + hour.hours, 0);
-    const orgEventHours = approvedHours
-      .filter(hour => hour.event_id) // Has event_id means it's an organization event
+    const internal = approvedHours
+      .filter(hour => hour.event_id) // Has event_id means it's an internal organization event
       .reduce((sum, hour) => sum + hour.hours, 0);
+    const external = totalApproved - internal; // External hours are non-event hours
 
     return {
       totalApprovedHours: totalApproved,
-      organizationEventHours: orgEventHours,
+      internalHours: internal,
+      externalHours: external,
     };
   }, [approvedHours]);
 
@@ -196,35 +201,34 @@ const MemberVolunteerHoursScreen: React.FC<MemberVolunteerHoursScreenProps> = ({
             <View style={styles.headerPlaceholder} />
           </View>
 
-          {/* Progress Summary */}
+          {/* Volunteer Progress */}
           <View style={styles.progressContainer}>
-            <View style={styles.progressCard}>
-              <Text style={styles.progressTitle}>Your Progress</Text>
-              <View style={styles.progressStats}>
-                <View style={styles.statItem}>
-                  <Text style={styles.statNumber}>{totalApprovedHours}</Text>
-                  <Text style={styles.statLabel}>Total Hours</Text>
-                </View>
-                <View style={styles.statDivider} />
-                <View style={styles.statItem}>
-                  <Text style={styles.statNumber}>{organizationEventHours}</Text>
-                  <Text style={styles.statLabel}>NHS Events</Text>
-                </View>
+            <Text style={styles.progressTitle}>Volunteer Progress</Text>
+            
+            {/* Total Hours Display */}
+            <Text style={styles.totalHoursText}>{totalApprovedHours}/25 hours</Text>
+            
+            {/* Progress Bar */}
+            <View style={styles.progressBarContainer}>
+              <View style={styles.progressBar}>
+                <View 
+                  style={[
+                    styles.progressFill,
+                    { width: `${Math.min((totalApprovedHours / 25) * 100, 100)}%` }
+                  ]} 
+                />
               </View>
-              
-              {/* Progress Bar */}
-              <View style={styles.progressBarContainer}>
-                <View style={styles.progressBar}>
-                  <View 
-                    style={[
-                      styles.progressFill,
-                      { width: `${Math.min((totalApprovedHours / 40) * 100, 100)}%` }
-                    ]} 
-                  />
-                </View>
-                <Text style={styles.progressText}>
-                  {totalApprovedHours}/40 hours goal
-                </Text>
+            </View>
+
+            {/* Hours Breakdown */}
+            <View style={styles.hoursBreakdown}>
+              <View style={styles.hoursCard}>
+                <Text style={styles.hoursLabel}>Internal Hours</Text>
+                <Text style={styles.hoursValue}>{internalHours} hrs</Text>
+              </View>
+              <View style={styles.hoursCard}>
+                <Text style={styles.hoursLabel}>External Hours</Text>
+                <Text style={styles.hoursValue}>{externalHours} hrs</Text>
               </View>
             </View>
           </View>
@@ -292,6 +296,8 @@ const MemberVolunteerHoursScreen: React.FC<MemberVolunteerHoursScreenProps> = ({
                   volunteerHour={hour}
                   onDelete={handleDeleteVolunteerHours}
                   showDeleteButton={activeTab === 'pending' && (hour.status === 'pending' || hour.status === 'rejected')}
+                  showEditButton={hour.status === 'rejected'}
+                  onEdit={() => navigation.navigate('MemberVolunteerHoursForm', { editingHour: hour })}
                 />
               ))
             ) : (
@@ -358,12 +364,10 @@ const styles = StyleSheet.create({
     width: scale(40),
   },
   progressContainer: {
-    marginBottom: verticalScale(20),
-  },
-  progressCard: {
     backgroundColor: Colors.white,
     borderRadius: moderateScale(16),
     padding: scale(20),
+    marginBottom: verticalScale(20),
     shadowColor: Colors.solidBlue,
     shadowOffset: {
       width: 0,
@@ -374,57 +378,56 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   progressTitle: {
-    fontSize: moderateScale(16),
-    fontWeight: '600',
-    color: Colors.textMedium,
+    fontSize: moderateScale(18),
+    fontWeight: 'bold',
+    color: Colors.textDark,
     textAlign: 'center',
     marginBottom: verticalScale(16),
   },
-  progressStats: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    marginBottom: verticalScale(20),
-  },
-  statItem: {
-    alignItems: 'center',
-  },
-  statNumber: {
+  totalHoursText: {
     fontSize: moderateScale(32),
     fontWeight: 'bold',
     color: Colors.solidBlue,
-    marginBottom: verticalScale(4),
-  },
-  statLabel: {
-    fontSize: moderateScale(14),
-    color: Colors.textMedium,
-    fontWeight: '500',
-  },
-  statDivider: {
-    width: 1,
-    height: verticalScale(40),
-    backgroundColor: Colors.dividerColor,
+    textAlign: 'center',
+    marginBottom: verticalScale(16),
   },
   progressBarContainer: {
-    alignItems: 'center',
+    marginBottom: verticalScale(20),
   },
   progressBar: {
     width: '100%',
-    height: verticalScale(8),
-    backgroundColor: Colors.lightBlue,
-    borderRadius: moderateScale(4),
+    height: verticalScale(12),
+    backgroundColor: '#E5E7EB',
+    borderRadius: moderateScale(6),
     overflow: 'hidden',
-    marginBottom: verticalScale(8),
   },
   progressFill: {
     height: '100%',
     backgroundColor: Colors.solidBlue,
-    borderRadius: moderateScale(4),
+    borderRadius: moderateScale(6),
   },
-  progressText: {
-    fontSize: moderateScale(12),
+  hoursBreakdown: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: scale(12),
+  },
+  hoursCard: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+    borderRadius: moderateScale(12),
+    padding: scale(16),
+    alignItems: 'center',
+  },
+  hoursLabel: {
+    fontSize: moderateScale(14),
     color: Colors.textMedium,
     fontWeight: '500',
+    marginBottom: verticalScale(4),
+  },
+  hoursValue: {
+    fontSize: moderateScale(18),
+    fontWeight: 'bold',
+    color: Colors.textDark,
   },
   addButton: {
     backgroundColor: Colors.solidBlue,

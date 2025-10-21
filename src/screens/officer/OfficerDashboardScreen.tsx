@@ -210,55 +210,7 @@ const OfficerDashboard = ({ navigation }: any) => {
             </View>
           )}
 
-          {/* Additional Stats Row */}
-          {!isLoading && (
-            <View style={styles.statsContainer}>
-              <View style={styles.statCard}>
-                <Text style={styles.statNumber}>{dashboardData.upcomingEvents}</Text>
-                <Text style={styles.statLabel}>Upcoming Events</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Text style={styles.statNumber}>{dashboardData.totalVolunteerHours}</Text>
-                <Text style={styles.statLabel}>Approved Hours</Text>
-              </View>
-            </View>
-          )}
-
-          {/* Verification Statistics Section */}
-          {!isLoading && (
-            <View style={styles.sectionContainer}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Verification Overview</Text>
-                <Text style={styles.approvalRate}>
-                  {dashboardData.verificationStats.approvalRate.toFixed(1)}% approval rate
-                </Text>
-              </View>
-              
-              <View style={styles.verificationStatsContainer}>
-                <View style={[styles.verificationStatCard, { borderLeftColor: Colors.warningOrange }]}>
-                  <Text style={styles.verificationStatNumber}>{dashboardData.verificationStats.pendingCount}</Text>
-                  <Text style={styles.verificationStatLabel}>Pending</Text>
-                </View>
-                <View style={[styles.verificationStatCard, { borderLeftColor: Colors.successGreen }]}>
-                  <Text style={styles.verificationStatNumber}>{dashboardData.verificationStats.verifiedCount}</Text>
-                  <Text style={styles.verificationStatLabel}>Verified</Text>
-                </View>
-                <View style={[styles.verificationStatCard, { borderLeftColor: '#E53E3E' }]}>
-                  <Text style={styles.verificationStatNumber}>{dashboardData.verificationStats.rejectedCount}</Text>
-                  <Text style={styles.verificationStatLabel}>Rejected</Text>
-                </View>
-              </View>
-
-              {dashboardData.verificationStats.recentActivity.total > 0 && (
-                <View style={styles.recentActivityCard}>
-                  <Text style={styles.recentActivityTitle}>Recent Activity (7 days)</Text>
-                  <Text style={styles.recentActivityText}>
-                    {dashboardData.verificationStats.recentActivity.verified} verified, {dashboardData.verificationStats.recentActivity.rejected} rejected
-                  </Text>
-                </View>
-              )}
-            </View>
-          )}
+          
 
           {/* Quick Actions Section */}
           <View style={styles.sectionContainer}>

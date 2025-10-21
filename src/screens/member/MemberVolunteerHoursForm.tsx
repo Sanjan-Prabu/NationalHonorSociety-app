@@ -10,9 +10,9 @@ import { useToast } from '../../components/ui/ToastProvider';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useOrganizationEvents } from '../../hooks/useEventData';
-import { useVolunteerHourSubmission } from '../../hooks/useVolunteerHoursData';
+import { useVolunteerHourSubmission, useVolunteerHoursRealTime, useUpdateVolunteerHours } from '../../hooks/useVolunteerHoursData';
 import { useCurrentOrganizationId } from '../../hooks/useUserData';
-import { CreateVolunteerHourRequest } from '../../types/dataService';
+import { CreateVolunteerHourRequest, VolunteerHourData } from '../../types/dataService';
 import SearchableDropdown, { DropdownOption } from '../../components/ui/SearchableDropdown';
 
 const Colors = {
@@ -31,26 +31,65 @@ const Colors = {
   lightBlue: '#EBF8FF',
 };
 
-const VolunteerHoursForm = ({ navigation }: any) => {
+const VolunteerHoursForm = ({ navigation, route }: any) => {
   const { showSuccess, showError, showValidationError } = useToast();
   const { activeOrganization } = useOrganization();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const currentOrgId = useCurrentOrganizationId();
+  
+  // Get editing data from navigation params
+  const editingHour: VolunteerHourData | undefined = route?.params?.editingHour;
+  const isEditing = !!editingHour;
+
+  // BLAZING FAST form initialization with memoized parsing ⚡
+  const initialState = useMemo(() => {
+    if (!editingHour) {
+      return {
+        eventType: 'internal' as const,
+        selectedEvent: '',
+        customEventName: '',
+        date: null,
+        hours: '',
+        additionalNotes: '',
+        selectedImage: null
+      };
+    }
+
+    // INSTANT parsing - no repeated regex calls
+    const isInternal = !!editingHour.event_id;
+    const desc = editingHour.description || '';
+    const match = desc.match(/^(External Hours: |Internal Hours: )(.+?)( - (.+))?$/);
+    const activityName = editingHour.event_name || (match ? match[2] : desc.split(' - ')[0].replace(/^(External Hours: |Internal Hours: )/, ''));
+    const notes = match && match[4] ? match[4] : (desc.includes(' - ') ? desc.split(' - ').slice(1).join(' - ') : '');
+
+    return {
+      eventType: isInternal ? 'internal' as const : 'external' as const,
+      selectedEvent: editingHour.event_id || '',
+      customEventName: isInternal ? '' : activityName,
+      date: editingHour.activity_date ? new Date(editingHour.activity_date) : null,
+      hours: editingHour.hours.toString(),
+      additionalNotes: notes,
+      selectedImage: editingHour.attachment_file_id ? 'existing' : null
+    };
+  }, [editingHour]);
 
   // Form state
-  const [eventType, setEventType] = useState<'club' | 'custom'>('club');
-  const [selectedEvent, setSelectedEvent] = useState('');
-  const [customEventName, setCustomEventName] = useState('');
-  const [date, setDate] = useState<Date | null>(null);
+  const [eventType, setEventType] = useState<'internal' | 'external'>(initialState.eventType);
+  const [selectedEvent, setSelectedEvent] = useState(initialState.selectedEvent);
+  const [customEventName, setCustomEventName] = useState(initialState.customEventName);
+  const [date, setDate] = useState<Date | null>(initialState.date);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [hours, setHours] = useState('');
-  const [additionalNotes, setAdditionalNotes] = useState('');
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [hours, setHours] = useState(initialState.hours);
+  const [additionalNotes, setAdditionalNotes] = useState(initialState.additionalNotes);
+  const [selectedImage, setSelectedImage] = useState<string | null>(initialState.selectedImage);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Memoize the organization ID to prevent infinite re-renders
   const organizationId = useMemo(() => currentOrgId || activeOrganization?.id || '', [currentOrgId, activeOrganization?.id]);
+
+  // Setup real-time subscription for instant updates
+  useVolunteerHoursRealTime(organizationId);
 
   // Use dynamic data hooks
   const { 
@@ -60,6 +99,7 @@ const VolunteerHoursForm = ({ navigation }: any) => {
   } = useOrganizationEvents(organizationId);
 
   const submitVolunteerHoursMutation = useVolunteerHourSubmission();
+  const updateVolunteerHoursMutation = useUpdateVolunteerHours();
 
   // Transform events data for dropdown
   const clubEvents: DropdownOption[] = useMemo(() => {
@@ -73,10 +113,10 @@ const VolunteerHoursForm = ({ navigation }: any) => {
     const newErrors: Record<string, string> = {};
 
     // Event validation
-    if (eventType === 'club' && !selectedEvent) {
+    if (eventType === 'internal' && !selectedEvent) {
       newErrors.event = 'Please select an organization event';
-    } else if (eventType === 'custom' && !customEventName.trim()) {
-      newErrors.customEvent = 'Custom activity name is required';
+    } else if (eventType === 'external' && !customEventName.trim()) {
+      newErrors.customEvent = 'External activity name is required';
     }
 
     // Date validation
@@ -91,6 +131,8 @@ const VolunteerHoursForm = ({ navigation }: any) => {
       const hoursNum = parseFloat(hours);
       if (isNaN(hoursNum) || hoursNum <= 0) {
         newErrors.hours = 'Please enter a valid number of hours';
+      } else if (hoursNum > 24) {
+        newErrors.hours = 'Hours cannot exceed 24 per day';
       }
     }
 
@@ -119,27 +161,38 @@ const VolunteerHoursForm = ({ navigation }: any) => {
       const submissionData: CreateVolunteerHourRequest = {
         activity_date: date?.toISOString().split('T')[0] || '', // Format as YYYY-MM-DD
         hours: parseFloat(hours),
-        description: eventType === 'club' ?
-          `Organization Event: ${clubEvents.find(e => e.value === selectedEvent)?.label || 'Unknown Event'}${additionalNotes ? ` - ${additionalNotes}` : ''}` :
-          `${customEventName}${additionalNotes ? ` - ${additionalNotes}` : ''}`,
-        event_id: eventType === 'club' ? selectedEvent : undefined,
+        description: eventType === 'internal' ?
+          `Internal Hours: ${clubEvents.find(e => e.value === selectedEvent)?.label || 'Unknown Event'}${additionalNotes ? ` - ${additionalNotes}` : ''}` :
+          `External Hours: ${customEventName}${additionalNotes ? ` - ${additionalNotes}` : ''}`,
+        event_id: eventType === 'internal' ? selectedEvent : undefined,
         // TODO: Handle file upload for selectedImage and notes
       };
 
-      console.log('📝 Submitting volunteer hours:', submissionData);
+      if (isEditing && editingHour) {
+        // ⚡ INSTANT UPDATE - optimized payload
+        const updateData = {
+          ...submissionData,
+          status: 'pending' as const,
+          rejection_reason: null,
+          verified_by: null,
+          verified_at: null,
+        };
 
-      await submitVolunteerHoursMutation.mutateAsync(submissionData);
+        await updateVolunteerHoursMutation.mutateAsync({
+          hourId: editingHour.id,
+          updates: updateData
+        });
 
-      console.log('✅ Volunteer hours submitted successfully!');
-      showSuccess('Hours Submitted', 'Your volunteer hours have been submitted for review.');
+        showSuccess('⚡ Updated!', 'Hours updated and resubmitted instantly!');
+      } else {
+        // ⚡ INSTANT SUBMIT
+        await submitVolunteerHoursMutation.mutateAsync(submissionData);
+        showSuccess('⚡ Submitted!', 'Hours submitted instantly!');
+      }
 
-      // Reset form after successful submission
+      // ⚡ INSTANT form reset and navigation - no delays!
       resetForm();
-
-      // Small delay to ensure UI updates complete before navigation
-      setTimeout(() => {
-        navigation.goBack();
-      }, 500);
+      navigation.goBack(); // INSTANT navigation!
 
     } catch (error) {
       console.error('Error submitting volunteer hours:', error);
@@ -148,7 +201,7 @@ const VolunteerHoursForm = ({ navigation }: any) => {
   };
 
   const resetForm = () => {
-    setEventType('club');
+    setEventType('internal');
     setSelectedEvent('');
     setCustomEventName('');
     setDate(null);
@@ -229,7 +282,7 @@ const VolunteerHoursForm = ({ navigation }: any) => {
               >
                 <Icon name="arrow-back" size={moderateScale(24)} color={Colors.textDark} />
               </TouchableOpacity>
-              <Text style={styles.headerTitle}>Add Volunteer Hours</Text>
+              <Text style={styles.headerTitle}>{isEditing ? 'Edit Volunteer Hours' : 'Add Volunteer Hours'}</Text>
               <View style={styles.headerPlaceholder} />
             </View>
 
@@ -241,10 +294,10 @@ const VolunteerHoursForm = ({ navigation }: any) => {
                 <TouchableOpacity
                   style={[
                     styles.eventTypeButton,
-                    eventType === 'club' && styles.eventTypeButtonActive
+                    eventType === 'internal' && styles.eventTypeButtonActive
                   ]}
                   onPress={() => {
-                    setEventType('club');
+                    setEventType('internal');
                     setSelectedEvent('');
                     setCustomEventName('');
                   }}
@@ -252,23 +305,23 @@ const VolunteerHoursForm = ({ navigation }: any) => {
                   <Icon 
                     name="event" 
                     size={moderateScale(18)} 
-                    color={eventType === 'club' ? Colors.solidBlue : Colors.textMedium} 
+                    color={eventType === 'internal' ? Colors.solidBlue : Colors.textMedium} 
                     style={styles.eventTypeIcon}
                   />
                   <Text style={[
                     styles.eventTypeText,
-                    eventType === 'club' && styles.eventTypeTextActive
+                    eventType === 'internal' && styles.eventTypeTextActive
                   ]}>
-                    Organization Event
+                    Internal Hours
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[
                     styles.eventTypeButton,
-                    eventType === 'custom' && styles.eventTypeButtonActive
+                    eventType === 'external' && styles.eventTypeButtonActive
                   ]}
                   onPress={() => {
-                    setEventType('custom');
+                    setEventType('external');
                     setSelectedEvent('');
                     setCustomEventName('');
                   }}
@@ -276,28 +329,28 @@ const VolunteerHoursForm = ({ navigation }: any) => {
                   <Icon 
                     name="add-circle-outline" 
                     size={moderateScale(18)} 
-                    color={eventType === 'custom' ? Colors.solidBlue : Colors.textMedium} 
+                    color={eventType === 'external' ? Colors.solidBlue : Colors.textMedium} 
                     style={styles.eventTypeIcon}
                   />
                   <Text style={[
                     styles.eventTypeText,
-                    eventType === 'custom' && styles.eventTypeTextActive
+                    eventType === 'external' && styles.eventTypeTextActive
                   ]}>
-                    Custom Activity
+                    External Hours
                   </Text>
                 </TouchableOpacity>
               </View>
               
               {/* Helper Text */}
               <Text style={styles.helperText}>
-                {eventType === 'club' 
-                  ? 'Select from organization events created by officers. This helps track participation in official activities.'
-                  : 'Log volunteer work done outside of organization events. Describe the activity and organization you volunteered with.'
+                {eventType === 'internal' 
+                  ? 'Hours from organization events and activities organized by your club.'
+                  : 'Hours from volunteer work done outside of your organization events.'
                 }
               </Text>
 
               {/* Event Selector or Custom Input */}
-              {eventType === 'club' ? (
+              {eventType === 'internal' ? (
                 <View style={styles.inputContainer}>
                   <Text style={styles.inputLabel}>Organization Event</Text>
                   <SearchableDropdown
@@ -310,14 +363,14 @@ const VolunteerHoursForm = ({ navigation }: any) => {
                     isError={eventsError}
                     hasError={!!errors.event}
                     emptyStateTitle="No organization events available"
-                    emptyStateSubtitle="Contact your officers to create events, or select 'Custom Activity' to log other volunteer activities."
+                    emptyStateSubtitle="Contact your officers to create events, or select 'External Hours' to log other volunteer activities."
                     maxHeight={verticalScale(250)}
                   />
                   {errors.event && <Text style={styles.errorText}>{errors.event}</Text>}
                 </View>
               ) : (
                 <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>Custom Activity Name</Text>
+                  <Text style={styles.inputLabel}>External Activity Name</Text>
                   <TextInput
                     style={[styles.textInput, errors.customEvent && styles.inputError]}
                     placeholder="e.g., Food Bank Volunteer, Community Cleanup, Tutoring"
@@ -404,10 +457,16 @@ const VolunteerHoursForm = ({ navigation }: any) => {
               {/* Proof of Volunteering */}
               <View style={styles.inputContainer}>
                 <Text style={styles.inputLabel}>Proof of Volunteering</Text>
-                <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
+                <TouchableOpacity 
+                  style={[
+                    styles.uploadButton, 
+                    selectedImage && styles.uploadButtonWithImage
+                  ]} 
+                  onPress={pickImage}
+                >
                   <Icon name="cloud-upload" size={moderateScale(24)} color={Colors.solidBlue} />
                   <Text style={styles.uploadButtonText}>
-                    {selectedImage ? 'Photo Selected' : 'Upload a photo of your signature sheet or proof'}
+                    {selectedImage ? 'Photo Selected - Tap to change' : 'Upload a photo of your signature sheet or proof'}
                   </Text>
                 </TouchableOpacity>
                 {selectedImage && (
@@ -417,12 +476,15 @@ const VolunteerHoursForm = ({ navigation }: any) => {
 
               {/* Submit Button */}
               <TouchableOpacity
-                style={[styles.submitButton, submitVolunteerHoursMutation.isPending && styles.submitButtonDisabled]}
+                style={[styles.submitButton, (submitVolunteerHoursMutation.isPending || updateVolunteerHoursMutation.isPending) && styles.submitButtonDisabled]}
                 onPress={handleSubmit}
-                disabled={submitVolunteerHoursMutation.isPending}
+                disabled={submitVolunteerHoursMutation.isPending || updateVolunteerHoursMutation.isPending}
               >
                 <Text style={styles.submitButtonText}>
-                  {submitVolunteerHoursMutation.isPending ? 'Submitting...' : 'Submit Hours'}
+                  {(submitVolunteerHoursMutation.isPending || updateVolunteerHoursMutation.isPending) 
+                    ? (isEditing ? 'Updating...' : 'Submitting...') 
+                    : (isEditing ? 'Update Hours' : 'Submit Hours')
+                  }
                 </Text>
               </TouchableOpacity>
             </View>
@@ -593,7 +655,7 @@ const styles = StyleSheet.create({
     marginTop: verticalScale(4),
   },
   uploadButton: {
-    height: verticalScale(52),
+    height: verticalScale(80),
     borderWidth: 2,
     borderColor: Colors.solidBlue,
     borderStyle: 'dashed',
@@ -603,6 +665,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: scale(16),
+  },
+  uploadButtonWithImage: {
+    height: verticalScale(80),
+    aspectRatio: 1,
+    borderStyle: 'solid',
   },
   uploadButtonText: {
     fontSize: moderateScale(14),

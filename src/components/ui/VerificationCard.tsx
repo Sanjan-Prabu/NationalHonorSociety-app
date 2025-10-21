@@ -132,73 +132,59 @@ const VerificationCard: React.FC<VerificationCardProps> = ({
       {/* Divider */}
       <View style={styles.divider} />
 
-      {/* Event Details */}
-      <View style={styles.detailsSection}>
-        {/* Event Information (if associated with an organization event) */}
-        {request.event_name && (
-          <View style={styles.eventInfoSection}>
-            <View style={styles.eventInfoHeader}>
-              <Icon name="event" size={moderateScale(16)} color={Colors.solidBlue} />
-              <Text style={styles.eventInfoLabel}>Organization Event</Text>
-            </View>
-            <Text style={styles.eventInfoValue}>{request.event_name}</Text>
-          </View>
-        )}
-
-        <View style={styles.detailRow}>
-          <View style={styles.detailColumn}>
-            <Text style={styles.detailLabel}>Activity</Text>
-            <Text style={styles.detailValue}>
-              {request.description || 'Volunteer Work'}
-            </Text>
-          </View>
-          <View style={styles.detailColumn}>
-            <Text style={styles.detailLabel}>Hours</Text>
-            <Text style={styles.detailValue}>{request.hours} hours</Text>
-          </View>
+      {/* Card Content - Vertical Layout */}
+      <View style={styles.cardContent}>
+        <View style={styles.verticalDetailSection}>
+          <Text style={styles.verticalDetailLabel}>Activity:</Text>
+          <Text style={styles.verticalDetailValue}>
+            {request.event_name || (() => {
+              if (!request.description) return 'Volunteer Work';
+              const match = request.description.match(/^(External Hours: |Internal Hours: )(.+?)( - (.+))?$/);
+              return match ? match[2] : request.description.split(' - ')[0].replace(/^(External Hours: |Internal Hours: )/, '');
+            })()}
+          </Text>
         </View>
 
-        <View style={styles.detailRow}>
-          <View style={styles.detailColumn}>
-            <Text style={styles.detailLabel}>Date</Text>
-            <Text style={styles.detailValue}>
-              {request.activity_date ? formatDate(request.activity_date) : 'No date provided'}
-            </Text>
-          </View>
+        <View style={styles.verticalDetailSection}>
+          <Text style={styles.verticalDetailLabel}>Hours:</Text>
+          <Text style={styles.verticalDetailValue}>{request.hours} hours</Text>
+        </View>
+
+        <View style={styles.verticalDetailSection}>
+          <Text style={styles.verticalDetailLabel}>Date:</Text>
+          <Text style={styles.verticalDetailValue}>
+            {request.activity_date ? formatDate(request.activity_date) : 'No date provided'}
+          </Text>
+        </View>
+
+        {request.description && (() => {
+          const match = request.description.match(/^(External Hours: |Internal Hours: )(.+?)( - (.+))?$/);
+          const descriptionOnly = match && match[4] ? match[4] : (request.description.includes(' - ') ? request.description.split(' - ').slice(1).join(' - ') : '');
+          return descriptionOnly ? (
+            <View style={styles.verticalDetailSection}>
+              <Text style={styles.verticalDetailLabel}>Description:</Text>
+              <Text style={styles.verticalDetailValue}>
+                {descriptionOnly}
+              </Text>
+            </View>
+          ) : null;
+        })()}
+
+        <View style={styles.verticalDetailSection}>
+          <Text style={styles.verticalDetailLabel}>Proof of Service:</Text>
+          <Text style={styles.verticalDetailValue}>
+            {request.attachment_file_id ? 'Uploaded' : 'Not provided'}
+          </Text>
         </View>
       </View>
 
-      {/* Notes Section */}
-      <View style={styles.notesSection}>
-        <Text style={styles.detailLabel}>Description</Text>
-        <Text style={styles.notesText}>
-          {request.description || 'No description provided'}
-        </Text>
-      </View>
-
-      {/* Proof of Service Section */}
-      <View style={styles.proofSection}>
-        <Text style={styles.detailLabel}>Proof of Service</Text>
-        {request.attachment_file_id ? (
-          <TouchableOpacity style={styles.proofImageContainer}>
-            <View style={styles.proofPlaceholder}>
-              <Icon name="attachment" size={moderateScale(24)} color={Colors.textMedium} />
-              <Text style={styles.proofText}>Attachment provided</Text>
-            </View>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.noProofContainer}>
-            <Icon name="image" size={moderateScale(24)} color={Colors.textLight} />
-            <Text style={styles.noProofText}>No proof image provided</Text>
-          </View>
-        )}
-      </View>
-
-      {/* Rejection Reason Section */}
-      {request.status === 'rejected' && rejectionReason && (
+      {/* Rejection Reason Section - Only show in rejected tab */}
+      {request.status === 'rejected' && (request.rejection_reason || rejectionReason) && (
         <View style={styles.rejectionReasonSection}>
-          <Text style={styles.rejectionReasonLabel}>Rejection Reason</Text>
-          <Text style={styles.rejectionReasonText}>{rejectionReason}</Text>
+          <Text style={styles.rejectionReasonLabel}>Rejection Reason:</Text>
+          <Text style={styles.rejectionReasonText}>
+            {request.rejection_reason || rejectionReason}
+          </Text>
         </View>
       )}
 
@@ -313,6 +299,24 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: Colors.dividerColor,
     marginVertical: verticalScale(16),
+  },
+  cardContent: {
+    marginBottom: verticalScale(16),
+  },
+  verticalDetailSection: {
+    marginBottom: verticalScale(12),
+  },
+  verticalDetailLabel: {
+    fontSize: moderateScale(14),
+    fontWeight: '600',
+    color: Colors.textDark,
+    marginBottom: verticalScale(4),
+  },
+  verticalDetailValue: {
+    fontSize: moderateScale(14),
+    color: Colors.textMedium,
+    lineHeight: moderateScale(20),
+    paddingLeft: scale(8),
   },
   detailsSection: {
     marginBottom: verticalScale(20),
