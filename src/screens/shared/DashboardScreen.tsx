@@ -202,7 +202,10 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation, userRole 
 
             {/* View Profile Button for Members */}
             {userRole === 'member' && (
-              <TouchableOpacity style={styles.viewProfileButton}>
+              <TouchableOpacity 
+                style={styles.viewProfileButton}
+                onPress={() => navigation?.navigate('Announcements')} // Navigate to announcements as profile screen doesn't exist yet
+              >
                 <Text style={[styles.viewProfileText, { color: orgColors.primary }]}>View Profile</Text>
                 <Icon name="chevron-right" size={moderateScale(16)} color={orgColors.primary} />
               </TouchableOpacity>
@@ -296,7 +299,10 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation, userRole 
                   <View style={styles.announcementCard}>
                     <Text style={styles.announcementTitle}>{announcements[0].title}</Text>
                     <Text style={styles.announcementDescription} numberOfLines={3}>{announcements[0].content}</Text>
-                    <TouchableOpacity style={styles.readMoreButton}>
+                    <TouchableOpacity 
+                      style={styles.readMoreButton}
+                      onPress={() => navigation?.navigate('Announcements')} // Navigate to full announcements
+                    >
                       <Text style={[styles.readMoreText, { color: orgColors.primary }]}>Read More</Text>
                       <Icon name="chevron-right" size={moderateScale(16)} color={orgColors.primary} />
                     </TouchableOpacity>

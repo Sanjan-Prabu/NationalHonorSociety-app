@@ -1,5 +1,6 @@
 // Add polyfills at the very top
 import 'react-native-get-random-values';
+import './shims/buffer.js';
 
 // Add Array.includes polyfill for older JavaScript engines
 if (typeof Array.prototype.includes === 'undefined') {

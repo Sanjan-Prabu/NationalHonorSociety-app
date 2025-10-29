@@ -4,7 +4,6 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useToast } from '../../components/ui/ToastProvider';
 import { useOrganization } from '../../contexts/OrganizationContext';
@@ -14,6 +13,8 @@ import { useVolunteerHourSubmission, useVolunteerHoursRealTime, useUpdateVolunte
 import { useCurrentOrganizationId } from '../../hooks/useUserData';
 import { CreateVolunteerHourRequest, VolunteerHourData } from '../../types/dataService';
 import SearchableDropdown, { DropdownOption } from '../../components/ui/SearchableDropdown';
+import ImagePicker from '../../components/ui/ImagePicker';
+import ImageUploadService from '../../services/ImageUploadService';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -84,6 +85,9 @@ const VolunteerHoursForm = ({ navigation, route }: any) => {
   const [additionalNotes, setAdditionalNotes] = useState(initialState.additionalNotes);
   const [selectedImage, setSelectedImage] = useState<string | null>(initialState.selectedImage);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Memoize the organization ID to prevent infinite re-renders
   const organizationId = useMemo(() => currentOrgId || activeOrganization?.id || '', [currentOrgId, activeOrganization?.id]);
@@ -141,15 +145,36 @@ const VolunteerHoursForm = ({ navigation, route }: any) => {
       newErrors.notes = 'Additional notes must be 150 words or less';
     }
 
+    // Image validation (required)
+    if (!selectedImage || selectedImage === 'existing') {
+      newErrors.image = 'Proof of volunteering image is required';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async () => {
+    if (isSubmitting) return; // Prevent double submission
+    
     if (!validateForm()) {
       showValidationError('Validation Error', 'Please fill out all required fields correctly.');
       return;
     }
+
+    // Check if image is still uploading
+    if (imageUploading) {
+      showValidationError('Upload in Progress', 'Please wait for the image to finish uploading.');
+      return;
+    }
+
+    // Check for image upload errors
+    if (imageUploadError) {
+      showValidationError('Image Upload Error', 'Please resolve the image upload error before submitting.');
+      return;
+    }
+
+    setIsSubmitting(true);
 
     if (!activeOrganization?.id || !user?.id) {
       showError('Error', 'Unable to submit hours. Please try again.');
@@ -157,6 +182,35 @@ const VolunteerHoursForm = ({ navigation, route }: any) => {
     }
 
     try {
+      let imagePath: string | undefined;
+
+      // Handle image upload if a new image is selected
+      if (selectedImage && selectedImage !== 'existing') {
+        try {
+          setImageUploading(true);
+          setImageUploadError(null);
+          
+          if (!activeOrganization?.id) {
+            throw new Error('No active organization found');
+          }
+
+          const imageUploadService = ImageUploadService.getInstance();
+          imagePath = await imageUploadService.uploadPublicImage(
+            selectedImage,
+            'proof-images',
+            activeOrganization.id
+          );
+        } catch (imageError) {
+          const errorMessage = imageError instanceof Error ? imageError.message : 'Image upload failed';
+          setImageUploadError(errorMessage);
+          showError('Image Upload Failed', errorMessage);
+          setImageUploading(false);
+          return;
+        } finally {
+          setImageUploading(false);
+        }
+      }
+
       // Prepare submission data
       const submissionData: CreateVolunteerHourRequest = {
         activity_date: date?.toISOString().split('T')[0] || '', // Format as YYYY-MM-DD
@@ -165,7 +219,7 @@ const VolunteerHoursForm = ({ navigation, route }: any) => {
           `Internal Hours: ${clubEvents.find(e => e.value === selectedEvent)?.label || 'Unknown Event'}${additionalNotes ? ` - ${additionalNotes}` : ''}` :
           `External Hours: ${customEventName}${additionalNotes ? ` - ${additionalNotes}` : ''}`,
         event_id: eventType === 'internal' ? selectedEvent : undefined,
-        // TODO: Handle file upload for selectedImage and notes
+        image_url: imagePath, // Store the public URL for proof images
       };
 
       if (isEditing && editingHour) {
@@ -197,6 +251,8 @@ const VolunteerHoursForm = ({ navigation, route }: any) => {
     } catch (error) {
       console.error('Error submitting volunteer hours:', error);
       showError('Submission Error', 'Failed to submit volunteer hours. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -208,6 +264,7 @@ const VolunteerHoursForm = ({ navigation, route }: any) => {
     setHours('');
     setAdditionalNotes('');
     setSelectedImage(null);
+    setImageUploadError(null);
     setErrors({});
   };
 
@@ -218,29 +275,7 @@ const VolunteerHoursForm = ({ navigation, route }: any) => {
     }
   };
 
-  const pickImage = async () => {
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Required', 'Sorry, we need camera roll permissions to upload proof.');
-        return;
-      }
 
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
-      });
-
-      if (!result.canceled) {
-        setSelectedImage(result.assets[0].uri);
-      }
-    } catch (error) {
-      console.error('Error picking image:', error);
-      showError('Upload Error', 'Failed to select image. Please try again.');
-    }
-  };
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('en-US', {
@@ -248,6 +283,24 @@ const VolunteerHoursForm = ({ navigation, route }: any) => {
       day: '2-digit',
       year: 'numeric'
     });
+  };
+
+  const handleImageSelected = (imageUri: string) => {
+    setSelectedImage(imageUri);
+    setImageUploadError(null);
+    // Clear image validation error when image is selected
+    if (errors.image) {
+      setErrors(prev => ({ ...prev, image: '' }));
+    }
+  };
+
+  const handleImageRemoved = () => {
+    setSelectedImage(null);
+    setImageUploadError(null);
+  };
+
+  const handleImageValidationError = (error: string) => {
+    setImageUploadError(error);
   };
 
   return (
@@ -456,32 +509,34 @@ const VolunteerHoursForm = ({ navigation, route }: any) => {
 
               {/* Proof of Volunteering */}
               <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Proof of Volunteering</Text>
-                <TouchableOpacity 
-                  style={[
-                    styles.uploadButton, 
-                    selectedImage && styles.uploadButtonWithImage
-                  ]} 
-                  onPress={pickImage}
-                >
-                  <Icon name="cloud-upload" size={moderateScale(24)} color={Colors.solidBlue} />
-                  <Text style={styles.uploadButtonText}>
-                    {selectedImage ? 'Photo Selected - Tap to change' : 'Upload a photo of your signature sheet or proof'}
-                  </Text>
-                </TouchableOpacity>
-                {selectedImage && (
-                  <Text style={styles.uploadSuccessText}>✓ Proof uploaded successfully</Text>
+                <Text style={styles.inputLabel}>Proof of Volunteering (Required)</Text>
+                <ImagePicker
+                  onImageSelected={handleImageSelected}
+                  onImageRemoved={handleImageRemoved}
+                  onValidationError={handleImageValidationError}
+                  selectedImage={selectedImage === 'existing' ? undefined : selectedImage || undefined}
+                  loading={imageUploading}
+                  error={imageUploadError || undefined}
+                  placeholder="Upload a photo of your signature sheet or proof"
+                  showSuccessIndicator={false}
+                />
+                {errors.image && <Text style={styles.errorText}>{errors.image}</Text>}
+                {selectedImage === 'existing' && (
+                  <Text style={styles.existingImageText}>✓ Proof image already uploaded</Text>
                 )}
               </View>
 
               {/* Submit Button */}
               <TouchableOpacity
-                style={[styles.submitButton, (submitVolunteerHoursMutation.isPending || updateVolunteerHoursMutation.isPending) && styles.submitButtonDisabled]}
+                style={[
+                  styles.submitButton, 
+                  (submitVolunteerHoursMutation.isPending || updateVolunteerHoursMutation.isPending || imageUploading || isSubmitting) && styles.submitButtonDisabled
+                ]}
                 onPress={handleSubmit}
-                disabled={submitVolunteerHoursMutation.isPending || updateVolunteerHoursMutation.isPending}
+                disabled={submitVolunteerHoursMutation.isPending || updateVolunteerHoursMutation.isPending || imageUploading || isSubmitting}
               >
                 <Text style={styles.submitButtonText}>
-                  {(submitVolunteerHoursMutation.isPending || updateVolunteerHoursMutation.isPending) 
+                  {(submitVolunteerHoursMutation.isPending || updateVolunteerHoursMutation.isPending || isSubmitting) 
                     ? (isEditing ? 'Updating...' : 'Submitting...') 
                     : (isEditing ? 'Update Hours' : 'Submit Hours')
                   }
@@ -654,31 +709,7 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     marginTop: verticalScale(4),
   },
-  uploadButton: {
-    height: verticalScale(80),
-    borderWidth: 2,
-    borderColor: Colors.solidBlue,
-    borderStyle: 'dashed',
-    borderRadius: moderateScale(8),
-    backgroundColor: Colors.white,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: scale(16),
-  },
-  uploadButtonWithImage: {
-    height: verticalScale(80),
-    aspectRatio: 1,
-    borderStyle: 'solid',
-  },
-  uploadButtonText: {
-    fontSize: moderateScale(14),
-    color: Colors.solidBlue,
-    fontWeight: '500',
-    marginLeft: scale(8),
-    textAlign: 'center',
-  },
-  uploadSuccessText: {
+  existingImageText: {
     fontSize: moderateScale(12),
     color: Colors.successGreen,
     marginTop: verticalScale(4),

@@ -38,6 +38,7 @@ export interface CreateAnnouncementRequest {
   message?: string;
   tag?: string;
   link?: string;
+  image_url?: string;
 }
 
 export interface UpdateAnnouncementRequest {

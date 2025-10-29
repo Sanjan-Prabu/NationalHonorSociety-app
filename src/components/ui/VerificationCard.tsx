@@ -1,8 +1,9 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { VolunteerHourData } from '../../types/dataService';
+import ImageViewerModal from './ImageViewerModal';
 
 const Colors = {
   textDark: '#1A202C',
@@ -43,6 +44,7 @@ const VerificationCard: React.FC<VerificationCardProps> = ({
   isLoading = false,
   rejectionReason,
 }) => {
+  const [showImageViewer, setShowImageViewer] = useState(false);
   const getMemberInitials = (memberName?: string): string => {
     if (!memberName) return 'MU';
     const parts = memberName.split(' ');
@@ -172,9 +174,24 @@ const VerificationCard: React.FC<VerificationCardProps> = ({
 
         <View style={styles.verticalDetailSection}>
           <Text style={styles.verticalDetailLabel}>Proof of Service:</Text>
-          <Text style={styles.verticalDetailValue}>
-            {request.attachment_file_id ? 'Uploaded' : 'Not provided'}
-          </Text>
+          {(request.image_url || request.image_path) ? (
+            <TouchableOpacity
+              onPress={() => setShowImageViewer(true)}
+              style={styles.proofImageButton}
+              activeOpacity={0.8}
+            >
+              <Image
+                source={{ uri: request.image_url || request.image_path }}
+                style={styles.proofImagePreview}
+                resizeMode="cover"
+              />
+              <View style={styles.imageOverlay}>
+                <Icon name="zoom-in" size={moderateScale(20)} color="rgba(255, 255, 255, 0.8)" />
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <Text style={styles.verticalDetailValue}>Not provided</Text>
+          )}
         </View>
       </View>
 
@@ -225,6 +242,15 @@ const VerificationCard: React.FC<VerificationCardProps> = ({
             </TouchableOpacity>
           )}
         </View>
+      )}
+
+      {/* Image Viewer Modal */}
+      {showImageViewer && (request.image_url || request.image_path) && (
+        <ImageViewerModal
+          imageUrl={request.image_url || request.image_path || ''}
+          visible={showImageViewer}
+          onClose={() => setShowImageViewer(false)}
+        />
       )}
     </View>
   );
@@ -492,6 +518,29 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(14),
     color: Colors.textDark,
     fontWeight: '500',
+  },
+  proofImageButton: {
+    position: 'relative',
+    marginTop: verticalScale(8),
+    alignSelf: 'stretch',
+    width: '100%',
+  },
+  proofImagePreview: {
+    width: '100%',
+    height: verticalScale(120),
+    borderRadius: moderateScale(8),
+    backgroundColor: Colors.dividerColor,
+  },
+  imageOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderRadius: moderateScale(8),
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

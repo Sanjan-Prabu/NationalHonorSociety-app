@@ -59,16 +59,43 @@ const MemberVolunteerHoursScreen: React.FC<MemberVolunteerHoursScreenProps> = ({
 
   const deleteVolunteerHoursMutation = useDeleteVolunteerHours();
 
-  // Filter volunteer hours by status
+  // Filter and sort volunteer hours by status
   const { pendingHours, approvedHours, rejectedHours } = useMemo(() => {
     if (!volunteerHours) {
       return { pendingHours: [], approvedHours: [], rejectedHours: [] };
     }
 
+    // Sort verified hours by verification date (most recently approved first)
+    const approved = volunteerHours
+      .filter(hour => hour.status === 'verified')
+      .sort((a, b) => {
+        const dateA = new Date(a.verified_at || a.submitted_at).getTime();
+        const dateB = new Date(b.verified_at || b.submitted_at).getTime();
+        return dateB - dateA; // Most recent first
+      });
+
+    // Sort pending hours by submission date (most recently submitted first)
+    const pending = volunteerHours
+      .filter(hour => hour.status === 'pending')
+      .sort((a, b) => {
+        const dateA = new Date(a.submitted_at).getTime();
+        const dateB = new Date(b.submitted_at).getTime();
+        return dateB - dateA; // Most recent first
+      });
+
+    // Sort rejected hours by verification date (most recently rejected first)
+    const rejected = volunteerHours
+      .filter(hour => hour.status === 'rejected')
+      .sort((a, b) => {
+        const dateA = new Date(a.verified_at || a.submitted_at).getTime();
+        const dateB = new Date(b.verified_at || b.submitted_at).getTime();
+        return dateB - dateA; // Most recent first
+      });
+
     return {
-      pendingHours: volunteerHours.filter(hour => hour.status === 'pending'),
-      approvedHours: volunteerHours.filter(hour => hour.status === 'verified'),
-      rejectedHours: volunteerHours.filter(hour => hour.status === 'rejected'),
+      pendingHours: pending,
+      approvedHours: approved,
+      rejectedHours: rejected,
     };
   }, [volunteerHours]);
 
@@ -324,7 +351,7 @@ const MemberVolunteerHoursScreen: React.FC<MemberVolunteerHoursScreenProps> = ({
                     style={styles.emptyStateButton} 
                     onPress={handleAddVolunteerHours}
                   >
-                    <Text style={styles.emptyStateButtonText}>Log Your First Hours</Text>
+                    <Text style={styles.emptyStateButtonText}>Log Your Hours</Text>
                   </TouchableOpacity>
                 )}
               </View>

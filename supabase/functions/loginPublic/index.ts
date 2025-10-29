@@ -1,4 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -9,14 +9,14 @@ if (!supabaseUrl || !supabaseServiceKey) {
 }
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: { 
+  auth: {
     persistSession: false,
     autoRefreshToken: false,
     detectSessionInUrl: false
   }
 });
 
-serve(async (req: Request) => {
+Deno.serve(async (req: Request) => {
   // CORS
   if (req.method === "OPTIONS") {
     return new Response(null, {
@@ -36,12 +36,12 @@ serve(async (req: Request) => {
     if (!email || !password) {
       return new Response(
         JSON.stringify({ success: false, error: "Email and password required" }),
-        { 
-          status: 400, 
-          headers: { 
+        {
+          status: 400,
+          headers: {
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",
-          } 
+          }
         }
       );
     }
@@ -55,16 +55,16 @@ serve(async (req: Request) => {
     if (error || !data.user) {
       console.log("Login failed:", error);
       return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: error?.message || "Login failed" 
+        JSON.stringify({
+          success: false,
+          error: error?.message || "Login failed"
         }),
-        { 
-          status: 401, 
-          headers: { 
+        {
+          status: 401,
+          headers: {
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",
-          } 
+          }
         }
       );
     }
@@ -93,16 +93,16 @@ serve(async (req: Request) => {
     if (profileError || !profileData) {
       console.log("Profile fetch failed:", profileError);
       return new Response(
-        JSON.stringify({ 
-          success: false, 
-          error: "User profile not found" 
+        JSON.stringify({
+          success: false,
+          error: "User profile not found"
         }),
-        { 
-          status: 404, 
-          headers: { 
+        {
+          status: 404,
+          headers: {
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",
-          } 
+          }
         }
       );
     }
@@ -110,30 +110,30 @@ serve(async (req: Request) => {
     console.log("Login successful for:", email);
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
+      JSON.stringify({
+        success: true,
         user: data.user,
         session: data.session,
         profile: profileData
       }),
-      { 
+      {
         status: 200,
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           "Access-Control-Allow-Origin": "*",
-        } 
+        }
       }
     );
   } catch (err: any) {
     console.error("Login error:", err);
     return new Response(
       JSON.stringify({ success: false, error: err.message }),
-      { 
-        status: 500, 
-        headers: { 
+      {
+        status: 500,
+        headers: {
           "Content-Type": "application/json",
           "Access-Control-Allow-Origin": "*",
-        } 
+        }
       }
     );
   }

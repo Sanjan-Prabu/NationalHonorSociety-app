@@ -49,6 +49,7 @@ export interface CreateEventRequest {
   capacity?: number;
   category?: string;
   link?: string;
+  image_url?: string;
 }
 
 export interface UpdateEventRequest {

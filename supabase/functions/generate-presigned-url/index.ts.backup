@@ -1,0 +1,1135 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { S3Client, GetObjectCommand } from 'https://esm.sh/@aws-sdk/client-s3@3'
+import { getSignedUrl } from 'https://esm.sh/@aws-sdk/s3-request-presigner@3'
+
+// Logging and monitoring interfaces
+interface SecurityEvent {
+  type: 'PERMISSION_DENIED' | 'IMAGE_NOT_FOUND' | 'INVALID_REQUEST' | 'ACCESS_GRANTED';
+  timestamp: string;
+  ip: string;
+  userAgent?: string | null;
+  userId?: string | null;
+  details?: Record<string, any>;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+}
+
+interface AuditEvent {
+  type: 'IMAGE_ACCESS' | 'PERMISSION_CHECK' | 'SYSTEM_ERROR';
+  timestamp: string;
+  userId?: string | null;
+  ip: string;
+  userAgent?: string | null;
+  action: string;
+  result: 'SUCCESS' | 'FAILURE' | 'BLOCKED';
+  details?: Record<string, any>;
+}
+
+// Enhanced logging class for structured logging
+class PresignedUrlLogger {
+  private static instance: PresignedUrlLogger;
+  private requestId: string;
+
+  constructor(requestId?: string) {
+    this.requestId = requestId || crypto.randomUUID();
+  }
+
+  static getInstance(requestId?: string): PresignedUrlLogger {
+    if (!PresignedUrlLogger.instance || requestId) {
+      PresignedUrlLogger.instance = new PresignedUrlLogger(requestId);
+    }
+    return PresignedUrlLogger.instance;
+  }
+
+  // Security event logging
+  logSecurityEvent(event: Omit<SecurityEvent, 'timestamp'>): void {
+    const securityEvent: SecurityEvent = {
+      ...event,
+      timestamp: new Date().toISOString()
+    };
+
+    console.log(JSON.stringify({
+      level: 'SECURITY',
+      requestId: this.requestId,
+      event: securityEvent,
+      component: 'generate-presigned-url'
+    }));
+
+    // Additional alerting for critical events
+    if (event.severity === 'CRITICAL') {
+      console.error(JSON.stringify({
+        level: 'ALERT',
+        requestId: this.requestId,
+        message: 'CRITICAL SECURITY EVENT',
+        event: securityEvent
+      }));
+    }
+  }
+
+  // Audit logging for compliance
+  logAuditEvent(event: Omit<AuditEvent, 'timestamp'>): void {
+    const auditEvent: AuditEvent = {
+      ...event,
+      timestamp: new Date().toISOString()
+    };
+
+    console.log(JSON.stringify({
+      level: 'AUDIT',
+      requestId: this.requestId,
+      event: auditEvent,
+      component: 'generate-presigned-url'
+    }));
+  }
+
+  // Error tracking with context
+  logError(error: Error | string, context?: Record<string, any>): void {
+    const errorDetails = {
+      message: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+      context,
+      timestamp: new Date().toISOString()
+    };
+
+    console.error(JSON.stringify({
+      level: 'ERROR',
+      requestId: this.requestId,
+      error: errorDetails,
+      component: 'generate-presigned-url'
+    }));
+  }
+
+  // General info logging
+  logInfo(message: string, metadata?: Record<string, any>): void {
+    console.log(JSON.stringify({
+      level: 'INFO',
+      requestId: this.requestId,
+      message,
+      metadata,
+      timestamp: new Date().toISOString(),
+      component: 'generate-presigned-url'
+    }));
+  }
+
+  // Debug logging (only in development)
+  logDebug(message: string, data?: any): void {
+    const isDevelopment = Deno.env.get('ENVIRONMENT') !== 'production';
+    if (isDevelopment) {
+      console.log(JSON.stringify({
+        level: 'DEBUG',
+        requestId: this.requestId,
+        message,
+        data,
+        timestamp: new Date().toISOString(),
+        component: 'generate-presigned-url'
+      }));
+    }
+  }
+}
+
+// Initialize Supabase clients
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+const supabaseServiceRole = createClient(supabaseUrl, supabaseServiceRoleKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+});
+
+// R2 Configuration
+interface R2Config {
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  endpoint: string;
+  privateBucketName: string;
+}
+
+function loadR2Config(): R2Config {
+  // Temporary fix: Use hardcoded values since Supabase function doesn't have env vars
+  // TODO: Set these as Supabase function environment variables
+  console.log('🔧 Loading R2 configuration...');
+  
+  const config = {
+    accountId: Deno.env.get('R2_ACCOUNT_ID') || '147322994f8cbee5b63de04ff2919a74',
+    accessKeyId: Deno.env.get('R2_ACCESS_KEY_ID') || '460f3a09c7b80d16199a5f0828671670',
+    secretAccessKey: Deno.env.get('R2_SECRET_ACCESS_KEY') || '8227bedfc2ac9582f5e85bac61ec17e5f9bd3bbf0e92d5f899ca1f33cb2aff5f',
+    endpoint: Deno.env.get('R2_ENDPOINT') || 'https://147322994f8cbee5b63de04ff2919a74.r2.cloudflarestorage.com',
+    privateBucketName: Deno.env.get('R2_PRIVATE_BUCKET_NAME') || 'nhs-app-private-dev'
+  };
+
+  console.log('✅ R2 configuration loaded:', {
+    accountId: config.accountId.substring(0, 8) + '...',
+    endpoint: config.endpoint,
+    privateBucketName: config.privateBucketName
+  });
+
+  return config;
+}
+
+// Initialize S3 client for R2
+let s3Client: S3Client | null = null;
+
+function getS3Client(): S3Client {
+  if (s3Client) {
+    return s3Client;
+  }
+
+  const config = loadR2Config();
+
+  s3Client = new S3Client({
+    region: 'auto', // Cloudflare R2 uses 'auto' region
+    endpoint: config.endpoint,
+    credentials: {
+      accessKeyId: config.accessKeyId,
+      secretAccessKey: config.secretAccessKey
+    },
+    // Force path-style addressing for R2 compatibility
+    forcePathStyle: true
+  });
+
+  return s3Client;
+}
+
+// Request and response interfaces
+interface PresignedUrlRequest {
+  imagePath: string;
+}
+
+interface PresignedUrlResponse {
+  presignedUrl: string;
+  expiresAt: string;
+}
+
+interface PresignedUrlError {
+  error: string;
+  code: 'PERMISSION_DENIED' | 'IMAGE_NOT_FOUND' | 'INVALID_REQUEST' | 'SERVICE_UNAVAILABLE';
+}
+
+// CORS headers for cross-origin requests
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*', // TODO: Restrict to app domains in production
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
+// Utility functions
+function getClientIP(req: Request): string {
+  // Try various headers for IP detection
+  const forwarded = req.headers.get('x-forwarded-for');
+  const realIP = req.headers.get('x-real-ip');
+  const cfConnectingIP = req.headers.get('cf-connecting-ip');
+  
+  if (forwarded) {
+    return forwarded.split(',')[0].trim();
+  }
+  if (realIP) {
+    return realIP.trim();
+  }
+  if (cfConnectingIP) {
+    return cfConnectingIP.trim();
+  }
+  
+  return 'unknown';
+}
+
+function sanitizeString(input: string): string {
+  return input.trim().replace(/[<>'"&]/g, '');
+}
+
+// Input validation function
+function validatePresignedUrlRequest(body: any): { isValid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  // Check if body exists and is an object
+  if (!body || typeof body !== 'object') {
+    errors.push('Invalid request format');
+    return { isValid: false, errors };
+  }
+
+  // Validate imagePath
+  if (!body.imagePath) {
+    errors.push('imagePath is required');
+  } else if (typeof body.imagePath !== 'string') {
+    errors.push('imagePath must be a string');
+  } else {
+    const sanitizedPath = sanitizeString(body.imagePath);
+    if (!sanitizedPath) {
+      errors.push('imagePath cannot be empty');
+    } else if (sanitizedPath.length > 500) {
+      errors.push('imagePath is too long');
+    } else if (!sanitizedPath.startsWith('volunteer-hours/')) {
+      errors.push('Invalid imagePath format - must be volunteer hours image');
+    } else {
+      // Additional validation for path structure
+      const pathParts = sanitizedPath.split('/');
+      if (pathParts.length !== 4) {
+        errors.push('Invalid imagePath structure');
+      } else {
+        // Validate UUID format for org_id and user_id
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(pathParts[1])) {
+          errors.push('Invalid organization ID format in path');
+        }
+        if (!uuidRegex.test(pathParts[2])) {
+          errors.push('Invalid user ID format in path');
+        }
+      }
+    }
+  }
+
+  // Check for unexpected fields (prevent injection)
+  const allowedFields = ['imagePath'];
+  const bodyKeys = Object.keys(body);
+  const unexpectedFields = bodyKeys.filter(key => !allowedFields.includes(key));
+  if (unexpectedFields.length > 0) {
+    errors.push('Invalid request fields');
+  }
+
+  return { isValid: errors.length === 0, errors };
+}
+
+// Extract user ID from JWT token
+async function extractUserFromToken(authHeader: string | null, logger: PresignedUrlLogger): Promise<{ userId: string | null; error: string | null }> {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    logger.logSecurityEvent({
+      type: 'INVALID_REQUEST',
+      ip: 'unknown',
+      severity: 'MEDIUM',
+      details: { reason: 'MISSING_OR_INVALID_AUTH_HEADER' }
+    });
+    return { userId: null, error: 'Missing or invalid authorization header' };
+  }
+
+  const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+
+  try {
+    // Verify the JWT token using Supabase
+    const { data: { user }, error } = await supabaseServiceRole.auth.getUser(token);
+    
+    if (error || !user) {
+      logger.logSecurityEvent({
+        type: 'INVALID_REQUEST',
+        ip: 'unknown',
+        severity: 'MEDIUM',
+        details: { 
+          reason: 'INVALID_TOKEN',
+          error: error?.message 
+        }
+      });
+      return { userId: null, error: 'Invalid or expired token' };
+    }
+
+    logger.logDebug('User extracted from token', { userId: user.id });
+    return { userId: user.id, error: null };
+
+  } catch (error) {
+    logger.logError('Token verification failed', {
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+    return { userId: null, error: 'Token verification failed' };
+  }
+}
+
+// Parse image path to extract organization and user information
+function parseImagePath(imagePath: string): { orgId: string | null; imageUserId: string | null; error: string | null } {
+  // Expected format: volunteer-hours/{org_id}/{user_id}/{timestamp}-{randomString}.jpg
+  const pathParts = imagePath.split('/');
+  
+  if (pathParts.length !== 4 || pathParts[0] !== 'volunteer-hours') {
+    return { orgId: null, imageUserId: null, error: 'Invalid image path format' };
+  }
+
+  const orgId = pathParts[1];
+  const imageUserId = pathParts[2];
+
+  // Basic validation of UUID format (simplified)
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  
+  if (!uuidRegex.test(orgId)) {
+    return { orgId: null, imageUserId: null, error: 'Invalid organization ID format' };
+  }
+
+  if (!uuidRegex.test(imageUserId)) {
+    return { orgId: null, imageUserId: null, error: 'Invalid user ID format' };
+  }
+
+  return { orgId, imageUserId, error: null };
+}
+
+// Verify user has permission to access the image
+async function verifyImageAccess(
+  requestingUserId: string, 
+  imagePath: string, 
+  logger: PresignedUrlLogger
+): Promise<{ hasAccess: boolean; error: string | null }> {
+  
+  // Parse the image path to get organization and user info
+  const { orgId, imageUserId, error: parseError } = parseImagePath(imagePath);
+  
+  if (parseError || !orgId || !imageUserId) {
+    logger.logSecurityEvent({
+      type: 'INVALID_REQUEST',
+      ip: 'unknown',
+      userId: requestingUserId,
+      severity: 'MEDIUM',
+      details: { 
+        reason: 'INVALID_IMAGE_PATH',
+        imagePath,
+        parseError 
+      }
+    });
+    return { hasAccess: false, error: parseError || 'Invalid image path' };
+  }
+
+  try {
+    // Get requesting user's profile to check organization and role
+    const { data: requestingUserProfile, error: profileError } = await supabaseServiceRole
+      .from('profiles')
+      .select('org_id, role, organization')
+      .eq('id', requestingUserId)
+      .single();
+
+    if (profileError || !requestingUserProfile) {
+      logger.logSecurityEvent({
+        type: 'PERMISSION_DENIED',
+        ip: 'unknown',
+        userId: requestingUserId,
+        severity: 'HIGH',
+        details: { 
+          reason: 'USER_PROFILE_NOT_FOUND',
+          error: profileError?.message 
+        }
+      });
+      return { hasAccess: false, error: 'User profile not found' };
+    }
+
+    // Check if user belongs to the same organization as the image
+    if (requestingUserProfile.org_id !== orgId) {
+      logger.logSecurityEvent({
+        type: 'PERMISSION_DENIED',
+        ip: 'unknown',
+        userId: requestingUserId,
+        severity: 'HIGH',
+        details: { 
+          reason: 'CROSS_ORGANIZATION_ACCESS_ATTEMPT',
+          requestingUserOrgId: requestingUserProfile.org_id,
+          imageOrgId: orgId,
+          imagePath
+        }
+      });
+      return { hasAccess: false, error: 'You do not have permission to view this image' };
+    }
+
+    // Allow access if:
+    // 1. User is viewing their own image, OR
+    // 2. User is an officer in the same organization
+    const isOwnImage = requestingUserId === imageUserId;
+    const isOfficer = requestingUserProfile.role === 'officer';
+
+    if (isOwnImage || isOfficer) {
+      logger.logSecurityEvent({
+        type: 'ACCESS_GRANTED',
+        ip: 'unknown',
+        userId: requestingUserId,
+        severity: 'LOW',
+        details: { 
+          reason: isOwnImage ? 'OWN_IMAGE_ACCESS' : 'OFFICER_ACCESS',
+          imageOrgId: orgId,
+          imageUserId,
+          imagePath
+        }
+      });
+
+      logger.logAuditEvent({
+        type: 'IMAGE_ACCESS',
+        userId: requestingUserId,
+        ip: 'unknown',
+        action: 'PERMISSION_GRANTED',
+        result: 'SUCCESS',
+        details: {
+          imagePath,
+          accessType: isOwnImage ? 'own_image' : 'officer_access',
+          imageOrgId: orgId,
+          imageUserId
+        }
+      });
+
+      return { hasAccess: true, error: null };
+    }
+
+    // Access denied - user is not owner and not officer
+    logger.logSecurityEvent({
+      type: 'PERMISSION_DENIED',
+      ip: 'unknown',
+      userId: requestingUserId,
+      severity: 'MEDIUM',
+      details: { 
+        reason: 'INSUFFICIENT_PERMISSIONS',
+        userRole: requestingUserProfile.role,
+        isOwnImage,
+        isOfficer,
+        imagePath
+      }
+    });
+
+    logger.logAuditEvent({
+      type: 'PERMISSION_CHECK',
+      userId: requestingUserId,
+      ip: 'unknown',
+      action: 'ACCESS_DENIED',
+      result: 'BLOCKED',
+      details: {
+        imagePath,
+        reason: 'insufficient_permissions',
+        userRole: requestingUserProfile.role
+      }
+    });
+
+    return { hasAccess: false, error: 'You do not have permission to view this image' };
+
+  } catch (error) {
+    logger.logError('Permission verification failed', {
+      userId: requestingUserId,
+      imagePath,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+
+    logger.logSecurityEvent({
+      type: 'PERMISSION_DENIED',
+      ip: 'unknown',
+      userId: requestingUserId,
+      severity: 'HIGH',
+      details: { 
+        reason: 'PERMISSION_CHECK_ERROR',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    });
+
+    return { hasAccess: false, error: 'Permission verification failed' };
+  }
+}
+
+// Generate presigned URL for R2 object
+async function generatePresignedUrl(imagePath: string, logger: PresignedUrlLogger): Promise<{ url: string | null; error: string | null }> {
+  try {
+    const config = loadR2Config();
+    const s3Client = getS3Client();
+
+    // Create the GetObject command
+    const command = new GetObjectCommand({
+      Bucket: config.privateBucketName,
+      Key: imagePath
+    });
+
+    // Generate presigned URL with 1-hour expiration
+    const expiresIn = 3600; // 1 hour in seconds
+    const presignedUrl = await getSignedUrl(s3Client, command, { expiresIn });
+
+    logger.logInfo('Presigned URL generated successfully', {
+      imagePath,
+      expiresIn
+    });
+
+    return { url: presignedUrl, error: null };
+
+  } catch (error) {
+    logger.logError('Failed to generate presigned URL', {
+      imagePath,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+
+    return { url: null, error: 'Failed to generate presigned URL' };
+  }
+}
+
+// Enhanced error response with comprehensive logging and rate limiting
+function createErrorResponse(
+  message: string, 
+  code: PresignedUrlError['code'],
+  status: number, 
+  logger: PresignedUrlLogger,
+  req?: Request, 
+  additionalInfo?: any
+): Response {
+  const response: PresignedUrlError = {
+    error: message,
+    code
+  };
+
+  const clientIP = req ? getClientIP(req) : 'unknown';
+  const userAgent = req?.headers.get('user-agent');
+
+  // Enhanced error logging with context
+  const errorContext = {
+    ip: clientIP,
+    userAgent,
+    userId: additionalInfo?.userId,
+    timestamp: new Date().toISOString(),
+    requestId: logger['requestId'],
+    ...additionalInfo
+  };
+
+  // Log error with appropriate severity and additional context
+  if (status === 403) {
+    logger.logSecurityEvent({
+      type: 'PERMISSION_DENIED',
+      ip: clientIP,
+      userAgent,
+      userId: additionalInfo?.userId,
+      severity: 'HIGH',
+      details: errorContext
+    });
+  } else if (status === 404) {
+    logger.logSecurityEvent({
+      type: 'IMAGE_NOT_FOUND',
+      ip: clientIP,
+      userAgent,
+      userId: additionalInfo?.userId,
+      severity: 'MEDIUM',
+      details: errorContext
+    });
+  } else if (status === 400) {
+    logger.logSecurityEvent({
+      type: 'INVALID_REQUEST',
+      ip: clientIP,
+      userAgent,
+      severity: 'LOW',
+      details: errorContext
+    });
+  } else if (status >= 500) {
+    logger.logSecurityEvent({
+      type: 'INVALID_REQUEST', // Using existing type for server errors
+      ip: clientIP,
+      userAgent,
+      userId: additionalInfo?.userId,
+      severity: 'CRITICAL',
+      details: { ...errorContext, serverError: true }
+    });
+  }
+
+  // Add rate limiting headers for client guidance
+  const headers: Record<string, string> = {
+    ...corsHeaders,
+    'Content-Type': 'application/json',
+    'X-Request-ID': logger['requestId'] || 'unknown'
+  };
+
+  // Add retry-after header for rate limiting and server errors
+  if (status === 429) {
+    headers['Retry-After'] = '60'; // 1 minute
+  } else if (status >= 500) {
+    headers['Retry-After'] = '30'; // 30 seconds for server errors
+  }
+
+  return new Response(
+    JSON.stringify(response),
+    {
+      status,
+      headers
+    }
+  );
+}
+
+// Rate limiting storage (in production, use Redis or similar)
+const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT_WINDOW = 60000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 30; // 30 requests per minute per IP
+
+// Rate limiting function
+function checkRateLimit(clientIP: string): { allowed: boolean; resetTime?: number } {
+  const now = Date.now();
+  const key = `rate_limit:${clientIP}`;
+  
+  const existing = rateLimitStore.get(key);
+  
+  if (!existing || now > existing.resetTime) {
+    // Reset or create new rate limit entry
+    rateLimitStore.set(key, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+    return { allowed: true };
+  }
+  
+  if (existing.count >= RATE_LIMIT_MAX_REQUESTS) {
+    return { allowed: false, resetTime: existing.resetTime };
+  }
+  
+  // Increment count
+  existing.count++;
+  rateLimitStore.set(key, existing);
+  
+  return { allowed: true };
+}
+
+// Cleanup old rate limit entries periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of rateLimitStore.entries()) {
+    if (now > value.resetTime) {
+      rateLimitStore.delete(key);
+    }
+  }
+}, RATE_LIMIT_WINDOW);
+
+// Main function handler with enhanced error handling
+serve(async (req) => {
+  console.log('🚀 Presigned URL function called');
+  
+  // Initialize logging for this request
+  const requestId = crypto.randomUUID();
+  const logger = PresignedUrlLogger.getInstance(requestId);
+  
+  const clientIP = getClientIP(req);
+  const userAgent = req.headers.get('user-agent') || undefined;
+  
+  // Log incoming request with enhanced context
+  logger.logInfo('Incoming presigned URL request', {
+    method: req.method,
+    ip: clientIP,
+    userAgent,
+    url: req.url,
+    timestamp: new Date().toISOString(),
+    headers: {
+      'content-type': req.headers.get('content-type'),
+      'authorization': req.headers.get('authorization') ? 'Bearer [REDACTED]' : 'none'
+    }
+  });
+  
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    logger.logInfo('CORS preflight request handled', { ip: clientIP });
+    return new Response('ok', { 
+      headers: corsHeaders,
+      status: 200
+    });
+  }
+
+  // Only allow POST requests
+  if (req.method !== 'POST') {
+    logger.logSecurityEvent({
+      type: 'INVALID_REQUEST',
+      ip: clientIP,
+      userAgent,
+      severity: 'LOW',
+      details: { reason: 'INVALID_METHOD', method: req.method }
+    });
+    return createErrorResponse('Method not allowed', 'INVALID_REQUEST', 405, logger, req);
+  }
+
+  // Check rate limiting
+  const rateLimitResult = checkRateLimit(clientIP);
+  if (!rateLimitResult.allowed) {
+    logger.logSecurityEvent({
+      type: 'INVALID_REQUEST',
+      ip: clientIP,
+      userAgent,
+      severity: 'MEDIUM',
+      details: { 
+        reason: 'RATE_LIMIT_EXCEEDED',
+        resetTime: rateLimitResult.resetTime 
+      }
+    });
+    
+    const response = createErrorResponse(
+      'Rate limit exceeded. Please try again later.',
+      'INVALID_REQUEST',
+      429,
+      logger,
+      req,
+      { resetTime: rateLimitResult.resetTime }
+    );
+    
+    // Add rate limit headers
+    response.headers.set('X-RateLimit-Limit', RATE_LIMIT_MAX_REQUESTS.toString());
+    response.headers.set('X-RateLimit-Remaining', '0');
+    response.headers.set('X-RateLimit-Reset', Math.ceil((rateLimitResult.resetTime || Date.now()) / 1000).toString());
+    
+    return response;
+  }
+
+  try {
+    // Add request timeout
+    const requestTimeout = setTimeout(() => {
+      logger.logError('Request timeout exceeded', {
+        ip: clientIP,
+        userAgent,
+        timeout: '30s'
+      });
+    }, 30000);
+
+    try {
+      // Extract user from authorization header with enhanced error handling
+      const authHeader = req.headers.get('authorization');
+      const { userId, error: authError } = await extractUserFromToken(authHeader, logger);
+      
+      if (authError || !userId) {
+        return createErrorResponse(
+          authError || 'Authentication required', 
+          'INVALID_REQUEST', 
+          401, 
+          logger, 
+          req,
+          { authError, hasAuthHeader: !!authHeader }
+        );
+      }
+
+      // Parse request body with enhanced validation and size limit
+      let body: any;
+      let requestText: string;
+      
+      try {
+        // Read request body with timeout
+        const bodyPromise = req.text();
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Body read timeout')), 10000);
+        });
+        
+        requestText = await Promise.race([bodyPromise, timeoutPromise]);
+        
+        // Validate request size
+        if (requestText.length > 1000) { // 1KB limit for presigned URL requests
+          logger.logSecurityEvent({
+            type: 'INVALID_REQUEST',
+            ip: clientIP,
+            userAgent,
+            userId,
+            severity: 'MEDIUM',
+            details: { reason: 'REQUEST_TOO_LARGE', size: requestText.length }
+          });
+          return createErrorResponse(
+            'Request body too large', 
+            'INVALID_REQUEST', 
+            413, 
+            logger, 
+            req, 
+            { userId, bodySize: requestText.length }
+          );
+        }
+
+        // Validate request is not empty
+        if (!requestText.trim()) {
+          logger.logSecurityEvent({
+            type: 'INVALID_REQUEST',
+            ip: clientIP,
+            userAgent,
+            userId,
+            severity: 'LOW',
+            details: { reason: 'EMPTY_REQUEST_BODY' }
+          });
+          return createErrorResponse(
+            'Request body cannot be empty', 
+            'INVALID_REQUEST', 
+            400, 
+            logger, 
+            req, 
+            { userId }
+          );
+        }
+
+        // Parse JSON with error handling
+        try {
+          body = JSON.parse(requestText);
+        } catch (parseError) {
+          logger.logSecurityEvent({
+            type: 'INVALID_REQUEST',
+            ip: clientIP,
+            userAgent,
+            userId,
+            severity: 'LOW',
+            details: { 
+              reason: 'INVALID_JSON', 
+              error: parseError instanceof Error ? parseError.message : 'Unknown',
+              bodyPreview: requestText.substring(0, 100)
+            }
+          });
+          return createErrorResponse(
+            'Invalid JSON in request body', 
+            'INVALID_REQUEST', 
+            400, 
+            logger, 
+            req, 
+            { userId, parseError: parseError instanceof Error ? parseError.message : 'Unknown' }
+          );
+        }
+      } catch (bodyError) {
+        if (bodyError instanceof Error && bodyError.message === 'Body read timeout') {
+          logger.logSecurityEvent({
+            type: 'INVALID_REQUEST',
+            ip: clientIP,
+            userAgent,
+            userId,
+            severity: 'MEDIUM',
+            details: { reason: 'BODY_READ_TIMEOUT' }
+          });
+          return createErrorResponse(
+            'Request timeout while reading body', 
+            'INVALID_REQUEST', 
+            408, 
+            logger, 
+            req, 
+            { userId }
+          );
+        }
+        
+        logger.logError('Failed to read request body', {
+          error: bodyError instanceof Error ? bodyError.message : 'Unknown',
+          userId,
+          ip: clientIP
+        });
+        return createErrorResponse(
+          'Failed to read request body', 
+          'INVALID_REQUEST', 
+          400, 
+          logger, 
+          req, 
+          { userId, bodyError: bodyError instanceof Error ? bodyError.message : 'Unknown' }
+        );
+      } finally {
+        clearTimeout(requestTimeout);
+      }
+
+      // Validate input with enhanced error reporting
+      const validation = validatePresignedUrlRequest(body);
+      if (!validation.isValid) {
+        logger.logSecurityEvent({
+          type: 'INVALID_REQUEST',
+          ip: clientIP,
+          userAgent,
+          userId,
+          severity: 'LOW',
+          details: { 
+            reason: 'INPUT_VALIDATION', 
+            errors: validation.errors,
+            bodyKeys: Object.keys(body || {})
+          }
+        });
+        return createErrorResponse(
+          'Invalid request format', 
+          'INVALID_REQUEST', 
+          400, 
+          logger, 
+          req, 
+          { userId, errors: validation.errors, bodyKeys: Object.keys(body || {}) }
+        );
+      }
+
+      const imagePath = sanitizeString(body.imagePath);
+
+      // Enhanced permission verification with detailed logging
+      const { hasAccess, error: accessError } = await verifyImageAccess(userId, imagePath, logger);
+      
+      if (!hasAccess) {
+        return createErrorResponse(
+          accessError || 'You do not have permission to view this image', 
+          'PERMISSION_DENIED', 
+          403, 
+          logger, 
+          req, 
+          { userId, imagePath, accessError }
+        );
+      }
+
+      // Generate presigned URL with enhanced error handling
+      const { url, error: urlError } = await generatePresignedUrl(imagePath, logger);
+      
+      if (urlError || !url) {
+        // Determine appropriate error code based on the error type
+        let errorCode: PresignedUrlError['code'] = 'SERVICE_UNAVAILABLE';
+        let statusCode = 500;
+        let userMessage = 'Unable to load image. Please try again later.';
+        
+        if (urlError) {
+          const errorMessage = urlError.toLowerCase();
+          if (errorMessage.includes('not found') || errorMessage.includes('no such key')) {
+            errorCode = 'IMAGE_NOT_FOUND';
+            statusCode = 404;
+            userMessage = 'The requested image could not be found.';
+          } else if (errorMessage.includes('access denied') || errorMessage.includes('forbidden')) {
+            errorCode = 'PERMISSION_DENIED';
+            statusCode = 403;
+            userMessage = 'Access to this image is not allowed.';
+          } else if (errorMessage.includes('timeout')) {
+            userMessage = 'Request timed out. Please try again.';
+          }
+        }
+        
+        logger.logSecurityEvent({
+          type: 'IMAGE_NOT_FOUND',
+          ip: clientIP,
+          userAgent,
+          userId,
+          severity: statusCode === 404 ? 'MEDIUM' : 'HIGH',
+          details: { 
+            reason: 'PRESIGNED_URL_GENERATION_FAILED',
+            imagePath,
+            error: urlError,
+            errorCode,
+            statusCode
+          }
+        });
+        
+        return createErrorResponse(
+          userMessage, 
+          errorCode, 
+          statusCode, 
+          logger, 
+          req, 
+          { userId, imagePath, urlError }
+        );
+      }
+
+      // Validate generated URL
+      try {
+        new URL(url);
+      } catch (urlValidationError) {
+        logger.logError('Generated presigned URL is invalid', {
+          userId,
+          imagePath,
+          url: url.substring(0, 50) + '...',
+          error: urlValidationError instanceof Error ? urlValidationError.message : 'Unknown'
+        });
+        
+        return createErrorResponse(
+          'Generated image URL is invalid. Please try again later.', 
+          'SERVICE_UNAVAILABLE', 
+          500, 
+          logger, 
+          req, 
+          { userId, imagePath }
+        );
+      }
+
+      // Calculate expiration time (1 hour from now)
+      const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();
+
+      const response: PresignedUrlResponse = {
+        presignedUrl: url,
+        expiresAt
+      };
+
+      logger.logInfo('Presigned URL request completed successfully', {
+        userId,
+        imagePath,
+        expiresAt,
+        urlLength: url.length
+      });
+
+      logger.logAuditEvent({
+        type: 'IMAGE_ACCESS',
+        userId,
+        ip: clientIP,
+        userAgent,
+        action: 'PRESIGNED_URL_GENERATED',
+        result: 'SUCCESS',
+        details: {
+          imagePath,
+          expiresAt,
+          urlGenerated: true
+        }
+      });
+
+      return new Response(
+        JSON.stringify(response),
+        {
+          status: 200,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+            'X-Request-ID': requestId,
+            'Cache-Control': 'no-cache, no-store, must-revalidate'
+          }
+        }
+      );
+    } catch (innerError) {
+      // Handle any errors that occurred during the main processing
+      logger.logError('Error during request processing', {
+        error: innerError instanceof Error ? innerError.message : 'Unknown',
+        stack: innerError instanceof Error ? innerError.stack : undefined,
+        userId: userId || 'unknown',
+        ip: clientIP
+      });
+      
+      return createErrorResponse(
+        'Internal processing error', 
+        'SERVICE_UNAVAILABLE', 
+        500, 
+        logger, 
+        req, 
+        { 
+          processingError: innerError instanceof Error ? innerError.message : 'Unknown',
+          userId: userId || 'unknown'
+        }
+      );
+    }
+
+  } catch (error) {
+    // Log detailed error for debugging with enhanced context
+    const errorDetails = {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      name: error instanceof Error ? error.name : 'UnknownError',
+      ip: clientIP,
+      userAgent,
+      timestamp: new Date().toISOString(),
+      requestId,
+      url: req.url,
+      method: req.method
+    };
+
+    logger.logError('Unhandled error in request processing', errorDetails);
+
+    logger.logAuditEvent({
+      type: 'SYSTEM_ERROR',
+      ip: clientIP,
+      userAgent,
+      action: 'REQUEST_PROCESSING',
+      result: 'FAILURE',
+      details: {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        errorType: error instanceof Error ? error.name : 'UnknownError',
+        hasStack: !!(error instanceof Error && error.stack)
+      }
+    });
+
+    // Log critical errors for monitoring
+    if (error instanceof Error) {
+      const errorMessage = error.message.toLowerCase();
+      if (errorMessage.includes('database') || 
+          errorMessage.includes('connection') || 
+          errorMessage.includes('timeout') ||
+          errorMessage.includes('memory')) {
+        logger.logSecurityEvent({
+          type: 'INVALID_REQUEST', // Using existing type for system errors
+          ip: clientIP,
+          userAgent,
+          severity: 'CRITICAL',
+          details: {
+            reason: 'SYSTEM_ERROR',
+            errorType: error.name,
+            errorMessage: error.message,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
+    }
+    
+    // Return generic error to prevent information disclosure
+    // Don't include specific error details in production
+    const isDevelopment = Deno.env.get('ENVIRONMENT') !== 'production';
+    const errorMessage = isDevelopment && error instanceof Error 
+      ? `Development error: ${error.message}` 
+      : 'Internal server error';
+    
+    return createErrorResponse(
+      errorMessage, 
+      'SERVICE_UNAVAILABLE', 
+      500, 
+      logger, 
+      req,
+      { 
+        isDevelopment,
+        errorType: error instanceof Error ? error.name : 'UnknownError'
+      }
+    );
+  }
+});

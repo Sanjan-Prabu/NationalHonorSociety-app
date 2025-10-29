@@ -18,6 +18,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 
 import Tag from 'components/ui/Tag';
 import AnnouncementCard from 'components/ui/AnnouncementCard';
+import ImagePicker from 'components/ui/ImagePicker';
 import { useToast } from 'components/ui/ToastProvider';
 import { withRoleProtection } from 'components/hoc/withRoleProtection';
 import ProfileButton from 'components/ui/ProfileButton';
@@ -25,6 +26,7 @@ import { useOrganization } from '../../contexts/OrganizationContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useAnnouncementData } from '../../hooks/useAnnouncementData';
 import { CreateAnnouncementRequest } from '../../services/AnnouncementService';
+import ImageUploadService from '../../services/ImageUploadService';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -79,6 +81,12 @@ const OfficerAnnouncements = ({ navigation }: any) => {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  
+  // Image upload state
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+  const imageUploadService = ImageUploadService.getInstance();
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
     visible: boolean;
     announcementId: string | null;
@@ -138,15 +146,56 @@ const OfficerAnnouncements = ({ navigation }: any) => {
       return;
     }
 
+    // Check if image is still uploading
+    if (imageUploading) {
+      showValidationError('Upload in Progress', 'Please wait for the image to finish uploading.');
+      return;
+    }
+
+    // Check for image upload errors
+    if (imageUploadError) {
+      showValidationError('Image Upload Error', 'Please resolve the image upload error before submitting.');
+      return;
+    }
+
     const finalLinks = showLinkInput && linkUrl.trim() && isValidUrl(linkUrl)
       ? [...attachments.links, linkUrl.trim()]
       : attachments.links;
+
+    let imageUrl: string | undefined = undefined;
+
+    // Upload image if selected
+    if (selectedImage) {
+      try {
+        setImageUploading(true);
+        setImageUploadError(null);
+        
+        if (!activeOrganization?.id) {
+          throw new Error('No active organization found');
+        }
+
+        imageUrl = await imageUploadService.uploadPublicImage(
+          selectedImage,
+          'announcements',
+          activeOrganization.id
+        );
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Image upload failed';
+        setImageUploadError(errorMessage);
+        showError('Image Upload Failed', errorMessage);
+        setImageUploading(false);
+        return;
+      } finally {
+        setImageUploading(false);
+      }
+    }
 
     const submissionData: CreateAnnouncementRequest = {
       tag: selectedTag!,
       title: title.trim(),
       message: message.trim(),
-      link: finalLinks.length > 0 ? finalLinks[0] : undefined, // Use first link for now
+      link: finalLinks.length > 0 ? finalLinks[0] : undefined,
+      image_url: imageUrl,
     };
 
     try {
@@ -172,10 +221,27 @@ const OfficerAnnouncements = ({ navigation }: any) => {
     setShowLinkInput(false);
     setLinkUrl('');
     setErrors({});
+    setSelectedImage(null);
+    setImageUploading(false);
+    setImageUploadError(null);
   };
 
   const handleTagPress = (tag: TagType) => {
     setSelectedTag(tag === selectedTag ? null : tag);
+  };
+
+  const handleImageSelected = (imageUri: string) => {
+    setSelectedImage(imageUri);
+    setImageUploadError(null);
+  };
+
+  const handleImageRemoved = () => {
+    setSelectedImage(null);
+    setImageUploadError(null);
+  };
+
+  const handleImageValidationError = (error: string) => {
+    setImageUploadError(error);
   };
 
 
@@ -274,7 +340,7 @@ const OfficerAnnouncements = ({ navigation }: any) => {
               <View style={styles.headerLeft}>
                 <Text style={styles.headerTitle}>Announcements</Text>
                 <Text style={styles.headerSubtitle}>
-                  Manage {activeOrganization?.org_type === 'NHSA' ? 'NHSA' : 'NHS'} Updates
+                  Manage {activeOrganization?.slug === 'nhsa' ? 'NHSA' : 'NHS'} Updates
                 </Text>
               </View>
               <View style={styles.headerRight}>
@@ -338,21 +404,31 @@ const OfficerAnnouncements = ({ navigation }: any) => {
 
               {/* Attachments Section */}
               <Text style={styles.sectionLabel}>Attachments</Text>
-              <View style={styles.attachmentsContainer}>
-                <View style={[styles.attachmentButton, styles.attachmentButtonDisabled]}>
-                  <Icon name="image" size={moderateScale(24)} color={Colors.textLight} />
-                  <Text style={styles.attachmentTextDisabled}>Image</Text>
-                  <Text style={styles.comingSoonText}>Coming Soon</Text>
-                </View>
+              
+              {/* Image Upload */}
+              <Text style={styles.subSectionLabel}>Image</Text>
+              <ImagePicker
+                onImageSelected={handleImageSelected}
+                onImageRemoved={handleImageRemoved}
+                onValidationError={handleImageValidationError}
+                selectedImage={selectedImage || undefined}
+                loading={imageUploading}
+                error={imageUploadError || undefined}
+                placeholder="Add Image"
+                showSuccessIndicator={true}
+              />
 
-                <TouchableOpacity
-                  style={styles.attachmentButton}
-                  onPress={() => setShowLinkInput(!showLinkInput)}
-                >
-                  <Icon name="link" size={moderateScale(24)} color={Colors.solidBlue} />
-                  <Text style={styles.attachmentText}>Link</Text>
-                </TouchableOpacity>
-              </View>
+              {/* Link Section */}
+              <Text style={styles.subSectionLabel}>Link</Text>
+              <TouchableOpacity
+                style={styles.linkToggleButton}
+                onPress={() => setShowLinkInput(!showLinkInput)}
+              >
+                <Icon name="link" size={moderateScale(20)} color={Colors.solidBlue} />
+                <Text style={styles.linkToggleText}>
+                  {showLinkInput ? 'Cancel Link' : 'Add Link'}
+                </Text>
+              </TouchableOpacity>
 
               {/* Link Input */}
               {showLinkInput && (
@@ -563,6 +639,13 @@ const styles = StyleSheet.create({
     marginBottom: verticalScale(8),
     marginTop: verticalScale(12),
   },
+  subSectionLabel: {
+    fontSize: moderateScale(12),
+    fontWeight: '500',
+    color: Colors.textMedium,
+    marginBottom: verticalScale(6),
+    marginTop: verticalScale(8),
+  },
   tagsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -602,43 +685,22 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     marginBottom: verticalScale(4),
   },
-  attachmentsContainer: {
+  linkToggleButton: {
     flexDirection: 'row',
-    gap: scale(12),
-    marginBottom: verticalScale(12),
-  },
-  attachmentButton: {
-    flex: 1,
-    height: verticalScale(80),
+    alignItems: 'center',
+    paddingVertical: verticalScale(12),
+    paddingHorizontal: scale(16),
     borderWidth: 1,
-    borderStyle: 'dashed',
     borderColor: Colors.inputBorder,
     borderRadius: moderateScale(8),
     backgroundColor: Colors.inputBackground,
-    justifyContent: 'center',
-    alignItems: 'center',
+    marginBottom: verticalScale(8),
   },
-  attachmentText: {
-    fontSize: moderateScale(12),
+  linkToggleText: {
+    fontSize: moderateScale(14),
     color: Colors.solidBlue,
     fontWeight: '500',
-    marginTop: verticalScale(6),
-  },
-  attachmentButtonDisabled: {
-    backgroundColor: Colors.lightGray,
-    borderColor: Colors.textLight,
-  },
-  attachmentTextDisabled: {
-    fontSize: moderateScale(12),
-    color: Colors.textLight,
-    fontWeight: '500',
-    marginTop: verticalScale(2),
-  },
-  comingSoonText: {
-    fontSize: moderateScale(10),
-    color: Colors.textLight,
-    fontStyle: 'italic',
-    marginTop: verticalScale(2),
+    marginLeft: scale(8),
   },
   linkInputContainer: {
     marginTop: verticalScale(12),

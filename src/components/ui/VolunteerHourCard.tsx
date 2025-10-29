@@ -1,9 +1,10 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Image } from 'react-native';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { VolunteerHourData } from '../../types/dataService';
 import Tag from './Tag';
+import ImageViewerModal from './ImageViewerModal';
 
 const Colors = {
   white: '#FFFFFF',
@@ -34,6 +35,7 @@ const VolunteerHourCard: React.FC<VolunteerHourCardProps> = ({
   showDeleteButton = false,
   showEditButton = false,
 }) => {
+  const [showImageViewer, setShowImageViewer] = useState(false);
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'No date';
     const date = new Date(dateString);
@@ -143,10 +145,34 @@ const VolunteerHourCard: React.FC<VolunteerHourCardProps> = ({
 
         <View style={styles.detailSection}>
           <Text style={styles.detailLabel}>Proof of Service:</Text>
-          <Text style={styles.detailValue}>
-            {volunteerHour.attachment_file_id ? 'Uploaded' : 'Not provided'}
-          </Text>
+          {(volunteerHour.image_url || volunteerHour.image_path) ? (
+            <TouchableOpacity
+              onPress={() => setShowImageViewer(true)}
+              style={styles.proofImageButton}
+              activeOpacity={0.8}
+            >
+              <Image
+                source={{ uri: volunteerHour.image_url || volunteerHour.image_path }}
+                style={styles.proofImagePreview}
+                resizeMode="cover"
+              />
+              <View style={styles.imageOverlay}>
+                <Icon name="zoom-in" size={moderateScale(20)} color="rgba(255, 255, 255, 0.8)" />
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <Text style={styles.detailValue}>Not provided</Text>
+          )}
         </View>
+
+      {/* Image Viewer Modal */}
+      {showImageViewer && (volunteerHour.image_url || volunteerHour.image_path) && (
+        <ImageViewerModal
+          imageUrl={volunteerHour.image_url || volunteerHour.image_path || ''}
+          visible={showImageViewer}
+          onClose={() => setShowImageViewer(false)}
+        />
+      )}
       </View>
 
       {/* Verification Details */}
@@ -316,6 +342,29 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(11),
     color: Colors.textLight,
     textAlign: 'right',
+  },
+  proofImageButton: {
+    position: 'relative',
+    marginTop: verticalScale(8),
+    alignSelf: 'stretch',
+    width: '100%',
+  },
+  proofImagePreview: {
+    width: '100%',
+    height: verticalScale(120),
+    borderRadius: moderateScale(8),
+    backgroundColor: Colors.dividerColor,
+  },
+  imageOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderRadius: moderateScale(8),
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

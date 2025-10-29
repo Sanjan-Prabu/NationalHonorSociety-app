@@ -274,7 +274,10 @@ const MemberDashboardScreen = ({ navigation }: any) => {
               containerStyle={styles.progressBarContainer}
             />
 
-            <TouchableOpacity style={styles.viewProfileButton}>
+            <TouchableOpacity 
+              style={styles.viewProfileButton}
+              onPress={() => navigation.navigate('MemberAnnouncements')} // Navigate to announcements as profile screen doesn't exist yet
+            >
               <Text style={styles.viewProfileText}>View Profile</Text>
               <Icon name="chevron-right" size={moderateScale(16)} color={Colors.solidBlue} />
             </TouchableOpacity>

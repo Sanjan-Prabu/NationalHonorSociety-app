@@ -1,3 +1,6 @@
+// Import Buffer polyfill first
+import './shims/buffer.js';
+
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ToastProvider } from './src/components/ui/ToastProvider';

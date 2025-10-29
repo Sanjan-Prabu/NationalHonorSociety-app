@@ -58,40 +58,52 @@ const OfficerVerifyHours = ({ navigation }: any) => {
   // Memoize the organization ID to prevent infinite re-renders
   const organizationId = useMemo(() => activeOrganization?.id || '', [activeOrganization?.id]);
 
-  // Setup real-time subscription for instant updates
+  // ⚡ BLAZING FAST: Setup real-time subscription for instant updates
   useVolunteerHoursRealTime(organizationId);
 
-  // Dynamic data hooks
+  // ⚡ OPTIMIZED: Dynamic data hooks with better caching
   const {
     data: pendingApprovals,
     isLoading: pendingLoading,
     refetch: refetchPending,
-    error: pendingError
+    error: pendingError,
+    isFetching: pendingFetching
   } = usePendingApprovals(organizationId);
 
   const {
     data: verifiedApprovals,
     isLoading: verifiedLoading,
     refetch: refetchVerified,
-    error: verifiedError
+    error: verifiedError,
+    isFetching: verifiedFetching
   } = useVerifiedApprovals(organizationId);
 
   const approveHoursMutation = useApproveVolunteerHours();
   const rejectHoursMutation = useRejectVolunteerHours();
 
-  // Get current tab data
+  // ⚡ SMART LOADING: Get current tab data with optimized loading states
   const getCurrentTabData = () => {
     switch (activeTab) {
       case 'pending':
-        return { data: pendingApprovals || [], loading: pendingLoading, error: pendingError };
+        return { 
+          data: pendingApprovals || [], 
+          loading: pendingLoading && !pendingApprovals, // Only show loading if no cached data
+          fetching: pendingFetching,
+          error: pendingError 
+        };
       case 'verified':
-        return { data: verifiedApprovals || [], loading: verifiedLoading, error: verifiedError };
+        return { 
+          data: verifiedApprovals || [], 
+          loading: verifiedLoading && !verifiedApprovals, // Only show loading if no cached data
+          fetching: verifiedFetching,
+          error: verifiedError 
+        };
       default:
-        return { data: [], loading: false, error: null };
+        return { data: [], loading: false, fetching: false, error: null };
     }
   };
 
-  const { data: currentTabData, loading: currentTabLoading, error: currentTabError } = getCurrentTabData();
+  const { data: currentTabData, loading: currentTabLoading, fetching: currentTabFetching, error: currentTabError } = getCurrentTabData();
 
   // Helper functions
   const getTabCounts = () => {
@@ -222,7 +234,12 @@ const OfficerVerifyHours = ({ navigation }: any) => {
           <View style={styles.header}>
             <View style={styles.headerLeft}>
               <Text style={styles.headerTitle}>Verify Hours</Text>
-              <Text style={styles.headerSubtitle}>Review Member Submissions</Text>
+              <Text style={styles.headerSubtitle}>
+                Review Member Submissions
+                {currentTabFetching && (
+                  <Text style={styles.refreshingIndicator}> • Refreshing...</Text>
+                )}
+              </Text>
             </View>
             <ProfileButton
               color={Colors.solidBlue}
@@ -336,6 +353,11 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     fontSize: moderateScale(16),
     color: Colors.textMedium,
+  },
+  refreshingIndicator: {
+    fontSize: moderateScale(12),
+    color: Colors.solidBlue,
+    fontWeight: '500',
   },
   tabContainer: {
     flexDirection: 'row',

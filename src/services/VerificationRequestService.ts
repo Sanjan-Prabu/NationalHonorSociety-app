@@ -32,6 +32,7 @@ export interface CreateVerificationRequest {
   activity_date?: string;
   event_id?: UUID;
   attachment_file_id?: UUID;
+  image_url?: string;   // Public URL for proof images
 }
 
 export interface VerificationStatusUpdate {
@@ -825,6 +826,8 @@ export class VerificationRequestService extends BaseDataService {
       approved_at: data.approved_at,
       attachment_file_id: data.attachment_file_id,
       event_id: data.event_id,
+      image_path: data.image_path, // File path for private R2 stored proof image (deprecated)
+      image_url: data.image_url,   // Public URL for proof images
       status: data.status || (data.approved ? 'verified' : 'pending'),
       rejection_reason: data.rejection_reason,
       verified_by: data.verified_by,

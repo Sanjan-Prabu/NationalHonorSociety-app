@@ -45,6 +45,7 @@ const LoginScreen = ({ route, navigation }: LoginScreenProps) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isProcessingLogin, setIsProcessingLogin] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   
   const role = route.params?.role ?? 'member';
   const signupSuccess = route.params?.signupSuccess;
@@ -153,10 +154,12 @@ const LoginScreen = ({ route, navigation }: LoginScreenProps) => {
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${supabaseKey}`,
+            'User-Agent': 'NHS-App-Mobile/1.0 (React-Native)',
           },
           body: JSON.stringify({
             email: email.trim().toLowerCase(),
             password,
+            clientType: 'mobile', // Explicitly specify mobile client
           }),
         }),
         // Reduced timeout for faster response
@@ -212,7 +215,21 @@ const LoginScreen = ({ route, navigation }: LoginScreenProps) => {
       }
 
       const data = await response.json();
-      console.log('📡 Signin response received:', { success: data.success, hasSession: !!data.session, hasUser: !!data.user });
+      console.log('📡 Signin response received:', { 
+        success: data.success, 
+        hasSession: !!data.session, 
+        hasUser: !!data.user,
+        platform: Platform.OS,
+        sessionKeys: data.session ? Object.keys(data.session) : [],
+        sessionStructure: data.session ? {
+          hasAccessToken: !!data.session.access_token,
+          hasRefreshToken: !!data.session.refresh_token,
+          hasExpiresAt: !!data.session.expires_at,
+          hasTokenType: !!data.session.token_type,
+          expiresAt: data.session.expires_at,
+          tokenType: data.session.token_type
+        } : null
+      });
 
       if (!data.success) {
         throw new AuthError({
@@ -229,17 +246,47 @@ const LoginScreen = ({ route, navigation }: LoginScreenProps) => {
       }
 
       // Validate session data from Edge Function response
-      if (!data.session.access_token || !data.session.refresh_token) {
+      // Handle both mobile (full tokens) and web (minimal) response formats
+      const hasRequiredTokens = data.session.access_token && data.session.refresh_token;
+      const hasMinimalSession = data.session.expires_at && data.session.token_type;
+      
+      if (!hasRequiredTokens && !hasMinimalSession) {
+        console.error('❌ Session validation failed:', {
+          hasAccessToken: !!data.session.access_token,
+          hasRefreshToken: !!data.session.refresh_token,
+          hasExpiresAt: !!data.session.expires_at,
+          hasTokenType: !!data.session.token_type,
+          sessionKeys: Object.keys(data.session || {}),
+          fullSession: data.session
+        });
+        
         throw new AuthError({
           type: AuthErrorType.INVALID_CREDENTIALS,
           message: 'Invalid session data received from server'
         });
       }
+      
+      // For mobile clients, we expect full token data
+      if (Platform.OS === 'android' || Platform.OS === 'ios') {
+        if (!hasRequiredTokens) {
+          console.error('❌ Mobile client missing required tokens:', {
+            hasAccessToken: !!data.session.access_token,
+            hasRefreshToken: !!data.session.refresh_token,
+            sessionData: data.session
+          });
+          
+          throw new AuthError({
+            type: AuthErrorType.INVALID_CREDENTIALS,
+            message: 'Mobile client requires full token data'
+          });
+        }
+      }
 
       // Create enhanced session object with proper structure
+      // Handle different session formats from the Edge Function
       const enhancedSession = {
-        access_token: data.session.access_token,
-        refresh_token: data.session.refresh_token,
+        access_token: data.session.access_token || '',
+        refresh_token: data.session.refresh_token || '',
         expires_at: data.session.expires_at || Math.floor(Date.now() / 1000) + (data.session.expires_in || 3600),
         expires_in: data.session.expires_in || 3600,
         token_type: data.session.token_type || 'bearer',
@@ -461,6 +508,14 @@ const LoginScreen = ({ route, navigation }: LoginScreenProps) => {
                     autoComplete="email"
                     textContentType="emailAddress"
                     editable={!loading}
+                    autoCorrect={false}
+                    spellCheck={false}
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => {
+                      // Focus password field when email is submitted
+                      // This will be handled by the password field ref if needed
+                    }}
                   />
                 </View>
 
@@ -468,24 +523,46 @@ const LoginScreen = ({ route, navigation }: LoginScreenProps) => {
                   {/* Password label and forgot password link on same line */}
                   <View style={styles.passwordHeader}>
                     <Text style={styles.inputLabel}>Password</Text>
-                    <TouchableOpacity>
+                    <TouchableOpacity onPress={() => console.log('Forgot password - feature coming soon')}>
                       <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
                     </TouchableOpacity>
                   </View>
-                  <TextInput
-                    style={[styles.textInput, error && styles.textInputError]}
-                    placeholder="Enter Password"
-                    placeholderTextColor={Colors.textLight}
-                    value={password}
-                    onChangeText={(text) => {
-                      setPassword(text);
-                      if (error) setError(null); // Clear error when user starts typing
-                    }}
-                    secureTextEntry
-                    autoComplete="current-password"
-                    textContentType="password"
-                    editable={!loading}
-                  />
+                  <View style={styles.passwordInputContainer}>
+                    <TextInput
+                      style={[styles.passwordInput, error && styles.textInputError]}
+                      placeholder="Enter Password"
+                      placeholderTextColor={Colors.textLight}
+                      value={password}
+                      onChangeText={(text) => {
+                        setPassword(text);
+                        if (error) setError(null); // Clear error when user starts typing
+                      }}
+                      secureTextEntry={!showPassword}
+                      autoComplete="current-password"
+                      textContentType="password"
+                      editable={!loading}
+                      autoCorrect={false}
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      importantForAutofill="yes"
+                      passwordRules="minlength: 8;"
+                      returnKeyType="done"
+                      onSubmitEditing={handleLogin}
+                      blurOnSubmit={true}
+                      enablesReturnKeyAutomatically={true}
+                    />
+                    <TouchableOpacity
+                      style={styles.passwordToggle}
+                      onPress={() => setShowPassword(!showPassword)}
+                      disabled={loading}
+                    >
+                      <Icon
+                        name={showPassword ? 'visibility-off' : 'visibility'}
+                        size={moderateScale(20)}
+                        color={Colors.textMedium}
+                      />
+                    </TouchableOpacity>
+                  </View>
                 </View>
 
                 <TouchableOpacity 
@@ -503,7 +580,10 @@ const LoginScreen = ({ route, navigation }: LoginScreenProps) => {
                 </TouchableOpacity>
 
                 {/* Need help link */}
-                <TouchableOpacity style={styles.helpLink}>
+                <TouchableOpacity 
+                  style={styles.helpLink}
+                  onPress={() => console.log('Contact advisor - feature coming soon')}
+                >
                   <Text style={styles.helpText}>
                     Need help? <Text style={styles.helpLinkText}>Contact your advisor</Text>
                   </Text>
@@ -623,6 +703,29 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(16),
     backgroundColor: Colors.inputBackground,
     minHeight: verticalScale(50), // Ensure consistent height
+  },
+  passwordInputContainer: {
+    position: 'relative',
+    width: '100%',
+  },
+  passwordInput: {
+    width: '100%',
+    borderWidth: 1,
+    borderColor: Colors.inputBorder,
+    borderRadius: moderateScale(12),
+    padding: scale(16),
+    paddingRight: scale(50), // Make room for the toggle button
+    fontSize: moderateScale(16),
+    backgroundColor: Colors.inputBackground,
+    minHeight: verticalScale(50),
+  },
+  passwordToggle: {
+    position: 'absolute',
+    right: scale(16),
+    top: '50%',
+    transform: [{ translateY: -moderateScale(10) }],
+    padding: scale(4),
+    zIndex: 1,
   },
   passwordHeader: {
     flexDirection: 'row',

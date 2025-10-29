@@ -48,7 +48,7 @@ export function useUserVolunteerHours(userId?: UUID, filters?: VolunteerHourFilt
 }
 
 /**
- * Hook for officer approval screen to get pending volunteer hours
+ * ⚡ BLAZING FAST pending approvals hook with aggressive caching
  * Requirements: 3.2, 5.3
  */
 export function usePendingApprovals(orgId?: UUID) {
@@ -61,14 +61,16 @@ export function usePendingApprovals(orgId?: UUID) {
       }
       return response.data;
     },
-    staleTime: 30 * 1000, // 30 seconds - pending approvals change frequently
-    gcTime: 2 * 60 * 1000, // 2 minutes
+    staleTime: 5 * 60 * 1000, // ⚡ 5 minutes - keep data fresh longer
+    gcTime: 10 * 60 * 1000, // ⚡ 10 minutes - keep in cache longer
+    refetchOnWindowFocus: true, // ⚡ Refetch when user returns to tab
+    refetchOnMount: 'always', // ⚡ Always get fresh data on mount
     retry: (failureCount, error) => {
       // Don't retry permission errors
       if (error.message?.includes('permission') || error.message?.includes('unauthorized')) {
         return false;
       }
-      return failureCount < 3;
+      return failureCount < 2; // ⚡ Reduce retry attempts for speed
     },
   });
 }
@@ -479,9 +481,6 @@ export function useApproveVolunteerHours() {
       cacheInvalidation.invalidateVolunteerHoursQueries(queryClient, approvedHour.member_id, approvedHour.org_id);
       cacheInvalidation.invalidateDashboardQueries(queryClient, approvedHour.member_id, approvedHour.org_id);
     },
-    onError: (error) => {
-      console.error('Failed to approve volunteer hours:', error);
-    },
   });
 }
 
@@ -576,9 +575,6 @@ export function useRejectVolunteerHours() {
       cacheInvalidation.invalidateVolunteerHoursQueries(queryClient, rejectedHour.member_id, rejectedHour.org_id);
       cacheInvalidation.invalidateDashboardQueries(queryClient, rejectedHour.member_id, rejectedHour.org_id);
     },
-    onError: (error) => {
-      console.error('Failed to reject volunteer hours:', error);
-    },
   });
 }
 
@@ -640,9 +636,6 @@ export function useDeleteVolunteerHours() {
         cacheInvalidation.invalidateVolunteerHoursQueries(queryClient, deletedHour.member_id, deletedHour.org_id);
         cacheInvalidation.invalidateDashboardQueries(queryClient, deletedHour.member_id, deletedHour.org_id);
       }
-    },
-    onError: (error) => {
-      console.error('Failed to delete volunteer hours:', error);
     },
   });
 }
@@ -1067,7 +1060,7 @@ export function useInvalidateVolunteerHoursQueries() {
 // =============================================================================
 
 /**
- * Utility to prefetch volunteer hours data
+ * ⚡ BLAZING FAST prefetch utilities for instant loading
  */
 export function usePrefetchVolunteerHoursData() {
   const queryClient = useQueryClient();
@@ -1096,7 +1089,20 @@ export function usePrefetchVolunteerHoursData() {
           }
           return response.data;
         },
-        staleTime: 30 * 1000,
+        staleTime: 5 * 60 * 1000, // ⚡ Longer stale time for better performance
+      });
+    },
+    prefetchVerifiedApprovals: async (orgId: UUID) => {
+      await queryClient.prefetchQuery({
+        queryKey: [...queryKeys.volunteerHours.all, 'verified', orgId],
+        queryFn: async () => {
+          const response = await volunteerHoursService.getVerifiedApprovals(orgId);
+          if (!response.success || !response.data) {
+            throw new Error(response.error || 'Failed to prefetch verified approvals');
+          }
+          return response.data;
+        },
+        staleTime: 5 * 60 * 1000, // ⚡ Longer stale time for better performance
       });
     },
   };
@@ -1121,20 +1127,19 @@ export function useVolunteerHoursRealTime(orgId?: UUID) {
             if (!mountedRef.current) return;
 
             // ⚡ BLAZING FAST batch invalidation - INSTANT updates!
-            const queries = [
-              'volunteer-hours',
-              'pending-approvals', 
-              'verified-approvals',
-              'rejected-approvals',
-              'user-volunteer-hours'
-            ];
+            console.log('⚡ REALTIME UPDATE RECEIVED:', payload.eventType, payload.new?.id);
             
-            // Batch invalidate for maximum speed ⚡
-            queries.forEach(key => {
-              queryClient.invalidateQueries({ queryKey: [key] });
+            // Invalidate all volunteer hours related queries using proper query keys
+            queryClient.invalidateQueries({ 
+              queryKey: queryKeys.volunteerHours.all 
             });
             
-            console.log('⚡ INSTANT UPDATE:', payload.eventType);
+            // Also invalidate dashboard queries that might show volunteer hours
+            queryClient.invalidateQueries({ 
+              queryKey: queryKeys.dashboard.all 
+            });
+            
+            console.log('⚡ QUERIES INVALIDATED - Member view should update now!');
           },
           orgId
         );

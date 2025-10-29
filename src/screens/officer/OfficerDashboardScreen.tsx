@@ -9,10 +9,10 @@ import ProfileButton from 'components/ui/ProfileButton';
 import LoadingSkeleton from 'components/ui/LoadingSkeleton';
 import EmptyState from 'components/ui/EmptyState';
 import { useUserProfile, useCurrentOrganizationId } from 'hooks/useUserData';
-import { useOrganizationVolunteerStats, usePendingApprovals, useVerificationStatistics } from 'hooks/useVolunteerHoursData';
+import { useOrganizationVolunteerStats, usePendingApprovals, useVerificationStatistics, usePrefetchVolunteerHoursData } from 'hooks/useVolunteerHoursData';
 import { useEventStats, useUpcomingEvents } from 'hooks/useEventData';
 import { useOrganization } from 'contexts/OrganizationContext';
-import { relative } from 'path';
+import { useTabNavigation } from '../../navigation/FallbackTabNavigator';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -34,25 +34,37 @@ const Colors = {
 const OfficerDashboard = ({ navigation }: any) => {
   const insets = useSafeAreaInsets();
   const [refreshing, setRefreshing] = useState(false);
+  const { jumpTo } = useTabNavigation();
 
   // Dynamic data hooks
   const { data: userProfile, isLoading: profileLoading, refetch: refetchProfile } = useUserProfile();
   const { activeOrganization } = useOrganization();
-  
+
   // Memoize the organization ID to prevent infinite re-renders
   const orgId = useMemo(() => activeOrganization?.id || '', [activeOrganization?.id]);
-  
+
   const { data: volunteerStats, isLoading: volunteerStatsLoading, refetch: refetchVolunteerStats } = useOrganizationVolunteerStats(orgId);
   const { data: pendingApprovals, isLoading: pendingApprovalsLoading, refetch: refetchPendingApprovals } = usePendingApprovals(orgId);
   const { data: verificationStats, isLoading: verificationStatsLoading, refetch: refetchVerificationStats } = useVerificationStatistics(orgId);
   const { data: eventStats, isLoading: eventStatsLoading, refetch: refetchEventStats } = useEventStats(orgId);
   const { data: upcomingEvents, isLoading: upcomingEventsLoading, refetch: refetchUpcomingEvents } = useUpcomingEvents(orgId, 3);
 
+  // ⚡ BLAZING FAST: Prefetch verification data for instant loading
+  const { prefetchPendingApprovals, prefetchVerifiedApprovals } = usePrefetchVolunteerHoursData();
+
+  React.useEffect(() => {
+    if (orgId) {
+      // Prefetch verification data in the background for instant loading
+      prefetchPendingApprovals(orgId);
+      prefetchVerifiedApprovals(orgId);
+    }
+  }, [orgId, prefetchPendingApprovals, prefetchVerifiedApprovals]);
+
   // Computed dashboard data
   const dashboardData = {
     firstName: userProfile?.first_name || 'Officer',
-    role: userProfile?.role === 'officer' ? 
-      `${activeOrganization?.name || 'NHS'} Officer` : 
+    role: userProfile?.role === 'officer' ?
+      `${activeOrganization?.name || 'NHS'} Officer` :
       `${activeOrganization?.name || 'NHS'} Member`,
     officerType: 'Officer',
     totalMembers: volunteerStats?.totalMembers || 0,
@@ -77,28 +89,28 @@ const OfficerDashboard = ({ navigation }: any) => {
       title: 'Start Session',
       icon: 'play-circle-filled',
       color: Colors.solidBlue,
-      onPress: () => navigation.navigate('Attendance'),
+      onPress: () => jumpTo('OfficerAttendance'),
     },
     {
       id: 'verify_hours',
       title: 'Verify Hours',
       icon: 'verified',
       color: Colors.successGreen,
-      onPress: () => navigation.navigate('VolunteerApproval'),
+      onPress: () => jumpTo('OfficerVerifyHours'),
     },
     {
       id: 'post_announcement',
       title: 'Post Announcement',
       icon: 'campaign',
       color: Colors.infoBlue,
-      onPress: () => navigation.navigate('Announcements'),
+      onPress: () => jumpTo('OfficerAnnouncements'),
     },
     {
       id: 'post_event',
       title: 'Post Event',
       icon: 'event',
       color: Colors.purple,
-      onPress: () => navigation.navigate('Events'),
+      onPress: () => jumpTo('OfficerEvents'),
     },
   ];
 
@@ -111,7 +123,7 @@ const OfficerDashboard = ({ navigation }: any) => {
       description: `${dashboardData.pendingApprovals} pending approval${dashboardData.pendingApprovals === 1 ? '' : 's'}`,
       icon: 'access-time',
       color: Colors.warningOrange,
-      onPress: () => navigation.navigate('VolunteerApproval'),
+      onPress: () => jumpTo('OfficerVerifyHours'),
     }] : []),
     ...(upcomingEvents && upcomingEvents.length > 0 ? [{
       id: 'upcoming_event',
@@ -120,7 +132,7 @@ const OfficerDashboard = ({ navigation }: any) => {
       description: upcomingEvents[0]?.title || 'Event details',
       icon: 'event',
       color: Colors.infoBlue,
-      onPress: () => navigation.navigate('Events'),
+      onPress: () => jumpTo('OfficerEvents'),
     }] : []),
   ];
 
@@ -175,7 +187,7 @@ const OfficerDashboard = ({ navigation }: any) => {
                 </View>
               </View>
             </View>
-            <ProfileButton 
+            <ProfileButton
               color={Colors.solidBlue}
               size={moderateScale(33)}
               style={styles.profileButton}
@@ -192,9 +204,9 @@ const OfficerDashboard = ({ navigation }: any) => {
 
           {/* Loading State */}
           {isLoading ? (
-            <LoadingSkeleton 
-              height={verticalScale(120)} 
-              style={{ marginBottom: verticalScale(24) }} 
+            <LoadingSkeleton
+              height={verticalScale(120)}
+              style={{ marginBottom: verticalScale(24) }}
             />
           ) : (
             /* Stats Section */
@@ -210,7 +222,7 @@ const OfficerDashboard = ({ navigation }: any) => {
             </View>
           )}
 
-          
+
 
           {/* Quick Actions Section */}
           <View style={styles.sectionContainer}>
@@ -246,9 +258,9 @@ const OfficerDashboard = ({ navigation }: any) => {
             </View>
 
             {pendingApprovalsLoading || upcomingEventsLoading ? (
-              <LoadingSkeleton 
-                height={verticalScale(80)} 
-                style={{ marginBottom: verticalScale(12) }} 
+              <LoadingSkeleton
+                height={verticalScale(80)}
+                style={{ marginBottom: verticalScale(12) }}
               />
             ) : pendingActions.length > 0 ? (
               pendingActions.map((action, index) => (

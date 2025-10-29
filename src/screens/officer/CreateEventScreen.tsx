@@ -21,10 +21,12 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useToast } from 'components/ui/ToastProvider';
 import Tag from 'components/ui/Tag';
+import ReliableImagePicker from 'components/ui/ReliableImagePicker';
 import { withRoleProtection } from 'components/hoc/withRoleProtection';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { eventService } from '../../services/EventService';
+import ImageUploadService from '../../services/ImageUploadService';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { OfficerStackParamList } from '../../types/navigation';
 
@@ -84,6 +86,12 @@ const CreateEventScreen = ({ navigation }: CreateEventScreenProps) => {
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [refreshing, setRefreshing] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    
+    // Image upload state
+    const [selectedImage, setSelectedImage] = useState<string | null>(null);
+    const [imageUploading, setImageUploading] = useState(false);
+    const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+    const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
 
     // Category options with their tag variants - each category gets a unique color
     const categoryOptions: { label: EventCategory; displayLabel: string; variant: 'blue' | 'green' | 'yellow' | 'purple' | 'orange' | 'teal' }[] = [
@@ -152,6 +160,50 @@ const CreateEventScreen = ({ navigation }: CreateEventScreenProps) => {
         }));
     };
 
+    // Image upload handlers
+    const handleImageSelected = async (imageUri: string) => {
+        if (!activeOrganization) {
+            showError('Error', 'Organization information is missing.');
+            return;
+        }
+
+        console.log('[CreateEventScreen] Image selected:', imageUri);
+        setSelectedImage(imageUri);
+        setImageUploadError(null);
+        setImageUploading(true);
+
+        try {
+            const imageUploadService = ImageUploadService.getInstance();
+            const publicUrl = await imageUploadService.uploadPublicImage(
+                imageUri,
+                'events',
+                activeOrganization.id
+            );
+            
+            console.log('[CreateEventScreen] Image uploaded successfully:', publicUrl);
+            setUploadedImageUrl(publicUrl);
+            showSuccess('Image Uploaded', 'Event image uploaded successfully.');
+        } catch (error) {
+            console.error('[CreateEventScreen] Image upload failed:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Failed to upload image';
+            setImageUploadError(errorMessage);
+            showError('Upload Failed', errorMessage);
+        } finally {
+            setImageUploading(false);
+        }
+    };
+
+    const handleImageRemoved = () => {
+        console.log('[CreateEventScreen] Image removed');
+        setSelectedImage(null);
+        setUploadedImageUrl(null);
+        setImageUploadError(null);
+    };
+
+    const handleImageValidationError = (error: string) => {
+        setImageUploadError(error);
+    };
+
     const validateForm = () => {
         const newErrors: Record<string, string> = {};
 
@@ -195,6 +247,14 @@ const CreateEventScreen = ({ navigation }: CreateEventScreenProps) => {
         // Link validation
         if (showLinkInput && linkUrl.trim() && !isValidUrl(linkUrl)) {
             newErrors.link = 'Please enter a valid URL';
+        }
+
+        // Image upload validation
+        if (imageUploading) {
+            newErrors.image = 'Please wait for image upload to complete';
+        }
+        if (imageUploadError) {
+            newErrors.image = 'Please resolve image upload error before submitting';
         }
 
         setErrors(newErrors);
@@ -245,6 +305,7 @@ const CreateEventScreen = ({ navigation }: CreateEventScreenProps) => {
                 ends_at: endDateTime.toISOString(),
                 category: finalCategory,
                 link: finalLinks.length > 0 ? finalLinks[0] : undefined, // Use first link for now
+                image_url: uploadedImageUrl || undefined, // Include uploaded image URL
             });
 
             if (result.success) {
@@ -548,22 +609,34 @@ const CreateEventScreen = ({ navigation }: CreateEventScreenProps) => {
                                 {errors.description && <Text style={styles.errorText}>{errors.description}</Text>}
                             </View>
 
-                            {/* Attachments Section */}
+                            {/* Event Image */}
                             <View style={styles.inputContainer}>
-                                <Text style={styles.inputLabel}>Attachments</Text>
-                                <View style={styles.attachmentsContainer}>
-                                    <View style={[styles.attachmentButton, styles.attachmentButtonDisabled]}>
-                                        <Icon name="image" size={moderateScale(24)} color={Colors.textLight} />
-                                        <Text style={styles.attachmentTextDisabled}>Image</Text>
-                                        <Text style={styles.comingSoonText}>Coming Soon</Text>
-                                    </View>
+                                <Text style={styles.inputLabel}>Event Image</Text>
+                                <Text style={styles.helperText}>
+                                    Add an image to make your event more engaging
+                                </Text>
+                                <ReliableImagePicker
+                                    onImageSelected={handleImageSelected}
+                                    onImageRemoved={handleImageRemoved}
+                                    selectedImage={selectedImage}
+                                    disabled={isSubmitting}
+                                    placeholder="Add Event Image"
+                                    loading={imageUploading}
+                                    error={imageUploadError}
+                                />
+                                {errors.image && <Text style={styles.errorText}>{errors.image}</Text>}
+                            </View>
 
+                            {/* Links Section */}
+                            <View style={styles.inputContainer}>
+                                <Text style={styles.inputLabel}>Links</Text>
+                                <View style={styles.attachmentsContainer}>
                                     <TouchableOpacity
                                         style={styles.attachmentButton}
                                         onPress={() => setShowLinkInput(!showLinkInput)}
                                     >
                                         <Icon name="link" size={moderateScale(24)} color={Colors.solidBlue} />
-                                        <Text style={styles.attachmentText}>Link</Text>
+                                        <Text style={styles.attachmentText}>Add Link</Text>
                                     </TouchableOpacity>
                                 </View>
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
 import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -19,6 +19,15 @@ interface FallbackTabNavigatorProps {
   };
 }
 
+// Create a context for tab navigation
+const TabNavigationContext = React.createContext<{
+  jumpTo: (screenName: string) => void;
+}>({
+  jumpTo: () => {},
+});
+
+export const useTabNavigation = () => React.useContext(TabNavigationContext);
+
 /**
  * Fallback tab navigator implementation for when @react-navigation/bottom-tabs is not available
  * TODO: Replace with @react-navigation/bottom-tabs when dependency is installed
@@ -30,6 +39,14 @@ export default function FallbackTabNavigator({
 }: FallbackTabNavigatorProps) {
   const [activeTab, setActiveTab] = useState(0);
   const navigation = useNavigation();
+
+  // Function to jump to a specific tab by name
+  const jumpTo = (screenName: string) => {
+    const screenIndex = screens.findIndex(screen => screen.name === screenName);
+    if (screenIndex !== -1) {
+      setActiveTab(screenIndex);
+    }
+  };
   
   // Handle empty screens array
   if (!screens || screens.length === 0) {
@@ -50,45 +67,47 @@ export default function FallbackTabNavigator({
   } = screenOptions;
 
   return (
-    <View style={styles.container}>
-      <View style={styles.content}>
-        {ActiveComponent && <ActiveComponent navigation={navigation} />}
-      </View>
-      <View style={styles.tabBar}>
-        {screens.map((screen, index) => {
-          const isActive = activeTab === index;
-          const color = isActive ? tabBarActiveTintColor : tabBarInactiveTintColor;
-          
-          return (
-            <TouchableOpacity
-              key={screen.name}
-              style={[styles.tab, isActive && styles.activeTab]}
-              onPress={() => setActiveTab(index)}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: isActive }}
-              accessibilityLabel={screen.title}
-            >
-              <MaterialIcons 
-                name={screen.icon} 
-                size={24} 
-                color={color} 
-              />
-              <Text 
-                style={[
-                  styles.tabText, 
-                  { color },
-                  isActive && styles.activeTabText
-                ]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
+    <TabNavigationContext.Provider value={{ jumpTo }}>
+      <View style={styles.container}>
+        <View style={styles.content}>
+          {ActiveComponent && <ActiveComponent navigation={navigation} />}
+        </View>
+        <View style={styles.tabBar}>
+          {screens.map((screen, index) => {
+            const isActive = activeTab === index;
+            const color = isActive ? tabBarActiveTintColor : tabBarInactiveTintColor;
+            
+            return (
+              <TouchableOpacity
+                key={screen.name}
+                style={[styles.tab, isActive && styles.activeTab]}
+                onPress={() => setActiveTab(index)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: isActive }}
+                accessibilityLabel={screen.title}
               >
-                {screen.title}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
+                <MaterialIcons 
+                  name={screen.icon} 
+                  size={24} 
+                  color={color} 
+                />
+                <Text 
+                  style={[
+                    styles.tabText, 
+                    { color },
+                    isActive && styles.activeTabText
+                  ]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
+                  {screen.title}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
-    </View>
+    </TabNavigationContext.Provider>
   );
 }
 

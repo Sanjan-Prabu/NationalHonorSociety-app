@@ -43,3 +43,8 @@ entrypoint = "./functions/hello-world/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/hello-world/*.html" ]
+
+[functions.generate-presigned-url]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/generate-presigned-url/index.ts"

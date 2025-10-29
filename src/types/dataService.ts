@@ -72,6 +72,8 @@ export interface VolunteerHourData {
   approved_at?: string;
   attachment_file_id?: UUID;
   event_id?: UUID;      // Optional reference to organization event
+  image_path?: string;  // File path for private R2 stored proof image (deprecated)
+  image_url?: string;   // Public URL for proof images stored in public R2 bucket
   // Verification fields
   status: 'pending' | 'verified' | 'rejected';
   rejection_reason?: string;
@@ -157,12 +159,16 @@ export interface CreateVolunteerHourRequest {
   description?: string;
   activity_date?: string;
   event_id?: UUID;
+  image_path?: string;  // File path for uploaded proof image (deprecated)
+  image_url?: string;   // Public URL for proof images
 }
 
 export interface UpdateVolunteerHourRequest {
   hours?: number;
   description?: string;
   activity_date?: string;
+  image_path?: string;  // File path for uploaded proof image (deprecated)
+  image_url?: string;   // Public URL for proof images
 }
 
 export interface CreateAttendanceRequest {

@@ -51,8 +51,17 @@ export default ({ config }) => {
       eas: {
         projectId: "7f08ade8-6a47-4450-9816-dc38a89bd6a2"
       },
-      SUPABASE_URL: process.env.EXPO_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL,
-      SUPABASE_ANON_KEY: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY,
+      supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,
+      supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_KEY,
+      // R2 Configuration
+      r2AccountId: process.env.R2_ACCOUNT_ID,
+      r2AccessKeyId: process.env.R2_ACCESS_KEY_ID,
+      r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+      r2Endpoint: process.env.R2_ENDPOINT,
+      r2PublicBucketName: process.env.R2_PUBLIC_BUCKET_NAME,
+      r2PrivateBucketName: process.env.R2_PRIVATE_BUCKET_NAME,
+      r2PublicUrl: process.env.R2_PUBLIC_URL,
+      r2PrivateUrl: process.env.R2_PRIVATE_URL,
     },
     plugins: [
       "expo-secure-store",
