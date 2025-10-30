@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Image, ActivityIndicator } from 'react-native';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { VolunteerHourData } from '../../types/dataService';
 import Tag from './Tag';
 import ImageViewerModal from './ImageViewerModal';
+import SecureImageViewer from './SecureImageViewer';
 
 const Colors = {
   white: '#FFFFFF',
@@ -18,6 +19,124 @@ const Colors = {
   warningYellow: '#ECC94B',
   dividerColor: '#E2E8F0',
   cardShadow: '#000000',
+  inputBorder: '#D1D5DB',
+};
+
+// PRIVATE Image Viewer Component - Handles both public URLs and private paths!
+const PrivateImageViewer: React.FC<{ 
+  imageUrl?: string; 
+  imagePath?: string; 
+  onPress: () => void 
+}> = ({ imageUrl, imagePath, onPress }) => {
+  // If we have a direct public URL (starts with https://pub-), use it directly
+  if (imageUrl && imageUrl.startsWith('https://pub-')) {
+    return <PublicImageViewer imageUrl={imageUrl} onPress={onPress} />;
+  }
+  
+  // If we have a private path or attachment_file_id, use SecureImageViewer
+  if (imagePath) {
+    return (
+      <SecureImageViewer
+        imagePath={imagePath}
+        placeholder="Tap to view proof image"
+        style={styles.secureImageViewer}
+      />
+    );
+  }
+  
+  // Fallback for any other URL format
+  if (imageUrl) {
+    return <PublicImageViewer imageUrl={imageUrl} onPress={onPress} />;
+  }
+  
+  return null;
+};
+
+// Public Image Viewer for direct URLs
+const PublicImageViewer: React.FC<{ imageUrl: string; onPress: () => void }> = ({ imageUrl, onPress }) => {
+  const [imageState, setImageState] = useState<'loading' | 'loaded' | 'error' | 'retrying'>('loading');
+  const [retryCount, setRetryCount] = useState(0);
+  const [imageKey, setImageKey] = useState(0);
+
+  const handleImageLoad = () => {
+    setImageState('loaded');
+    setRetryCount(0);
+  };
+
+  const handleImageError = () => {
+    console.log('❌ Public image failed to load:', imageUrl);
+    setImageState('error');
+  };
+
+  const handleRetry = () => {
+    console.log('🔄 Retrying public image load, attempt:', retryCount + 1);
+    setImageState('retrying');
+    setRetryCount(prev => prev + 1);
+    setImageKey(prev => prev + 1);
+    
+    setTimeout(() => {
+      setImageState('loading');
+    }, 100);
+  };
+
+  const renderImageContent = () => {
+    switch (imageState) {
+      case 'loading':
+      case 'retrying':
+        return (
+          <View style={styles.imageLoadingContainer}>
+            <ActivityIndicator size="small" color={Colors.primaryBlue} />
+            <Text style={styles.imageLoadingText}>
+              {imageState === 'retrying' ? `Retrying... (${retryCount})` : 'Loading image...'}
+            </Text>
+          </View>
+        );
+
+      case 'error':
+        return (
+          <View style={styles.imageErrorContainer}>
+            <Icon name="broken-image" size={moderateScale(24)} color={Colors.errorRed} />
+            <Text style={styles.imageErrorText}>Failed to load image</Text>
+            <TouchableOpacity 
+              style={styles.retryButton} 
+              onPress={handleRetry}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Icon name="refresh" size={moderateScale(16)} color={Colors.primaryBlue} />
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        );
+
+      case 'loaded':
+      default:
+        return (
+          <TouchableOpacity
+            onPress={onPress}
+            style={styles.proofImageButton}
+            activeOpacity={0.8}
+          >
+            <Image
+              key={imageKey}
+              source={{ uri: imageUrl }}
+              style={styles.proofImagePreview}
+              resizeMode="cover"
+              onLoad={handleImageLoad}
+              onError={handleImageError}
+            />
+            <View style={styles.imageOverlay}>
+              <Icon name="zoom-in" size={moderateScale(20)} color="rgba(255, 255, 255, 0.8)" />
+            </View>
+          </TouchableOpacity>
+        );
+    }
+  };
+
+  return (
+    <View style={styles.bulletproofImageContainer}>
+      {renderImageContent()}
+    </View>
+  );
 };
 
 interface VolunteerHourCardProps {
@@ -145,30 +264,21 @@ const VolunteerHourCard: React.FC<VolunteerHourCardProps> = ({
 
         <View style={styles.detailSection}>
           <Text style={styles.detailLabel}>Proof of Service:</Text>
-          {(volunteerHour.image_url || volunteerHour.image_path) ? (
-            <TouchableOpacity
+          {(volunteerHour.image_url || volunteerHour.image_path || volunteerHour.attachment_file_id) ? (
+            <PrivateImageViewer
+              imageUrl={volunteerHour.image_url}
+              imagePath={volunteerHour.image_path || volunteerHour.attachment_file_id}
               onPress={() => setShowImageViewer(true)}
-              style={styles.proofImageButton}
-              activeOpacity={0.8}
-            >
-              <Image
-                source={{ uri: volunteerHour.image_url || volunteerHour.image_path }}
-                style={styles.proofImagePreview}
-                resizeMode="cover"
-              />
-              <View style={styles.imageOverlay}>
-                <Icon name="zoom-in" size={moderateScale(20)} color="rgba(255, 255, 255, 0.8)" />
-              </View>
-            </TouchableOpacity>
+            />
           ) : (
             <Text style={styles.detailValue}>Not provided</Text>
           )}
         </View>
 
-      {/* Image Viewer Modal */}
-      {showImageViewer && (volunteerHour.image_url || volunteerHour.image_path) && (
+      {/* Image Viewer Modal - Only show for public URLs */}
+      {showImageViewer && volunteerHour.image_url && volunteerHour.image_url.startsWith('https://pub-') && (
         <ImageViewerModal
-          imageUrl={volunteerHour.image_url || volunteerHour.image_path || ''}
+          imageUrl={volunteerHour.image_url}
           visible={showImageViewer}
           onClose={() => setShowImageViewer(false)}
         />
@@ -343,9 +453,13 @@ const styles = StyleSheet.create({
     color: Colors.textLight,
     textAlign: 'right',
   },
+  bulletproofImageContainer: {
+    marginTop: verticalScale(8),
+    alignSelf: 'stretch',
+    width: '100%',
+  },
   proofImageButton: {
     position: 'relative',
-    marginTop: verticalScale(8),
     alignSelf: 'stretch',
     width: '100%',
   },
@@ -365,6 +479,63 @@ const styles = StyleSheet.create({
     borderRadius: moderateScale(8),
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  imageLoadingContainer: {
+    width: '100%',
+    height: verticalScale(120),
+    borderRadius: moderateScale(8),
+    backgroundColor: Colors.dividerColor,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.inputBorder,
+    borderStyle: 'dashed',
+  },
+  imageLoadingText: {
+    fontSize: moderateScale(12),
+    color: Colors.textMedium,
+    marginTop: verticalScale(8),
+    fontWeight: '500',
+  },
+  imageErrorContainer: {
+    width: '100%',
+    height: verticalScale(120),
+    borderRadius: moderateScale(8),
+    backgroundColor: '#FEF5E7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.errorRed,
+    borderStyle: 'solid',
+    padding: scale(16),
+  },
+  imageErrorText: {
+    fontSize: moderateScale(12),
+    color: Colors.errorRed,
+    marginTop: verticalScale(4),
+    marginBottom: verticalScale(8),
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+    paddingHorizontal: scale(12),
+    paddingVertical: verticalScale(6),
+    borderRadius: moderateScale(16),
+    borderWidth: 1,
+    borderColor: Colors.primaryBlue,
+  },
+  retryButtonText: {
+    fontSize: moderateScale(12),
+    color: Colors.primaryBlue,
+    marginLeft: scale(4),
+    fontWeight: '600',
+  },
+  secureImageViewer: {
+    marginTop: verticalScale(8),
+    minHeight: verticalScale(44),
   },
 });
 

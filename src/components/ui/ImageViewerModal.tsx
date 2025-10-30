@@ -49,8 +49,16 @@ const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   };
 
   const handleImageError = () => {
+    console.log('❌ ImageViewerModal: Image failed to load:', imageUrl);
     setIsLoading(false);
     setHasError(true);
+  };
+
+  const handleRetry = () => {
+    console.log('🔄 ImageViewerModal: Retrying image load');
+    setHasError(false);
+    setIsLoading(true);
+    setImageSize(null);
   };
 
   const calculateImageDimensions = () => {
@@ -120,13 +128,12 @@ const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
               <View style={styles.errorContainer}>
                 <Icon name="error-outline" size={moderateScale(48)} color={Colors.textLight} />
                 <Text style={styles.errorText}>Failed to load image</Text>
+                <Text style={styles.errorSubtext}>Check your internet connection and try again</Text>
                 <TouchableOpacity
                   style={styles.retryButton}
-                  onPress={() => {
-                    setHasError(false);
-                    setIsLoading(true);
-                  }}
+                  onPress={handleRetry}
                 >
+                  <Icon name="refresh" size={moderateScale(16)} color={Colors.white} />
                   <Text style={styles.retryText}>Retry</Text>
                 </TouchableOpacity>
               </View>
@@ -182,7 +189,13 @@ const styles = StyleSheet.create({
   closeButton: {
     padding: scale(8),
     borderRadius: moderateScale(20),
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    minWidth: scale(44),
+    minHeight: scale(44),
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   title: {
     flex: 1,
@@ -223,18 +236,34 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(16),
     textAlign: 'center',
     marginTop: verticalScale(12),
+    marginBottom: verticalScale(8),
+    fontWeight: '600',
+  },
+  errorSubtext: {
+    color: Colors.textLight,
+    fontSize: moderateScale(14),
+    textAlign: 'center',
     marginBottom: verticalScale(20),
+    opacity: 0.8,
   },
   retryButton: {
     backgroundColor: Colors.primaryBlue,
     paddingHorizontal: scale(24),
     paddingVertical: verticalScale(12),
     borderRadius: moderateScale(8),
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: Colors.primaryBlue,
+    shadowOffset: { width: 0, height: verticalScale(2) },
+    shadowOpacity: 0.3,
+    shadowRadius: moderateScale(4),
+    elevation: 4,
   },
   retryText: {
     color: Colors.white,
     fontSize: moderateScale(16),
     fontWeight: '600',
+    marginLeft: scale(8),
   },
   footer: {
     paddingHorizontal: scale(16),
