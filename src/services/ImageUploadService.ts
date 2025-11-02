@@ -446,34 +446,19 @@ class ImageUploadService {
               });
             }
 
-            // Return direct public URL
+            // Generate public URL using configured base URL
             const publicUrl = `${publicBaseUrl}/${key}`;
+            console.log('[ImageUpload] ✅ Generated public URL:', publicUrl);
             
-            // Validate the generated URL format - MUST use public R2 format
-            if (!publicUrl.startsWith('https://pub-')) {
-              console.error('[ImageUpload] ❌ CRITICAL: Wrong URL format detected!');
-              console.error('[ImageUpload] Expected: https://pub-[hash].r2.dev');
-              console.error('[ImageUpload] Got:', publicUrl);
-              console.error('[ImageUpload] Base URL:', publicBaseUrl);
-              
+            // Validate the generated URL format
+            if (!publicUrl.startsWith('https://')) {
               throw new ImageUploadErrorClass(
                 ImageUploadErrorType.CONFIGURATION_ERROR,
-                'Invalid public URL format - must use R2 public domain',
+                'Invalid public URL format - must use HTTPS',
                 'Upload service configuration error. Please restart the app.',
                 false,
                 undefined,
                 { ...context, key, publicUrl, publicBaseUrl }
-              );
-            }
-            
-            if (!publicUrl.includes('.r2.dev/')) {
-              throw new ImageUploadErrorClass(
-                ImageUploadErrorType.CONFIGURATION_ERROR,
-                'Invalid R2 public URL format',
-                'Upload service configuration error. Please restart the app.',
-                false,
-                undefined,
-                { ...context, key, publicUrl }
               );
             }
 

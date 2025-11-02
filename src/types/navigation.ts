@@ -23,6 +23,7 @@ export type OfficerStackParamList = {
   AttendanceSession: undefined;
   EventAttendance: { eventId: string };
   CreateEvent: undefined;
+  NotificationSettings: undefined;
 };
 
 // Officer Tab Parameter List - Officer bottom tab navigation
@@ -32,6 +33,12 @@ export type OfficerTabParamList = {
   OfficerAttendance: undefined;
   OfficerVerifyHours: undefined;
   OfficerEvents: undefined;
+};
+
+// Member Stack Parameter List - Member stack navigation
+export type MemberStackParamList = {
+  MemberTabs: undefined;
+  NotificationSettings: undefined;
 };
 
 // Member Tab Parameter List - Member bottom tab navigation

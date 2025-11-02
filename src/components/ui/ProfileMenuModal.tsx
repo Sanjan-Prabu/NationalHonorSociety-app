@@ -417,6 +417,30 @@ export const ProfileMenuModal: React.FC<ProfileMenuModalProps> = ({
 
                   <TouchableOpacity 
                     style={[
+                      styles.viewProfileButton,
+                      isOperationInProgress && styles.disabledButton
+                    ]} 
+                    onPress={() => {
+                      onClose();
+                      (navigation as any).navigate('NotificationSettings');
+                    }}
+                    disabled={isOperationInProgress}
+                  >
+                    <MaterialIcons 
+                      name="notifications" 
+                      size={moderateScale(20)} 
+                      color={isOperationInProgress ? Colors.textLight : Colors.solidBlue} 
+                    />
+                    <Text style={[
+                      styles.viewProfileText,
+                      isOperationInProgress && styles.disabledText
+                    ]}>
+                      Notification Settings
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={[
                       styles.logoutButton,
                       isOperationInProgress && styles.disabledButton
                     ]} 

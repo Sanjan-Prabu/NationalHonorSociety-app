@@ -286,6 +286,39 @@ const BLEHelper: BLEHelperType = {
     requireNativeModule("BLEBeaconManager").testBeaconEvent();
   },
 
+  // Location permission methods for iOS
+  requestLocationPermission: async (): Promise<string> => {
+    if (Platform.OS === "ios") {
+      if (
+        !NativeModules.BeaconBroadcaster ||
+        !NativeModules.BeaconBroadcaster.requestLocationPermission
+      ) {
+        throw new Error(
+          "BeaconBroadcaster native module is not available for requestLocationPermission"
+        );
+      }
+      return NativeModules.BeaconBroadcaster.requestLocationPermission();
+    }
+    // Android handles this through checkAndRequestPermissions
+    return "granted";
+  },
+
+  getLocationPermissionStatus: async (): Promise<string> => {
+    if (Platform.OS === "ios") {
+      if (
+        !NativeModules.BeaconBroadcaster ||
+        !NativeModules.BeaconBroadcaster.getLocationPermissionStatus
+      ) {
+        throw new Error(
+          "BeaconBroadcaster native module is not available for getLocationPermissionStatus"
+        );
+      }
+      return NativeModules.BeaconBroadcaster.getLocationPermissionStatus();
+    }
+    // Android handles this through checkAndRequestPermissions
+    return "granted";
+  },
+
   // Attendance-specific methods
   broadcastAttendanceSession: async (
     orgCode: number,

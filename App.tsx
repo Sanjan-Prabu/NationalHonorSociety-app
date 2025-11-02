@@ -12,6 +12,11 @@ import { DataErrorBoundary } from './src/components/ErrorBoundary/DataErrorBound
 import RootNavigator from './src/navigation/RootNavigator';
 import NavigationErrorBoundary from './src/components/ErrorBoundary/NavigationErrorBoundary';
 import { useSessionValidation } from './src/hooks/useSessionValidation';
+import SentryService from './src/services/SentryService';
+
+// Initialize Sentry for error monitoring
+SentryService.initialize();
+SentryService.setPlatformContext();
 
 const AppContent = () => {
   useSessionValidation();

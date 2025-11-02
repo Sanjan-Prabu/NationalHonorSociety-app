@@ -78,7 +78,7 @@ const OptimizedImageList: React.FC<OptimizedImageListProps> = ({
   const [visibleItems, setVisibleItems] = useState<Set<string>>(new Set());
   const [loadedImages, setLoadedImages] = useState<Map<string, string>>(new Map());
   const [loadingBatch, setLoadingBatch] = useState(false);
-  
+
   const { batchGenerateUrls, loading: urlLoading, error } = usePresignedUrl();
 
   // Extract private image paths that need presigned URLs
@@ -96,7 +96,7 @@ const OptimizedImageList: React.FC<OptimizedImageListProps> = ({
     try {
       setLoadingBatch(true);
       const urlMap = await batchGenerateUrls(paths);
-      
+
       setLoadedImages(prev => {
         const newMap = new Map(prev);
         urlMap.forEach((url, path) => {
@@ -249,10 +249,10 @@ const OptimizedImageList: React.FC<OptimizedImageListProps> = ({
       getItemLayout={
         numColumns === 1 && !horizontal
           ? (data, index) => ({
-              length: verticalScale(200), // Estimated item height
-              offset: verticalScale(200) * index,
-              index,
-            })
+            length: verticalScale(200), // Estimated item height
+            offset: verticalScale(200) * index,
+            index,
+          })
           : undefined
       }
     />

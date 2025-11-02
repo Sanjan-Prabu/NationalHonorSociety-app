@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
+  Text,
   Image,
   StyleSheet,
   ActivityIndicator,
@@ -143,10 +144,10 @@ const LazyImage: React.FC<LazyImageProps> = ({
     <View style={[styles.placeholder, imageStyle]} />
   );
 
-  // Default error placeholder
+  // Default error placeholder - show actual error, not loading spinner
   const defaultErrorPlaceholder = (
     <View style={[styles.errorPlaceholder, imageStyle]}>
-      <ActivityIndicator size="small" color={Colors.textLight} />
+      <Text style={styles.errorText}>✕</Text>
     </View>
   );
 
@@ -255,6 +256,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightGray,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  errorText: {
+    fontSize: 24,
+    color: Colors.textLight,
   },
 });
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -81,6 +81,8 @@ const OfficerDashboard = ({ navigation }: any) => {
       recentActivity: verificationStats?.recentActivity || { verified: 0, rejected: 0, total: 0 },
     },
   };
+
+
 
   // Quick actions data - easily modifiable and extensible
   const quickActions = [
@@ -233,13 +235,26 @@ const OfficerDashboard = ({ navigation }: any) => {
               {quickActions.map((action) => (
                 <TouchableOpacity
                   key={action.id}
-                  style={styles.quickActionButton}
+                  style={[
+                    styles.quickActionButton,
+                    action.loading && styles.quickActionButtonLoading
+                  ]}
                   onPress={action.onPress}
+                  disabled={action.loading}
                 >
                   <View style={[styles.quickActionIcon, { backgroundColor: action.color }]}>
-                    <Icon name={action.icon} size={moderateScale(24)} color={Colors.white} />
+                    {action.loading ? (
+                      <Icon name="hourglass-empty" size={moderateScale(24)} color={Colors.white} />
+                    ) : (
+                      <Icon name={action.icon} size={moderateScale(24)} color={Colors.white} />
+                    )}
                   </View>
-                  <Text style={styles.quickActionText}>{action.title}</Text>
+                  <Text style={[
+                    styles.quickActionText,
+                    action.loading && styles.quickActionTextLoading
+                  ]}>
+                    {action.loading ? 'Updating...' : action.title}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -290,6 +305,7 @@ const OfficerDashboard = ({ navigation }: any) => {
               />
             )}
           </View>
+
 
           {/* Bottom Spacer */}
           <View style={styles.bottomSpacer} />
@@ -437,6 +453,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.textDark,
     textAlign: 'center',
+  },
+  quickActionButtonLoading: {
+    opacity: 0.7,
+  },
+  quickActionTextLoading: {
+    color: Colors.textMedium,
   },
   divider: {
     height: 1,

@@ -345,6 +345,7 @@ const MemberDashboardScreen = ({ navigation }: any) => {
             )}
           </View>
 
+
           {/* Bottom Spacer */}
           <View style={styles.bottomSpacer} />
         </ScrollView>

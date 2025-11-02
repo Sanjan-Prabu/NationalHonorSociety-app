@@ -112,14 +112,21 @@ class R2ConfigService {
         publicBaseUrl: publicUrl
       };
 
-      // STARTUP VALIDATION: Ensure correct URL format
-      if (!publicUrl.startsWith('https://pub-') || !publicUrl.includes('.r2.dev')) {
+      // STARTUP VALIDATION: Accept both R2 URL formats
+      const isCustomDomain = publicUrl.startsWith('https://pub-') && publicUrl.includes('.r2.dev');
+      const isDirectR2Url = publicUrl.includes('.r2.cloudflarestorage.com');
+      
+      if (!isCustomDomain && !isDirectR2Url) {
         console.error('🚨 CRITICAL R2 CONFIGURATION ERROR 🚨');
         console.error('Public URL format is incorrect!');
-        console.error('Expected: https://pub-[hash].r2.dev');
+        console.error('Expected: https://pub-[hash].r2.dev OR https://[account-id].r2.cloudflarestorage.com/[bucket]');
         console.error('Current:', publicUrl);
         console.error('Please update R2_PUBLIC_URL in your .env file');
-        throw new Error('Invalid R2 public URL format - must use https://pub-[hash].r2.dev');
+        throw new Error('Invalid R2 public URL format - must use either custom domain or direct R2 URL');
+      }
+      
+      if (isDirectR2Url) {
+        console.log('[R2ConfigService] ℹ️  Using direct R2 storage URL (not custom domain)');
       }
 
       console.log('[R2ConfigService] ✅ Configuration loaded and validated successfully');
@@ -238,18 +245,15 @@ class R2ConfigService {
         return false;
       }
 
-      // CRITICAL: Ensure public URL uses correct R2 public format
-      if (!config.publicBaseUrl.startsWith('https://pub-')) {
+      // CRITICAL: Ensure public URL uses valid R2 format (custom domain or direct URL)
+      const isCustomDomain = config.publicBaseUrl.startsWith('https://pub-') && config.publicBaseUrl.includes('.r2.dev');
+      const isDirectR2Url = config.publicBaseUrl.includes('.r2.cloudflarestorage.com');
+      
+      if (!isCustomDomain && !isDirectR2Url) {
         console.error('[R2ConfigService] ❌ CRITICAL: Wrong public URL format!');
-        console.error('[R2ConfigService] Expected: https://pub-[hash].r2.dev');
+        console.error('[R2ConfigService] Expected: https://pub-[hash].r2.dev OR https://[account-id].r2.cloudflarestorage.com/[bucket]');
         console.error('[R2ConfigService] Got:', config.publicBaseUrl);
         console.error('[R2ConfigService] Check R2_PUBLIC_URL in environment variables');
-        return false;
-      }
-
-      if (!config.publicBaseUrl.includes('.r2.dev')) {
-        console.error('[R2ConfigService] ❌ CRITICAL: Public URL must use .r2.dev domain');
-        console.error('[R2ConfigService] Got:', config.publicBaseUrl);
         return false;
       }
 

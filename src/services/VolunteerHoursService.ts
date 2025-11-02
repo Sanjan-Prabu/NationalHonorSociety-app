@@ -19,6 +19,7 @@ import {
   UUID,
   DATABASE_TABLES 
 } from '../types/database';
+import { notificationService } from './NotificationService';
 
 export class VolunteerHoursService extends BaseDataService {
   constructor() {
@@ -47,7 +48,7 @@ export class VolunteerHoursService extends BaseDataService {
         `)
         .eq('member_id', targetUserId)
         .eq('org_id', orgId)
-        .order('verified_at', { ascending: false, nullsLast: true })
+        .order('verified_at', { ascending: false, nullsFirst: false })
         .order('submitted_at', { ascending: false });
 
       // Apply filters
@@ -150,6 +151,48 @@ export class VolunteerHoursService extends BaseDataService {
           userId,
           orgId 
         });
+
+        // Send push notifications via Edge Function (like announcements)
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          
+          if (session?.access_token) {
+            console.log('🔔 Sending volunteer hours notification via Edge Function...');
+            
+            const response = await fetch('https://lncrggkgvstvlmrlykpi.supabase.co/functions/v1/send-volunteer-hours-notification', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session.access_token}`
+              },
+              body: JSON.stringify({
+                type: 'INSERT',
+                table: 'volunteer_hours',
+                record: {
+                  id: transformedHour.id,
+                  org_id: transformedHour.org_id,
+                  member_id: transformedHour.member_id,
+                  hours: transformedHour.hours,
+                  description: transformedHour.description,
+                  activity_date: transformedHour.activity_date,
+                  submitted_at: transformedHour.submitted_at
+                },
+                schema: 'public'
+              })
+            });
+
+            if (response.ok) {
+              const result = await response.json();
+              console.log('✅ Volunteer hours notification sent:', result);
+            } else {
+              const error = await response.text();
+              console.error('❌ Volunteer hours notification failed:', response.status, error);
+            }
+          }
+        } catch (error) {
+          console.error('❌ Volunteer hours notification error:', error);
+          // Don't fail submission if notification fails
+        }
 
         return {
           data: transformedHour,
@@ -603,6 +646,49 @@ export class VolunteerHoursService extends BaseDataService {
           hours: hourData.hours
         });
 
+        // Add to volunteer hours batch queue for batched notifications (Requirement 12.3)
+        try {
+          const { notificationRateLimitingService } = await import('./NotificationRateLimitingService');
+          const batchResult = await notificationRateLimitingService.addToVolunteerHoursBatch(
+            hourData.member_id,
+            hourData.org_id,
+            hourId
+          );
+          
+          if (batchResult.success) {
+            this.log('info', 'Volunteer hours approval added to batch queue', {
+              hourId,
+              memberId: hourData.member_id
+            });
+          } else {
+            this.log('warn', 'Failed to add volunteer hours approval to batch queue, sending individual notification', {
+              hourId,
+              memberId: hourData.member_id,
+              error: batchResult.error
+            });
+            
+            // Fallback to individual notification if batching fails
+            const notificationResult = await notificationService.sendVolunteerHoursNotification(
+              transformedHour, 
+              'approved'
+            );
+            if (!notificationResult.success) {
+              this.log('warn', 'Failed to send individual volunteer hours approval notification', {
+                hourId,
+                memberId: hourData.member_id,
+                error: notificationResult.error
+              });
+            }
+          }
+        } catch (notificationError) {
+          // Don't fail the approval if notification fails
+          this.log('error', 'Volunteer hours approval notification error', {
+            hourId,
+            memberId: hourData.member_id,
+            error: notificationError instanceof Error ? notificationError.message : 'Unknown error'
+          });
+        }
+
         return {
           data: transformedHour,
           error: null,
@@ -687,6 +773,34 @@ export class VolunteerHoursService extends BaseDataService {
           reason,
           memberId: hourData.member_id
         });
+
+        // Send push notification to the member about rejection
+        try {
+          const notificationResult = await notificationService.sendVolunteerHoursNotification(
+            transformedHour, 
+            'rejected'
+          );
+          if (notificationResult.success && notificationResult.data) {
+            this.log('info', 'Volunteer hours rejection notification sent successfully', {
+              hourId,
+              memberId: hourData.member_id,
+              success: notificationResult.data.success
+            });
+          } else {
+            this.log('warn', 'Failed to send volunteer hours rejection notification', {
+              hourId,
+              memberId: hourData.member_id,
+              error: notificationResult.error
+            });
+          }
+        } catch (notificationError) {
+          // Don't fail the rejection if notification fails
+          this.log('error', 'Volunteer hours rejection notification error', {
+            hourId,
+            memberId: hourData.member_id,
+            error: notificationError instanceof Error ? notificationError.message : 'Unknown error'
+          });
+        }
 
         return {
           data: transformedHour,

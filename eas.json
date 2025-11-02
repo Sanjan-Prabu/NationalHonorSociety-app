@@ -21,7 +21,10 @@
       "env": {
         "EXPO_PUBLIC_ENVIRONMENT": "development",
         "EXPO_PUBLIC_BLE_ENABLED": "true",
-        "EXPO_PUBLIC_BLE_DEBUG": "true"
+        "EXPO_PUBLIC_BLE_DEBUG": "true",
+        "EXPO_PUBLIC_PUSH_NOTIFICATIONS_ENABLED": "true",
+        "EXPO_PUBLIC_NOTIFICATION_SOUND_ENABLED": "true",
+        "EXPO_PUBLIC_NOTIFICATION_VIBRATION_ENABLED": "true"
       }
     },
     "preview": {
@@ -38,13 +41,16 @@
       },
       "channel": "preview",
       "env": {
-        "EXPO_PUBLIC_ENVIRONMENT": "preview"
+        "EXPO_PUBLIC_ENVIRONMENT": "preview",
+        "EXPO_PUBLIC_PUSH_NOTIFICATIONS_ENABLED": "true",
+        "EXPO_PUBLIC_NOTIFICATION_SOUND_ENABLED": "true",
+        "EXPO_PUBLIC_NOTIFICATION_VIBRATION_ENABLED": "true"
       }
     },
     "production": {
       "ios": {
         "resourceClass": "m-medium",
-        "simulator": true,
+        "simulator": false,
         "buildConfiguration": "Release",
         "autoIncrement": "buildNumber"
       },
@@ -57,7 +63,10 @@
       "env": {
         "EXPO_PUBLIC_ENVIRONMENT": "production",
         "EXPO_PUBLIC_BLE_ENABLED": "true",
-        "EXPO_PUBLIC_BLE_DEBUG": "false"
+        "EXPO_PUBLIC_BLE_DEBUG": "false",
+        "EXPO_PUBLIC_PUSH_NOTIFICATIONS_ENABLED": "true",
+        "EXPO_PUBLIC_NOTIFICATION_SOUND_ENABLED": "true",
+        "EXPO_PUBLIC_NOTIFICATION_VIBRATION_ENABLED": "true"
       }
     },
     "production-ble": {

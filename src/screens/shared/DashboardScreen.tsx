@@ -254,7 +254,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation, userRole 
               <View style={styles.sectionContainer}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Upcoming Event</Text>
-                  {events.length > 0 && (
+                  {events.length > 0 && events[0].date && (
                     <View style={[styles.eventBadge, { backgroundColor: Colors.lightBlue }]}>
                       <Text style={[styles.eventBadgeText, { color: orgColors.primary }]}>
                         {new Date(events[0].date).toDateString() === new Date().toDateString() ? 'Today' :
@@ -272,7 +272,7 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation, userRole 
                     <View style={styles.eventTimeContainer}>
                       <Icon name="schedule" size={moderateScale(16)} color={Colors.textMedium} />
                       <Text style={styles.eventTime}>
-                        {new Date(events[0].date).toLocaleDateString()} • {events[0].start_time} - {events[0].end_time}
+                        {events[0].date ? new Date(events[0].date).toLocaleDateString() : 'TBA'} • {events[0].start_time || 'TBA'} - {events[0].end_time || 'TBA'}
                       </Text>
                     </View>
                   </View>
@@ -345,12 +345,13 @@ const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation, userRole 
                     {events[0].title}
                   </Text>
                   <Text style={styles.activityTime}>
-                    {new Date(events[0].date).toLocaleDateString()}
+                    {events[0].date ? new Date(events[0].date).toLocaleDateString() : 'Date TBA'}
                   </Text>
                 </View>
               )}
             </View>
           )}
+
 
           {/* Bottom Spacer */}
           <View style={styles.bottomSpacer} />

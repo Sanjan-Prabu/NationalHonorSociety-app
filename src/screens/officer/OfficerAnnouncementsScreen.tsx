@@ -27,6 +27,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useAnnouncementData } from '../../hooks/useAnnouncementData';
 import { CreateAnnouncementRequest } from '../../services/AnnouncementService';
 import ImageUploadService from '../../services/ImageUploadService';
+import PreciseDiagnostic from '../../components/debug/PreciseDiagnostic';
+
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -335,6 +337,8 @@ const OfficerAnnouncements = ({ navigation }: any) => {
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
+            <PreciseDiagnostic />
+
             {/* Header */}
             <View style={styles.header}>
               <View style={styles.headerLeft}>
@@ -524,6 +528,7 @@ const OfficerAnnouncements = ({ navigation }: any) => {
                   />
                 ))
               )}
+
             </View>
           </ScrollView>
         </KeyboardAvoidingView>

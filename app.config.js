@@ -7,7 +7,7 @@ export default ({ config }) => {
     slug: "NationalHonorSociety",
     version: "1.0.0",
     orientation: "portrait",
-    icon: "./assets/icon.png",
+    icon: "./assets/NHSTorch.png",
     userInterfaceStyle: "light",
     newArchEnabled: true,
     scheme: "nationalhonorsociety",
@@ -19,22 +19,30 @@ export default ({ config }) => {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.sanjan.prabu.NationalHonorSociety",
+      buildNumber: process.env.IOS_BUILD_NUMBER || "1",
       infoPlist: {
         NSBluetoothAlwaysUsageDescription: "This app uses Bluetooth to enable automatic attendance tracking when you're near NHS/NHSA events. This allows for seamless check-in without manual intervention.",
         NSBluetoothPeripheralUsageDescription: "This app uses Bluetooth to broadcast attendance sessions for NHS/NHSA events, allowing members to automatically check in when nearby.",
         NSLocationWhenInUseUsageDescription: "This app uses location services to detect nearby NHS/NHSA attendance sessions via Bluetooth beacons for automatic check-in.",
         NSLocationAlwaysAndWhenInUseUsageDescription: "This app uses location services to detect nearby NHS/NHSA attendance sessions via Bluetooth beacons for automatic check-in, even when the app is in the background.",
-        UIBackgroundModes: ["bluetooth-central", "bluetooth-peripheral", "location"]
+        NSUserNotificationsUsageDescription: "This app sends push notifications to keep you informed about NHS announcements, events, volunteer hour approvals, and BLE attendance sessions.",
+        UIBackgroundModes: ["bluetooth-central", "bluetooth-peripheral", "location", "remote-notification"],
+        ITSAppUsesNonExemptEncryption: false
+      },
+      // Production APNs configuration
+      entitlements: {
+        "aps-environment": process.env.EXPO_PUBLIC_ENVIRONMENT === "production" ? "production" : "development"
       }
     },
     android: {
       adaptiveIcon: {
-        foregroundImage: "./assets/adaptive-icon.png",
+        foregroundImage: "./assets/NHSTorch.png",
         backgroundColor: "#ffffff"
       },
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
       package: "com.sanjan.prabu.NationalHonorSociety",
+      versionCode: parseInt(process.env.ANDROID_VERSION_CODE || "1"),
       permissions: [
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_ADMIN",
@@ -44,8 +52,13 @@ export default ({ config }) => {
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.WAKE_LOCK"
-      ]
+        "android.permission.WAKE_LOCK",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      notificationIcon: "./assets/notification-icon.png",
+      googleServicesFile: process.env.GOOGLE_SERVICES_JSON || "./google-services.json"
     },
     extra: {
       eas: {
@@ -62,10 +75,38 @@ export default ({ config }) => {
       r2PrivateBucketName: process.env.R2_PRIVATE_BUCKET_NAME,
       r2PublicUrl: process.env.R2_PUBLIC_URL,
       r2PrivateUrl: process.env.R2_PRIVATE_URL,
+      // Push Notifications Configuration
+      pushNotificationsEnabled: process.env.EXPO_PUBLIC_PUSH_NOTIFICATIONS_ENABLED,
+      notificationSoundEnabled: process.env.EXPO_PUBLIC_NOTIFICATION_SOUND_ENABLED,
+      notificationVibrationEnabled: process.env.EXPO_PUBLIC_NOTIFICATION_VIBRATION_ENABLED,
     },
     plugins: [
       "expo-secure-store",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          icon: "./assets/notification-icon.png",
+          color: "#ffffff",
+          defaultChannel: "default",
+          sounds: ["./assets/notification-sound.wav"],
+          mode: process.env.EXPO_PUBLIC_ENVIRONMENT === "production" ? "production" : "development"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          ios: {
+            newArchEnabled: true
+          },
+          android: {
+            newArchEnabled: true,
+            minSdkVersion: 21,
+            compileSdkVersion: 34,
+            targetSdkVersion: 34
+          }
+        }
+      ]
     ]
   };
 };

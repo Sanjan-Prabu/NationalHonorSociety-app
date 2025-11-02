@@ -1,134 +1,195 @@
-import React, { useState, useEffect } from 'react';
-import { View, Image, ActivityIndicator, TouchableOpacity, Text, StyleSheet } from 'react-native';
+import React, { useState, useCallback, useRef } from 'react';
+import {
+  View,
+  Image,
+  StyleSheet,
+  ActivityIndicator,
+  TouchableOpacity,
+  Text,
+} from 'react-native';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
 const Colors = {
-  solidBlue: '#2B5CE6',
-  textMedium: '#4A5568',
-  textLight: '#718096',
-  dividerColor: '#D1D5DB',
   white: '#FFFFFF',
+  lightGray: '#F7FAFC',
+  textLight: '#718096',
+  textMedium: '#4A5568',
+  primaryBlue: '#4A90E2',
+  errorRed: '#E53E3E',
 };
 
 interface RobustImageProps {
-  source: { uri: string };
+  imageUrl: string;
   style?: any;
+  containerStyle?: any;
   resizeMode?: 'cover' | 'contain' | 'stretch' | 'repeat' | 'center';
-  fallbackText?: string;
-  fallbackIcon?: string;
   onPress?: () => void;
-  maxRetries?: number;
+  fallbackText?: string;
+  showRetryButton?: boolean;
 }
 
+/**
+ * RobustImage component that handles multiple URL formats and provides fallbacks
+ * Specifically designed to handle R2 image loading issues
+ */
 const RobustImage: React.FC<RobustImageProps> = ({
-  source,
+  imageUrl,
   style,
+  containerStyle,
   resizeMode = 'cover',
-  fallbackText = 'Image',
-  fallbackIcon = 'image',
   onPress,
-  maxRetries = 3,
+  fallbackText = 'Image',
+  showRetryButton = true,
 }) => {
-  const [imageError, setImageError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
+  const [currentUrlIndex, setCurrentUrlIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const maxRetries = 3;
 
-  // Reset states when source changes
-  useEffect(() => {
-    setImageError(false);
-    setRetryCount(0);
+  // Generate multiple URL formats to try
+  const generateUrlVariants = useCallback((originalUrl: string): string[] => {
+    const variants: string[] = [originalUrl];
+
+    // If it's a pub- URL, try the direct R2 URL as fallback
+    if (originalUrl.includes('pub-') && originalUrl.includes('.r2.dev')) {
+      // Extract the path after the domain
+      const urlParts = originalUrl.split('.r2.dev/');
+      if (urlParts.length > 1) {
+        const path = urlParts[1];
+        // Create direct R2 URL
+        const directUrl = `https://147322994f8cbee5b63de04ff2919a74.r2.cloudflarestorage.com/nhs-app-public-dev/${path}`;
+        variants.push(directUrl);
+      }
+    }
+
+    // If it's a direct R2 URL, try the pub- URL as fallback
+    if (originalUrl.includes('r2.cloudflarestorage.com')) {
+      const pathMatch = originalUrl.match(/nhs-app-public-dev\/(.+)$/);
+      if (pathMatch) {
+        const path = pathMatch[1];
+        const pubUrl = `https://pub-8eafccb788484d2db8560b92e1252627.r2.dev/${path}`;
+        variants.push(pubUrl);
+      }
+    }
+
+    return variants;
+  }, []);
+
+  const urlVariants = generateUrlVariants(imageUrl);
+  const currentUrl = urlVariants[currentUrlIndex] || imageUrl;
+
+  const handleLoadStart = useCallback(() => {
     setIsLoading(true);
-  }, [source.uri]);
+    setHasError(false);
+  }, []);
 
-  const handleImageLoad = () => {
-    setImageError(false);
+  const handleLoadEnd = useCallback(() => {
+    setIsLoading(false);
+    setHasError(false);
     setRetryCount(0);
-    setIsLoading(false);
-  };
+  }, []);
 
-  const handleImageError = () => {
-    setIsLoading(false);
+  const handleError = useCallback(() => {
+    console.log(`[RobustImage] Error loading image: ${currentUrl}`);
+    
+    // Try next URL variant
+    if (currentUrlIndex < urlVariants.length - 1) {
+      console.log(`[RobustImage] Trying next URL variant: ${urlVariants[currentUrlIndex + 1]}`);
+      setCurrentUrlIndex(prev => prev + 1);
+      setIsLoading(true);
+      setHasError(false);
+      return;
+    }
+
+    // All variants failed, try retry with exponential backoff
     if (retryCount < maxRetries) {
-      // Auto-retry with exponential backoff
-      const delay = Math.min(Math.pow(2, retryCount) * 1000, 5000); // Max 5 seconds
+      console.log(`[RobustImage] Retrying (${retryCount + 1}/${maxRetries}) after delay`);
       setTimeout(() => {
         setRetryCount(prev => prev + 1);
+        setCurrentUrlIndex(0); // Start from first variant again
         setIsLoading(true);
-      }, delay);
+        setHasError(false);
+      }, Math.pow(2, retryCount) * 1000);
     } else {
-      setImageError(true);
+      console.log(`[RobustImage] All attempts failed for: ${imageUrl}`);
+      setIsLoading(false);
+      setHasError(true);
     }
-  };
+  }, [currentUrl, currentUrlIndex, urlVariants, retryCount, maxRetries, imageUrl]);
 
-  const handleRetry = () => {
-    setImageError(false);
+  const handleRetry = useCallback(() => {
+    setCurrentUrlIndex(0);
     setRetryCount(0);
     setIsLoading(true);
+    setHasError(false);
+  }, []);
+
+  const renderContent = () => {
+    if (hasError) {
+      return (
+        <View style={[styles.fallbackContainer, style]}>
+          <View style={styles.fallbackContent}>
+            <Icon name="broken-image" size={moderateScale(32)} color={Colors.textMedium} />
+            <Text style={styles.fallbackText}>{fallbackText}</Text>
+            <Text style={styles.errorText}>Failed to load image</Text>
+            {showRetryButton && (
+              <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+                <Icon name="refresh" size={moderateScale(16)} color={Colors.white} />
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <View style={[styles.imageContainer, containerStyle]}>
+        <Image
+          source={{ uri: currentUrl }}
+          style={[styles.image, style]}
+          resizeMode={resizeMode}
+          onLoadStart={handleLoadStart}
+          onLoadEnd={handleLoadEnd}
+          onError={handleError}
+          // Force reload on URL change
+          key={`${currentUrl}-${retryCount}`}
+        />
+        
+        {isLoading && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="small" color={Colors.primaryBlue} />
+            {retryCount > 0 && (
+              <Text style={styles.loadingText}>
+                Retrying... ({retryCount}/{maxRetries})
+              </Text>
+            )}
+          </View>
+        )}
+      </View>
+    );
   };
 
-  const containerStyle = [styles.container, style];
+  if (onPress) {
+    return (
+      <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
+        {renderContent()}
+      </TouchableOpacity>
+    );
+  }
 
-  return (
-    <TouchableOpacity 
-      style={containerStyle} 
-      onPress={onPress}
-      activeOpacity={onPress ? 0.8 : 1}
-      disabled={!onPress}
-    >
-      {/* Main Image */}
-      <Image
-        source={source}
-        style={styles.image}
-        resizeMode={resizeMode}
-        onLoad={handleImageLoad}
-        onError={handleImageError}
-        // Force reload on retry by changing key
-        key={`${source.uri}-${retryCount}`}
-      />
-      
-      {/* Loading State */}
-      {isLoading && retryCount > 0 && !imageError && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="small" color={Colors.solidBlue} />
-          <Text style={styles.loadingText}>
-            Retrying... ({retryCount}/{maxRetries})
-          </Text>
-        </View>
-      )}
-      
-      {/* Error Fallback */}
-      {imageError && (
-        <View style={styles.errorOverlay}>
-          <View style={styles.errorContent}>
-            <Icon name={fallbackIcon} size={moderateScale(32)} color={Colors.textMedium} />
-            <Text style={styles.errorText}>{fallbackText}</Text>
-          </View>
-          <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
-            <Icon name="refresh" size={moderateScale(16)} color={Colors.white} />
-          </TouchableOpacity>
-        </View>
-      )}
-      
-      {/* Zoom Indicator for Pressable Images */}
-      {onPress && !imageError && !isLoading && (
-        <View style={styles.zoomIndicator}>
-          <Icon name="zoom-in" size={moderateScale(20)} color="rgba(255, 255, 255, 0.8)" />
-        </View>
-      )}
-    </TouchableOpacity>
-  );
+  return renderContent();
 };
 
 const styles = StyleSheet.create({
-  container: {
+  imageContainer: {
     position: 'relative',
-    overflow: 'hidden',
   },
   image: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#F7FAFC',
   },
   loadingOverlay: {
     position: 'absolute',
@@ -136,7 +197,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    backgroundColor: 'rgba(247, 250, 252, 0.9)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -144,45 +205,45 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(10),
     color: Colors.textMedium,
     marginTop: verticalScale(4),
-    textAlign: 'center',
   },
-  errorOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#F7FAFC',
+  fallbackContainer: {
+    backgroundColor: Colors.lightGray,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: Colors.dividerColor,
+    borderColor: '#E2E8F0',
+    borderStyle: 'dashed',
+    borderRadius: moderateScale(8),
   },
-  errorContent: {
+  fallbackContent: {
     alignItems: 'center',
+    padding: scale(16),
   },
-  errorText: {
-    fontSize: moderateScale(12),
+  fallbackText: {
+    fontSize: moderateScale(14),
     color: Colors.textMedium,
     marginTop: verticalScale(8),
     fontWeight: '500',
-    textAlign: 'center',
+  },
+  errorText: {
+    fontSize: moderateScale(12),
+    color: Colors.textLight,
+    marginTop: verticalScale(4),
   },
   retryButton: {
-    position: 'absolute',
-    top: scale(8),
-    right: scale(8),
-    backgroundColor: Colors.solidBlue,
-    borderRadius: moderateScale(12),
-    padding: scale(6),
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primaryBlue,
+    paddingHorizontal: scale(12),
+    paddingVertical: verticalScale(6),
+    borderRadius: moderateScale(6),
+    marginTop: verticalScale(8),
   },
-  zoomIndicator: {
-    position: 'absolute',
-    top: scale(8),
-    right: scale(8),
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderRadius: moderateScale(12),
-    padding: scale(4),
+  retryButtonText: {
+    fontSize: moderateScale(12),
+    color: Colors.white,
+    marginLeft: scale(4),
+    fontWeight: '500',
   },
 });
 

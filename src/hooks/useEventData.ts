@@ -136,7 +136,7 @@ export function useEventData(
   }, [filters, limit, offset]);
 
   // =============================================================================
-  // REALTIME SUBSCRIPTION
+  // REALTIME SUBSCRIPTION - OPTIMIZED FOR ROLE-BASED ACCESS
   // =============================================================================
 
   const setupRealtimeSubscription = useCallback(async () => {

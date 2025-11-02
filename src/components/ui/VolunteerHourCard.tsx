@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Image, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { VolunteerHourData } from '../../types/dataService';
 import Tag from './Tag';
 import ImageViewerModal from './ImageViewerModal';
 import SecureImageViewer from './SecureImageViewer';
+import ForceLoadImage from './ForceLoadImage';
 
 const Colors = {
   white: '#FFFFFF',
@@ -28,13 +29,14 @@ const PrivateImageViewer: React.FC<{
   imagePath?: string; 
   onPress: () => void 
 }> = ({ imageUrl, imagePath, onPress }) => {
-  // If we have a direct public URL (starts with https://pub-), use it directly
-  if (imageUrl && imageUrl.startsWith('https://pub-')) {
+  // If we have ANY direct HTTPS URL, render it immediately (no presigned URL needed)
+  // This includes both pub-*.r2.dev AND *.r2.cloudflarestorage.com URLs
+  if (imageUrl && imageUrl.startsWith('https://')) {
     return <PublicImageViewer imageUrl={imageUrl} onPress={onPress} />;
   }
   
-  // If we have a private path or attachment_file_id, use SecureImageViewer
-  if (imagePath) {
+  // Only use SecureImageViewer if we have a path but NO direct URL
+  if (imagePath && !imageUrl) {
     return (
       <SecureImageViewer
         imagePath={imagePath}
@@ -44,98 +46,26 @@ const PrivateImageViewer: React.FC<{
     );
   }
   
-  // Fallback for any other URL format
-  if (imageUrl) {
-    return <PublicImageViewer imageUrl={imageUrl} onPress={onPress} />;
-  }
-  
   return null;
 };
 
-// Public Image Viewer for direct URLs
+// Public Image Viewer for direct URLs - Uses ForceLoadImage like announcements/events
 const PublicImageViewer: React.FC<{ imageUrl: string; onPress: () => void }> = ({ imageUrl, onPress }) => {
-  const [imageState, setImageState] = useState<'loading' | 'loaded' | 'error' | 'retrying'>('loading');
-  const [retryCount, setRetryCount] = useState(0);
-  const [imageKey, setImageKey] = useState(0);
-
-  const handleImageLoad = () => {
-    setImageState('loaded');
-    setRetryCount(0);
-  };
-
-  const handleImageError = () => {
-    console.log('❌ Public image failed to load:', imageUrl);
-    setImageState('error');
-  };
-
-  const handleRetry = () => {
-    console.log('🔄 Retrying public image load, attempt:', retryCount + 1);
-    setImageState('retrying');
-    setRetryCount(prev => prev + 1);
-    setImageKey(prev => prev + 1);
-    
-    setTimeout(() => {
-      setImageState('loading');
-    }, 100);
-  };
-
-  const renderImageContent = () => {
-    switch (imageState) {
-      case 'loading':
-      case 'retrying':
-        return (
-          <View style={styles.imageLoadingContainer}>
-            <ActivityIndicator size="small" color={Colors.primaryBlue} />
-            <Text style={styles.imageLoadingText}>
-              {imageState === 'retrying' ? `Retrying... (${retryCount})` : 'Loading image...'}
-            </Text>
-          </View>
-        );
-
-      case 'error':
-        return (
-          <View style={styles.imageErrorContainer}>
-            <Icon name="broken-image" size={moderateScale(24)} color={Colors.errorRed} />
-            <Text style={styles.imageErrorText}>Failed to load image</Text>
-            <TouchableOpacity 
-              style={styles.retryButton} 
-              onPress={handleRetry}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Icon name="refresh" size={moderateScale(16)} color={Colors.primaryBlue} />
-              <Text style={styles.retryButtonText}>Retry</Text>
-            </TouchableOpacity>
-          </View>
-        );
-
-      case 'loaded':
-      default:
-        return (
-          <TouchableOpacity
-            onPress={onPress}
-            style={styles.proofImageButton}
-            activeOpacity={0.8}
-          >
-            <Image
-              key={imageKey}
-              source={{ uri: imageUrl }}
-              style={styles.proofImagePreview}
-              resizeMode="cover"
-              onLoad={handleImageLoad}
-              onError={handleImageError}
-            />
-            <View style={styles.imageOverlay}>
-              <Icon name="zoom-in" size={moderateScale(20)} color="rgba(255, 255, 255, 0.8)" />
-            </View>
-          </TouchableOpacity>
-        );
-    }
-  };
-
   return (
-    <View style={styles.bulletproofImageContainer}>
-      {renderImageContent()}
-    </View>
+    <TouchableOpacity
+      onPress={onPress}
+      style={styles.proofImageButton}
+      activeOpacity={0.8}
+    >
+      <ForceLoadImage
+        source={{ uri: imageUrl }}
+        style={styles.proofImagePreview}
+        resizeMode="cover"
+      />
+      <View style={styles.imageOverlay}>
+        <Icon name="zoom-in" size={moderateScale(20)} color="rgba(255, 255, 255, 0.8)" />
+      </View>
+    </TouchableOpacity>
   );
 };
 
@@ -275,8 +205,8 @@ const VolunteerHourCard: React.FC<VolunteerHourCardProps> = ({
           )}
         </View>
 
-      {/* Image Viewer Modal - Only show for public URLs */}
-      {showImageViewer && volunteerHour.image_url && volunteerHour.image_url.startsWith('https://pub-') && (
+      {/* Image Viewer Modal - Show for any HTTPS URL (both custom domain and direct R2) */}
+      {showImageViewer && volunteerHour.image_url && volunteerHour.image_url.startsWith('https://') && (
         <ImageViewerModal
           imageUrl={volunteerHour.image_url}
           visible={showImageViewer}

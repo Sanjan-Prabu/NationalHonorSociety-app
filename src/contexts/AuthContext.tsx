@@ -7,6 +7,8 @@ import { OrganizationService } from '../services/OrganizationService';
 import { userDataService } from '../services/UserDataService';
 import { UserProfile } from '../types/dataService';
 import { ProfileValidationService } from '../services/ProfileValidationService';
+import { pushTokenAuthIntegration } from '../services/PushTokenAuthIntegration';
+import SentryService from '../services/SentryService';
 
 interface AuthContextType {
   session: Session | null;
@@ -223,6 +225,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       console.log('🚪 Starting fast logout...');
 
+      // Clear Sentry user context
+      SentryService.clearUser();
+
       // Clear local state immediately for fast response
       setSession(null);
       setProfile(null);
@@ -252,6 +257,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } catch (error) {
       console.error('Signout error:', error);
       // Even if sign out fails, clear local state
+      SentryService.clearUser();
       setSession(null);
       setProfile(null);
       setUserProfile(null);
@@ -408,6 +414,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             }
 
             console.log('✅ Auth initialization completed successfully with validated profile');
+            
+            // Set Sentry user context
+            SentryService.setUser(
+              currentSession.user.id,
+              currentSession.user.email,
+              validationResult.profile?.display_name || validationResult.profile?.first_name
+            );
           } else {
             console.log('⚠️ Profile validation failed during initialization:', validationResult.error);
             
@@ -501,6 +514,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 } catch (enhancedError) {
                   console.error('⚠️ Enhanced profile fetch failed:', enhancedError);
                 }
+
+                // Register push token in background
+                try {
+                  console.log('🔔 Registering push token for signed-in user');
+                  const tokenResult = await pushTokenAuthIntegration.registerTokenOnLogin(session.user.id);
+                  
+                  if (tokenResult.success) {
+                    console.log('✅ Push token registered successfully');
+                  } else {
+                    console.log('⚠️ Push token registration failed:', tokenResult.error);
+                  }
+                } catch (tokenError) {
+                  console.error('❌ Push token registration error:', tokenError);
+                }
               } else {
                 console.log('⚠️ Profile validation failed during sign-in:', validationResult.error);
                 setProfile(validationResult.profile);
@@ -518,6 +545,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         console.log('✅ IMMEDIATE AUTH STATE SET - UI SHOULD UPDATE NOW');
       } else if (event === 'SIGNED_OUT') {
         console.log('🚪 Processing SIGNED_OUT event');
+        
+        // Clear push token in background
+        const currentUserId = session?.user?.id;
+        if (currentUserId) {
+          Promise.resolve().then(async () => {
+            try {
+              await pushTokenAuthIntegration.clearTokenOnLogout(currentUserId);
+              console.log('✅ Push token cleared on logout');
+            } catch (error) {
+              console.error('❌ Push token cleanup failed:', error);
+            }
+          });
+        }
+        
         setSession(null);
         setProfile(null);
         setUserProfile(null);

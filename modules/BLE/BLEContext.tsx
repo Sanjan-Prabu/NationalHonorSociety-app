@@ -6,6 +6,7 @@ import { Beacon, BLEContextProps, AttendanceSession, AttendanceBLEContextProps, 
 import { bluetoothStateManager, BluetoothState } from './BluetoothStateManager';
 import { handlePermissionFlow, checkBLEPermissions, createBLEError } from './permissionHelper';
 import { bleLoggingService, logBLEInfo, logBLEError, logBLEDebug } from '../../src/services/BLELoggingService';
+import { notificationService } from '../../src/services/NotificationService';
 import Constants from 'expo-constants';
 import { EventSubscription } from "expo-modules-core";
 
@@ -534,11 +535,15 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       await BLEHelper.broadcastAttendanceSession(orgCode, sessionToken);
       
+      // Resolve session to get event details for notification
+      const sessionDetails = await BLESessionService.resolveSession(sessionToken);
+      const eventName = sessionDetails?.eventTitle || 'Attendance Session';
+      
       const session: AttendanceSession = {
         sessionToken,
         orgCode,
-        title: 'Attendance Session', // TODO: Get actual title
-        expiresAt: new Date(Date.now() + 3600000), // 1 hour default
+        title: eventName,
+        expiresAt: sessionDetails?.endsAt || new Date(Date.now() + 3600000), // Use session expiry or 1 hour default
         isActive: true
       };
       
@@ -547,6 +552,19 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       
       logMessage(`Started attendance session: ${sessionToken} for org ${orgCode}`);
       showMessage('Attendance Session Started', 'Members can now check in via BLE.', 'success');
+
+      // Send high-priority push notification to all organization members
+      try {
+        const notificationResult = await notificationService.sendBLESessionNotification(session, eventName);
+        if (notificationResult.success && notificationResult.data) {
+          logMessage(`BLE session notification sent successfully: ${notificationResult.data.totalSent} recipients, ${notificationResult.data.successful} successful`);
+        } else {
+          console.warn('Failed to send BLE session notification:', notificationResult.error);
+        }
+      } catch (notificationError) {
+        // Don't fail the session start if notification fails
+        console.error('BLE session notification error:', notificationError instanceof Error ? notificationError.message : 'Unknown error');
+      }
     } catch (error: any) {
       console.error(`${DEBUG_PREFIX} Error starting attendance session:`, error);
       showMessage('Error', 'Failed to start attendance session.', 'error');

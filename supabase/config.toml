@@ -48,3 +48,8 @@ entrypoint = "./functions/hello-world/index.ts"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/generate-presigned-url/index.ts"
+
+[functions.send-announcement-notification]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/send-announcement-notification/index.ts"

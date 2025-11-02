@@ -553,17 +553,30 @@ export class ErrorReportingService {
 
   private async sendToMonitoringService(report: ErrorReport): Promise<void> {
     try {
-      // TODO: Implement integration with your monitoring service (e.g., Sentry, Bugsnag, etc.)
-      // Example:
-      // await fetch('/api/errors', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(report)
-      // });
+      // Send to Sentry
+      const SentryService = require('./SentryService').default;
       
-      console.log('Would send error report to monitoring service:', report.id);
+      if (report.error) {
+        SentryService.captureException(report.error, {
+          level: report.level,
+          category: report.category,
+          context: report.context,
+          metadata: report.metadata,
+          userId: report.userId,
+          organizationId: report.organizationId,
+          sessionId: report.sessionId,
+        });
+      } else {
+        SentryService.captureMessage(report.message, report.level, {
+          category: report.category,
+          context: report.context,
+          metadata: report.metadata,
+        });
+      }
+      
+      console.log('[ErrorReportingService] Sent error to Sentry:', report.id);
     } catch (error) {
-      console.error('Failed to send error report to monitoring service:', error);
+      console.error('[ErrorReportingService] Failed to send error to Sentry:', error);
     }
   }
 

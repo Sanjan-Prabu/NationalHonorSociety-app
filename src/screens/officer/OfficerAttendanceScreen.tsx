@@ -17,6 +17,7 @@ import { useAttendanceMarking, useBulkAttendanceOperations } from 'hooks/useAtte
 import { useBLE } from '../../../modules/BLE/BLEContext';
 import { BLESessionService } from '../../services/BLESessionService';
 import BLEAttendanceMonitor from 'components/ui/BLEAttendanceMonitor';
+import { checkAllPermissions, requestAllPermissions } from '../../utils/requestIOSPermissions';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -220,14 +221,46 @@ const OfficerAttendance = ({ navigation }: any) => {
       return;
     }
 
-    if (bluetoothState !== 'poweredOn') {
-      showError('Bluetooth Required', 'Please enable Bluetooth to start a BLE session');
-      return;
-    }
-
     setIsCreatingBleSession(true);
 
     try {
+      // Check and request permissions first (iOS only)
+      if (Platform.OS === 'ios') {
+        const permissionStatus = await checkAllPermissions();
+        
+        // If location permission not granted, request it
+        if (!permissionStatus.locationGranted) {
+          const updatedStatus = await requestAllPermissions();
+          
+          // If still not granted after request, stop
+          if (!updatedStatus.locationGranted) {
+            showError(
+              'Permission Required',
+              'Location permission is required to broadcast BLE sessions. Please enable it in Settings.'
+            );
+            setIsCreatingBleSession(false);
+            return;
+          }
+        }
+        
+        // Check Bluetooth after permissions
+        if (!permissionStatus.bluetoothReady) {
+          showError(
+            'Bluetooth Required',
+            'Please enable Bluetooth in Control Center or Settings to start a BLE session.'
+          );
+          setIsCreatingBleSession(false);
+          return;
+        }
+      } else {
+        // Android: just check Bluetooth state
+        if (bluetoothState !== 'poweredOn') {
+          showError('Bluetooth Required', 'Please enable Bluetooth to start a BLE session');
+          setIsCreatingBleSession(false);
+          return;
+        }
+      }
+
       // Create session in database
       const sessionToken = await createAttendanceSession(
         bleSessionTitle.trim(),

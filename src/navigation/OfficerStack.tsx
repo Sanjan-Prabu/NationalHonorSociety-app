@@ -4,6 +4,7 @@ import { OfficerStackParamList } from '../types/navigation';
 import OfficerBottomNavigator from './OfficerBottomNavigator';
 import AttendanceSessionScreen from '../screens/officer/AttendanceSessionScreen';
 import CreateEventScreen from '../screens/officer/CreateEventScreen';
+import NotificationSettingsScreen from '../screens/shared/NotificationSettingsScreen';
 
 const Stack = createNativeStackNavigator<OfficerStackParamList>();
 
@@ -29,6 +30,14 @@ export default function OfficerStack() {
       <Stack.Screen 
         name="CreateEvent" 
         component={CreateEventScreen}
+        options={{
+          headerShown: false,
+          animation: 'slide_from_right',
+        }}
+      />
+      <Stack.Screen 
+        name="NotificationSettings" 
+        component={NotificationSettingsScreen}
         options={{
           headerShown: false,
           animation: 'slide_from_right',

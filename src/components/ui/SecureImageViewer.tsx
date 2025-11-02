@@ -104,7 +104,16 @@ const SecureImageViewer: React.FC<SecureImageViewerProps> = ({
       setImageLoading(true);
       console.log('[SecureImageViewer] Generating new presigned URL...');
       
-      const url = await generateUrl(imagePath);
+      // Add timeout to presigned URL generation
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Request timeout - taking too long to generate URL')), 15000);
+      });
+      
+      const url = await Promise.race([
+        generateUrl(imagePath),
+        timeoutPromise
+      ]);
+      
       console.log('[SecureImageViewer] ✅ Presigned URL generated successfully');
       
       // Cache the URL
@@ -118,7 +127,13 @@ const SecureImageViewer: React.FC<SecureImageViewerProps> = ({
       const errorMessage = error instanceof Error ? error.message : 'Failed to load image';
       
       // Show user-friendly error messages
-      if (errorMessage.includes('permission') || errorMessage.includes('denied')) {
+      if (errorMessage.includes('timeout') || errorMessage.includes('taking too long')) {
+        Alert.alert(
+          'Request Timeout',
+          'The image is taking too long to load. Please check your connection and try again.',
+          [{ text: 'OK' }]
+        );
+      } else if (errorMessage.includes('permission') || errorMessage.includes('denied')) {
         Alert.alert(
           'Access Denied',
           "You don't have permission to view this image.",

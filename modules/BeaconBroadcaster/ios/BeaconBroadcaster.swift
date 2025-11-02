@@ -84,6 +84,56 @@ class BeaconBroadcaster: RCTEventEmitter {
         print("\(DEBUG_PREFIX) Fetching Bluetooth state: \(state)")
         resolver(state)
     }
+    
+    @objc func requestLocationPermission(_ resolver: @escaping RCTPromiseResolveBlock, rejecter: @escaping RCTPromiseRejectBlock) {
+        print("\(DEBUG_PREFIX) Requesting location permission")
+        locationManager.requestWhenInUseAuthorization()
+        
+        // Check current authorization status
+        let status = locationManager.authorizationStatus
+        let statusString: String
+        
+        switch status {
+        case .authorizedAlways:
+            statusString = "authorizedAlways"
+        case .authorizedWhenInUse:
+            statusString = "authorizedWhenInUse"
+        case .denied:
+            statusString = "denied"
+        case .restricted:
+            statusString = "restricted"
+        case .notDetermined:
+            statusString = "notDetermined"
+        @unknown default:
+            statusString = "unknown"
+        }
+        
+        print("\(DEBUG_PREFIX) Location authorization status: \(statusString)")
+        resolver(statusString)
+    }
+    
+    @objc func getLocationPermissionStatus(_ resolver: @escaping RCTPromiseResolveBlock, rejecter: @escaping RCTPromiseRejectBlock) {
+        let status = locationManager.authorizationStatus
+        let statusString: String
+        
+        switch status {
+        case .authorizedAlways:
+            statusString = "authorizedAlways"
+        case .authorizedWhenInUse:
+            statusString = "authorizedWhenInUse"
+        case .denied:
+            statusString = "denied"
+        case .restricted:
+            statusString = "restricted"
+        case .notDetermined:
+            statusString = "notDetermined"
+        @unknown default:
+            statusString = "unknown"
+        }
+        
+        print("\(DEBUG_PREFIX) Location authorization status: \(statusString)")
+        resolver(statusString)
+    }
 
     @objc func startBroadcasting(
         _ uuidString: String,

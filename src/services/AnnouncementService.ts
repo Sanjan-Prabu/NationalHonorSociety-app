@@ -10,6 +10,7 @@ import {
   ApiResponse
 } from '../types/dataService';
 import { UUID } from '../types/database';
+import { notificationService } from './NotificationService';
 
 // =============================================================================
 // ANNOUNCEMENT INTERFACES
@@ -124,6 +125,48 @@ export class AnnouncementService extends BaseDataService {
           title: transformedAnnouncement.title,
           orgId: organizationId 
         });
+
+        // Send push notifications via Edge Function
+        // Using user's session token for authentication
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          
+          if (session?.access_token) {
+            console.log('🔔 Sending notification via Edge Function...');
+            
+            const response = await fetch('https://lncrggkgvstvlmrlykpi.supabase.co/functions/v1/send-announcement-notification', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session.access_token}` // Use session token, not anon key!
+              },
+              body: JSON.stringify({
+                type: 'INSERT',
+                table: 'announcements',
+                record: {
+                  id: transformedAnnouncement.id,
+                  org_id: transformedAnnouncement.org_id,
+                  title: transformedAnnouncement.title,
+                  message: transformedAnnouncement.message,
+                  status: 'active',
+                  created_by: transformedAnnouncement.created_by
+                },
+                schema: 'public'
+              })
+            });
+
+            if (response.ok) {
+              const result = await response.json();
+              console.log('✅ Notification sent:', result);
+            } else {
+              const error = await response.text();
+              console.error('❌ Notification failed:', response.status, error);
+            }
+          }
+        } catch (error) {
+          console.error('❌ Notification error:', error);
+          // Don't fail announcement creation if notification fails
+        }
 
         return {
           data: transformedAnnouncement,

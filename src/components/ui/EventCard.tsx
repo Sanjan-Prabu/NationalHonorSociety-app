@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import Tag from './Tag';
-import LazyImage from './LazyImage';
 import ImageViewerModal from './ImageViewerModal';
+import ForceLoadImage from './ForceLoadImage';
 
 const Colors = {
   white: '#FFFFFF',
@@ -45,9 +45,6 @@ const EventCard: React.FC<EventCardProps> = ({
   deleteLoading = false,
 }) => {
   const [showImageViewer, setShowImageViewer] = useState(false);
-  const [imageError, setImageError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
-  const maxRetries = 3;
   // Category to tag variant mapping - each category gets a unique color
   const categoryVariants: Record<EventCategory, 'green' | 'teal' | 'purple' | 'orange'> = {
     'fundraiser': 'green',
@@ -150,54 +147,11 @@ const EventCard: React.FC<EventCardProps> = ({
           activeOpacity={0.8}
         >
           <View style={styles.imageWrapper}>
-            <Image
+            <ForceLoadImage
               source={{ uri: event.image_url }}
               style={styles.eventImage}
               resizeMode="cover"
-              onLoad={() => {
-                setImageError(false);
-                setRetryCount(0);
-              }}
-              onError={() => {
-                if (retryCount < maxRetries) {
-                  // Auto-retry with exponential backoff
-                  setTimeout(() => {
-                    setRetryCount(prev => prev + 1);
-                  }, Math.pow(2, retryCount) * 1000);
-                } else {
-                  setImageError(true);
-                }
-              }}
-              // Force reload on retry
-              key={`${event.image_url}-${retryCount}`}
             />
-
-            {/* Loading placeholder */}
-            {retryCount > 0 && !imageError && (
-              <View style={styles.retryOverlay}>
-                <ActivityIndicator size="small" color={Colors.solidBlue} />
-                <Text style={styles.retryText}>Loading... ({retryCount}/{maxRetries})</Text>
-              </View>
-            )}
-
-            {/* Fallback for persistent errors */}
-            {imageError && (
-              <View style={styles.fallbackContainer}>
-                <View style={styles.fallbackContent}>
-                  <Icon name="image" size={moderateScale(24)} color={Colors.textMedium} />
-                  <Text style={styles.fallbackText}>Event Image</Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.retryButton}
-                  onPress={() => {
-                    setImageError(false);
-                    setRetryCount(0);
-                  }}
-                >
-                  <Icon name="refresh" size={moderateScale(16)} color={Colors.white} />
-                </TouchableOpacity>
-              </View>
-            )}
           </View>
           {/* Image overlay indicator */}
           <View style={styles.imageOverlay}>
@@ -296,62 +250,22 @@ const styles = StyleSheet.create({
     color: Colors.textDark,
     marginBottom: verticalScale(8),
   },
+  imageContainer: {
+    marginVertical: verticalScale(8),
+    borderRadius: moderateScale(8),
+    overflow: 'hidden',
+  },
   imageWrapper: {
     position: 'relative',
     width: '100%',
     height: verticalScale(120),
     borderRadius: moderateScale(8),
-    marginBottom: verticalScale(12),
     overflow: 'hidden',
   },
   eventImage: {
     width: '100%',
     height: '100%',
     backgroundColor: '#F7FAFC',
-  },
-  retryOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  retryText: {
-    fontSize: moderateScale(10),
-    color: Colors.textMedium,
-    marginTop: verticalScale(4),
-  },
-  fallbackContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#F7FAFC',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.dividerColor,
-  },
-  fallbackContent: {
-    alignItems: 'center',
-  },
-  fallbackText: {
-    fontSize: moderateScale(12),
-    color: Colors.textMedium,
-    marginTop: verticalScale(4),
-    fontWeight: '500',
-  },
-  retryButton: {
-    position: 'absolute',
-    top: scale(8),
-    right: scale(8),
-    backgroundColor: Colors.solidBlue,
-    borderRadius: moderateScale(12),
-    padding: scale(4),
   },
   imageOverlay: {
     position: 'absolute',

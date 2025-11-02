@@ -64,7 +64,7 @@ const MemberAnnouncementsScreen = ({ navigation }: any) => {
   if (!activeOrganization || !activeMembership) {
     return (
       <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>No organization selected</Text>
+        <Text style={styles.errorTextSimple}>No organization selected</Text>
       </View>
     );
   }
@@ -136,6 +136,7 @@ const MemberAnnouncementsScreen = ({ navigation }: any) => {
               </View>
             )}
 
+
             {/* Bottom Spacer */}
             <View style={styles.bottomSpacer} />
           </ScrollView>
@@ -154,7 +155,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#f8f9fa',
   },
-  errorText: {
+  errorTextSimple: {
     fontSize: 16,
     color: '#dc3545',
     textAlign: 'center',

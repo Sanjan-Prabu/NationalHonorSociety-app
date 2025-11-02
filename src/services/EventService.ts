@@ -10,6 +10,7 @@ import {
   ApiResponse
 } from '../types/dataService';
 import { UUID } from '../types/database';
+import { notificationService } from './NotificationService';
 
 // =============================================================================
 // EVENT INTERFACES
@@ -167,6 +168,30 @@ export class EventService extends BaseDataService {
           title: transformedEvent.title,
           orgId: organizationId 
         });
+
+        // Send push notification to all organization members
+        try {
+          const notificationResult = await notificationService.sendEventNotification(transformedEvent);
+          if (notificationResult.success && notificationResult.data) {
+            this.log('info', 'Event notification sent successfully', {
+              eventId: transformedEvent.id,
+              recipients: notificationResult.data.totalSent,
+              successful: notificationResult.data.successful,
+              failed: notificationResult.data.failed
+            });
+          } else {
+            this.log('warn', 'Failed to send event notification', {
+              eventId: transformedEvent.id,
+              error: notificationResult.error
+            });
+          }
+        } catch (notificationError) {
+          // Don't fail the event creation if notification fails
+          this.log('error', 'Event notification error', {
+            eventId: transformedEvent.id,
+            error: notificationError instanceof Error ? notificationError.message : 'Unknown error'
+          });
+        }
 
         return {
           data: transformedEvent,

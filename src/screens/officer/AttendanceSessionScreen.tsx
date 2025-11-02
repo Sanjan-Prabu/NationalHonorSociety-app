@@ -13,6 +13,7 @@ import { useOrganization } from '../../contexts/OrganizationContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useBLE } from '../../../modules/BLE/BLEContext';
 import { BLESessionService } from '../../services/BLESessionService';
+import { checkAllPermissions, requestAllPermissions } from '../../utils/requestIOSPermissions';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -106,14 +107,46 @@ const AttendanceSessionScreen: React.FC<AttendanceSessionScreenProps> = ({ navig
       return;
     }
 
-    if (bluetoothState !== 'poweredOn') {
-      showError('Bluetooth Required', 'Please enable Bluetooth to start a session');
-      return;
-    }
-
     setIsCreating(true);
     
     try {
+      // Check and request permissions first (iOS only)
+      if (Platform.OS === 'ios') {
+        const permissionStatus = await checkAllPermissions();
+        
+        // If location permission not granted, request it
+        if (!permissionStatus.locationGranted) {
+          const updatedStatus = await requestAllPermissions();
+          
+          // If still not granted after request, stop
+          if (!updatedStatus.locationGranted) {
+            showError(
+              'Permission Required',
+              'Location permission is required to broadcast BLE sessions. Please enable it in Settings.'
+            );
+            setIsCreating(false);
+            return;
+          }
+        }
+        
+        // Check Bluetooth after permissions
+        if (!permissionStatus.bluetoothReady) {
+          showError(
+            'Bluetooth Required',
+            'Please enable Bluetooth in Control Center or Settings to start a BLE session.'
+          );
+          setIsCreating(false);
+          return;
+        }
+      } else {
+        // Android: just check Bluetooth state
+        if (bluetoothState !== 'poweredOn') {
+          showError('Bluetooth Required', 'Please enable Bluetooth to start a session');
+          setIsCreating(false);
+          return;
+        }
+      }
+
       // Create session in database
       const sessionToken = await createAttendanceSession(
         sessionTitle.trim(),
