@@ -19,7 +19,7 @@ export default ({ config }) => {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.sanjanprabu.nationalhonorsociety",
-      buildNumber: process.env.IOS_BUILD_NUMBER || "9",
+      buildNumber: process.env.IOS_BUILD_NUMBER || "11",
       infoPlist: {
         NSBluetoothAlwaysUsageDescription: "This app uses Bluetooth to enable automatic attendance tracking when you're near NHS/NHSA events. This allows for seamless check-in without manual intervention.",
         NSBluetoothPeripheralUsageDescription: "This app uses Bluetooth to broadcast attendance sessions for NHS/NHSA events, allowing members to automatically check in when nearby.",

@@ -1,3 +1,9 @@
 {
-  "platforms": []
+  "platforms": ["ios"],
+  "ios": {
+    "infoPlist": {
+      "NSBluetoothAlwaysUsageDescription": "This app uses Bluetooth for automatic attendance tracking",
+      "NSBluetoothPeripheralUsageDescription": "This app uses Bluetooth to broadcast attendance sessions"
+    }
+  }
 }
