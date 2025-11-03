@@ -65,7 +65,8 @@ jest.mock('../../lib/supabaseClient', () => ({
   }
 }));
 
-import { PushTokenService, TokenErrorCode } from '../PushTokenService';
+import { PushTokenService } from '../PushTokenService';
+import { TokenErrorCode } from '../../types/notifications';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 

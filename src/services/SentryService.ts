@@ -12,9 +12,10 @@ import { Platform } from 'react-native';
 // SENTRY CONFIGURATION
 // =============================================================================
 
-const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN;
-const SENTRY_ENVIRONMENT = process.env.EXPO_PUBLIC_SENTRY_ENVIRONMENT || 'development';
-const SENTRY_ENABLED = process.env.EXPO_PUBLIC_SENTRY_ENABLED === 'true';
+// Sentry is currently disabled - add DSN to enable
+const SENTRY_DSN = ''; // Add your Sentry DSN here if you want crash reporting
+const SENTRY_ENVIRONMENT = 'production';
+const SENTRY_ENABLED = false; // Set to true when you have a Sentry DSN
 
 // =============================================================================
 // SENTRY INITIALIZATION
@@ -68,8 +69,8 @@ export function initializeSentry(): void {
       
       // Before send hook - filter sensitive data
       beforeSend(event, hint) {
-        // Don't send events in development unless explicitly enabled
-        if (__DEV__ && SENTRY_ENVIRONMENT === 'development') {
+        // Don't send events in development
+        if (__DEV__) {
           console.log('[Sentry] Event captured (dev mode):', event);
           return null; // Don't send to Sentry in dev
         }

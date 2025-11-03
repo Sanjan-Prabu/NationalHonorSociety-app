@@ -17,6 +17,7 @@ import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import DropDownPicker from 'react-native-dropdown-picker';
 import { SignupScreenProps } from '../../types/navigation';
+import Constants from 'expo-constants';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -162,10 +163,14 @@ const SignupScreen = ({ route, navigation }: SignupScreenProps) => {
 
     setLoading(true);
     try {
+      // Get configuration from Constants
+      const supabaseUrl = Constants.expoConfig?.extra?.supabaseUrl || Constants.expoConfig?.extra?.SUPABASE_URL || 'https://lncrggkgvstvlmrlykpi.supabase.co';
+      const supabaseKey = Constants.expoConfig?.extra?.supabaseAnonKey || Constants.expoConfig?.extra?.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxuY3JnZ2tndnN0dmxtcmx5a3BpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyNTc1OTksImV4cCI6MjA3MzgzMzU5OX0.m605pLqr_Ie9a8jPT18MlPFH8CWRJArZTddABiSq5Yc';
+      
       // Debug logging
-      console.log('Signup URL:', `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/signupPublic`);
-      console.log('Auth Key exists:', !!process.env.EXPO_PUBLIC_SUPABASE_KEY);
-      console.log('Auth Key length:', process.env.EXPO_PUBLIC_SUPABASE_KEY?.length);
+      console.log('Signup URL:', `${supabaseUrl}/functions/v1/signupPublic`);
+      console.log('Auth Key exists:', !!supabaseKey);
+      console.log('Auth Key length:', supabaseKey?.length);
 
       // Map organization input to proper organization slugs
       const userOrgInput = organization.trim().toLowerCase();
@@ -208,11 +213,11 @@ const SignupScreen = ({ route, navigation }: SignupScreenProps) => {
       console.log('Role in request body:', requestBody.role);
 
       // Call the secure Edge Function for signup
-      const response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/signupPublic`, {
+      const response = await fetch(`${supabaseUrl}/functions/v1/signupPublic`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_KEY}`,
+          'Authorization': `Bearer ${supabaseKey}`,
         },
         body: JSON.stringify(requestBody),
       });

@@ -30,36 +30,27 @@ const ForceLoadImage: React.FC<ForceLoadImageProps> = ({
     setCurrentUri(uri);
     setLoading(true);
     setError(false);
-    
-    console.log(`[ForceLoadImage] Loading (attempt ${retryCount + 1}): ${uri}`);
   }, [source.uri, retryCount]);
 
   const handleLoadStart = () => {
-    console.log(`[ForceLoadImage] Load started: ${currentUri}`);
     setLoading(true);
     setError(false);
   };
 
   const handleLoad = () => {
-    console.log(`[ForceLoadImage] Load success: ${currentUri}`);
     setLoading(false);
     setError(false);
   };
 
   const handleError = (errorEvent: any) => {
-    console.error(`[ForceLoadImage] ❌ Load error (attempt ${retryCount + 1}/3):`, currentUri);
-    console.error('[ForceLoadImage] Error details:', JSON.stringify(errorEvent?.nativeEvent || errorEvent, null, 2));
     setLoading(false);
     setError(true);
     
     // Auto-retry up to 3 times
     if (retryCount < 3) {
       setTimeout(() => {
-        console.log(`[ForceLoadImage] 🔄 Auto-retry ${retryCount + 2}/3`);
         setRetryCount(prev => prev + 1);
       }, 1000 * (retryCount + 1)); // Exponential backoff: 1s, 2s, 3s
-    } else {
-      console.error(`[ForceLoadImage] ❌ FAILED after 3 attempts: ${currentUri}`);
     }
   };
 

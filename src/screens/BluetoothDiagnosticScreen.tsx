@@ -113,7 +113,7 @@ export const BluetoothDiagnosticScreen = () => {
           • Location permission is required for beacon detection
         </Text>
         <Text style={styles.bulletPoint}>
-          • Check Settings > [App Name] > Location
+          • Check Settings {'>'} [App Name] {'>'} Location
         </Text>
       </View>
 
@@ -142,7 +142,7 @@ export const BluetoothDiagnosticScreen = () => {
           1. Ensure system Bluetooth is ON (Control Center or Settings)
         </Text>
         <Text style={styles.bulletPoint}>
-          2. Grant Location permission in Settings > [App Name]
+          2. Grant Location permission in Settings {'>'} [App Name]
         </Text>
         <Text style={styles.bulletPoint}>
           3. Restart the app if Bluetooth was just enabled

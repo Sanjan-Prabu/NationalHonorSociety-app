@@ -8,7 +8,7 @@ import { BaseDataService } from './BaseDataService';
 import { ApiResponse } from '../types/dataService';
 import { UUID } from '../types/database';
 import { NotificationErrorCode, NotificationErrorDetails } from './NotificationService';
-import { TokenErrorCode, TokenErrorDetails } from './PushTokenService';
+import { TokenErrorCode, TokenErrorDetails } from '../types/notifications';
 import { supabase } from '../lib/supabaseClient';
 
 // =============================================================================

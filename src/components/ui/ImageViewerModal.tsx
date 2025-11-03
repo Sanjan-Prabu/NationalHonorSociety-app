@@ -49,13 +49,11 @@ const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
   };
 
   const handleImageError = () => {
-    console.log('❌ ImageViewerModal: Image failed to load:', imageUrl);
     setIsLoading(false);
     setHasError(true);
   };
 
   const handleRetry = () => {
-    console.log('🔄 ImageViewerModal: Retrying image load');
     setHasError(false);
     setIsLoading(true);
     setImageSize(null);

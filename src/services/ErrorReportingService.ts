@@ -7,6 +7,7 @@
 import { DataServiceError } from '../types/dataService';
 import { PermissionError } from './PermissionErrorHandler';
 import { ValidationError } from './DataValidationService';
+import Constants from 'expo-constants';
 
 // =============================================================================
 // ERROR REPORTING TYPES
@@ -128,10 +129,11 @@ export class ErrorReportingService {
       });
     }
 
-    // React Native error handler
-    if (typeof global !== 'undefined' && global.ErrorUtils) {
-      const originalHandler = global.ErrorUtils.getGlobalHandler();
-      global.ErrorUtils.setGlobalHandler((error, isFatal) => {
+    // React Native error handler - type-safe check
+    const g = global as any; // React Native global type augmentation
+    if (typeof g !== 'undefined' && g.ErrorUtils) {
+      const originalHandler = g.ErrorUtils.getGlobalHandler();
+      g.ErrorUtils.setGlobalHandler((error: any, isFatal: any) => {
         this.reportError(error, {
           category: 'ui',
           level: isFatal ? 'error' : 'warning',
@@ -468,8 +470,8 @@ export class ErrorReportingService {
   }
 
   private getAppVersion(): string {
-    // This should be replaced with your actual app version
-    return process.env.REACT_APP_VERSION || '1.0.0';
+    // Get version from Expo config instead of process.env (doesn't work in production)
+    return Constants.expoConfig?.version || '1.0.0';
   }
 
   private getDeviceModel(userAgent: string): string {

@@ -78,7 +78,6 @@ const RobustR2Image: React.FC<RobustR2ImageProps> = ({
       setRetryCount(0);
       setHasError(false);
       setIsLoading(true);
-      console.log('[RobustR2Image] Initialized with URL:', variants[0]);
     } else {
       setCurrentUrl(null);
       setHasError(false);
@@ -90,13 +89,10 @@ const RobustR2Image: React.FC<RobustR2ImageProps> = ({
   const handleLoadEnd = useCallback(() => {
     setIsLoading(false);
     setHasError(false);
-    console.log('[RobustR2Image] Image loaded successfully:', currentUrl);
   }, [currentUrl]);
 
   // Handle image load error with automatic retry
   const handleError = useCallback((error: any) => {
-    console.log('[RobustR2Image] Image load error:', error, 'URL:', currentUrl);
-    
     if (!imageUrl) return;
     
     const variants = getUrlVariants(imageUrl);
@@ -105,13 +101,11 @@ const RobustR2Image: React.FC<RobustR2ImageProps> = ({
     if (nextIndex < variants.length) {
       // Try next URL variant
       const nextUrl = variants[nextIndex];
-      console.log('[RobustR2Image] Trying next variant:', nextUrl);
       setCurrentUrl(nextUrl);
       setRetryCount(nextIndex);
       setIsLoading(true);
     } else {
       // All variants failed
-      console.error('[RobustR2Image] All URL variants failed for:', imageUrl);
       setIsLoading(false);
       setHasError(true);
     }
@@ -121,7 +115,6 @@ const RobustR2Image: React.FC<RobustR2ImageProps> = ({
   const handleManualRetry = useCallback(() => {
     if (!imageUrl) return;
     
-    console.log('[RobustR2Image] Manual retry initiated');
     const variants = getUrlVariants(imageUrl);
     setCurrentUrl(variants[0]);
     setRetryCount(0);
@@ -147,7 +140,6 @@ const RobustR2Image: React.FC<RobustR2ImageProps> = ({
         imageStyle={[styles.image, imageStyle]}
         resizeMode={resizeMode}
         onLoadStart={() => {
-          console.log('[RobustR2Image] Starting to load:', currentUrl);
           setIsLoading(true);
         }}
         onLoadEnd={handleLoadEnd}

@@ -80,15 +80,19 @@ class NavigationErrorBoundary extends Component<Props, State> {
                 </TouchableOpacity>
               </View>
               
-              {__DEV__ && this.state.error && (
+              {/* ALWAYS show error in production for debugging */}
+              {this.state.error && (
                 <View style={styles.debugContainer}>
-                  <Text style={styles.debugTitle}>Debug Information:</Text>
+                  <Text style={styles.debugTitle}>Error Details:</Text>
                   <Text style={styles.debugText}>
                     {this.state.error.toString()}
                   </Text>
+                  <Text style={styles.debugText}>
+                    {this.state.error.message || 'No error message'}
+                  </Text>
                   {this.state.errorInfo && (
                     <Text style={styles.debugText}>
-                      {this.state.errorInfo.componentStack}
+                      Stack: {this.state.errorInfo.componentStack?.substring(0, 500)}
                     </Text>
                   )}
                 </View>

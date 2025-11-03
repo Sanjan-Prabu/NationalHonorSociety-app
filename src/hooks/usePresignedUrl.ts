@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { networkErrorHandler } from '../services/NetworkErrorHandler';
 import ImagePerformanceMonitor from '../utils/imagePerformanceMonitor';
+import Constants from 'expo-constants';
 
 interface CachedUrl {
   url: string;
@@ -258,12 +259,15 @@ export const usePresignedUrl = (): UsePresignedUrlResult => {
       return await networkErrorHandler.executeWithRetry(
         async () => {
           try {
-            const response = await fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/generate-presigned-url`, {
+            const supabaseUrl = Constants.expoConfig?.extra?.supabaseUrl || Constants.expoConfig?.extra?.SUPABASE_URL || 'https://lncrggkgvstvlmrlykpi.supabase.co';
+            const supabaseKey = Constants.expoConfig?.extra?.supabaseAnonKey || Constants.expoConfig?.extra?.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxuY3JnZ2tndnN0dmxtcmx5a3BpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyNTc1OTksImV4cCI6MjA3MzgzMzU5OX0.m605pLqr_Ie9a8jPT18MlPFH8CWRJArZTddABiSq5Yc';
+            
+            const response = await fetch(`${supabaseUrl}/functions/v1/generate-presigned-url`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${session.access_token}`,
-                'apikey': process.env.EXPO_PUBLIC_SUPABASE_KEY!
+                'apikey': supabaseKey
               },
               body: JSON.stringify({ imagePath: imagePath.trim() }),
               signal: AbortSignal.timeout(15000) // 15 second timeout

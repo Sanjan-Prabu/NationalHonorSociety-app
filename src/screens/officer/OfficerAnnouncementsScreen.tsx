@@ -9,7 +9,8 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Alert
+  Alert,
+  RefreshControl
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -27,7 +28,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useAnnouncementData } from '../../hooks/useAnnouncementData';
 import { CreateAnnouncementRequest } from '../../services/AnnouncementService';
 import ImageUploadService from '../../services/ImageUploadService';
-import PreciseDiagnostic from '../../components/debug/PreciseDiagnostic';
 
 
 const Colors = {
@@ -336,9 +336,14 @@ const OfficerAnnouncements = ({ navigation }: any) => {
             ]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl 
+                refreshing={loading.isLoading} 
+                onRefresh={refreshAnnouncements}
+                tintColor={Colors.solidBlue}
+              />
+            }
           >
-            <PreciseDiagnostic />
-
             {/* Header */}
             <View style={styles.header}>
               <View style={styles.headerLeft}>

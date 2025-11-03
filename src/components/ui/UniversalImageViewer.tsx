@@ -85,18 +85,15 @@ const UniversalImageViewer: React.FC<UniversalImageViewerProps> = ({
     // Try next URL variant automatically
     const nextIndex = urlIndex + 1;
     if (nextIndex < urlVariants.length) {
-      console.log(`[UniversalImageViewer] Trying next URL variant (${nextIndex + 1}/${urlVariants.length})`);
       setUrlIndex(nextIndex);
       setLoading(true);
       setError(false);
     } else {
-      console.error(`[UniversalImageViewer] All URL variants failed for:`, imageUrl);
       setError(true);
     }
   }, [urlIndex, urlVariants.length, imageUrl]);
 
   const handleRetry = useCallback(() => {
-    console.log(`[UniversalImageViewer] Manual retry attempt ${retryCount + 1}`);
     setRetryCount(prev => prev + 1);
     setUrlIndex(0); // Start from first URL again
     setLoading(true);

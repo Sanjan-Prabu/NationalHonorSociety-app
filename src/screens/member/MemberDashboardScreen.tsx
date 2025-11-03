@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, RefreshControl, Button } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -16,6 +16,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { announcementService } from '../../services/AnnouncementService';
 import { useEventData } from '../../hooks/useEventData';
 import { Event } from '../../services/EventService';
+
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -283,6 +284,8 @@ const MemberDashboardScreen = ({ navigation }: any) => {
             </TouchableOpacity>
           </View>
 
+    
+
           {/* Upcoming Event Section */}
           <View style={styles.sectionContainer}>
             <View style={styles.sectionHeader}>
@@ -446,6 +449,10 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(16),
     fontWeight: '600',
     color: Colors.solidBlue,
+  },
+  testButtonContainer: {
+    marginVertical: verticalScale(16),
+    paddingHorizontal: scale(16),
   },
   sectionContainer: {
     marginBottom: verticalScale(24),

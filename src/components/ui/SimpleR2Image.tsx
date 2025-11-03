@@ -42,30 +42,25 @@ const SimpleR2Image: React.FC<SimpleR2ImageProps> = ({
       setCurrentUrl(urlWithCacheBust);
       setLoading(true);
       setError(false);
-      console.log('[SimpleR2Image] Loading image:', urlWithCacheBust);
     }
   }, [imageUrl, retryCount]);
 
   const handleLoadStart = useCallback(() => {
-    console.log('[SimpleR2Image] Load started for:', currentUrl);
     setLoading(true);
     setError(false);
-  }, [currentUrl]);
+  }, []);
 
   const handleLoadEnd = useCallback(() => {
-    console.log('[SimpleR2Image] Load completed for:', currentUrl);
     setLoading(false);
     setError(false);
-  }, [currentUrl]);
+  }, []);
 
   const handleError = useCallback((errorEvent: any) => {
-    console.error('[SimpleR2Image] Load error for:', currentUrl, errorEvent.nativeEvent);
     setLoading(false);
     setError(true);
-  }, [currentUrl]);
+  }, []);
 
   const handleRetry = useCallback(() => {
-    console.log('[SimpleR2Image] Manual retry initiated');
     setRetryCount(prev => prev + 1);
   }, []);
 

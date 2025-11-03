@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.sanjan.prabu.NationalHonorSociety",
+      "bundleIdentifier": "com.sanjanprabu.nationalhonorsociety",
       "infoPlist": {
         "NSBluetoothAlwaysUsageDescription": "This app uses Bluetooth to enable automatic attendance tracking when you're near NHS/NHSA events. This allows for seamless check-in without manual intervention.",
         "NSBluetoothPeripheralUsageDescription": "This app uses Bluetooth to broadcast attendance sessions for NHS/NHSA events, allowing members to automatically check in when nearby.",
@@ -25,9 +25,9 @@
           "bluetooth-peripheral",
           "location"
         ],
-         "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "2"
+      "buildNumber": "8"
     },
     "android": {
       "adaptiveIcon": {
@@ -36,7 +36,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.sanjan.prabu.NationalHonorSociety",
+      "package": "com.sanjanprabu.nationalhonorsociety",
       "permissions": [
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_ADMIN",
@@ -51,13 +51,22 @@
     },
     "extra": {
       "SUPABASE_URL": "https://lncrggkgvstvlmrlykpi.supabase.co",
+      "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxuY3JnZ2tndnN0dmxtcmx5a3BpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyNTc1OTksImV4cCI6MjA3MzgzMzU5OX0.m605pLqr_Ie9a8jPT18MlPFH8CWRJArZTddABiSq5Yc",
       "eas": {
         "projectId": "7f08ade8-6a47-4450-9816-dc38a89bd6a2"
       }
     },
     "plugins": [
       "expo-secure-store",
-      "expo-font"
+      "expo-font",
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "project": "nhs-app",
+          "organization": "sanjan"
+        }
+      ]
     ],
     "runtimeVersion": {
       "policy": "appVersion"

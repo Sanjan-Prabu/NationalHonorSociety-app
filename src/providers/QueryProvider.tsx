@@ -110,14 +110,14 @@ export const cacheUtils = {
   /**
    * Gets cached data without triggering a fetch
    */
-  getCachedData: <T>(queryKey: readonly unknown[]): T | undefined => {
+  getCachedData: <T,>(queryKey: readonly unknown[]): T | undefined => {
     return queryClient.getQueryData<T>(queryKey);
   },
 
   /**
    * Sets data in cache manually
    */
-  setCachedData: <T>(queryKey: readonly unknown[], data: T) => {
+  setCachedData: <T,>(queryKey: readonly unknown[], data: T) => {
     queryClient.setQueryData(queryKey, data);
     if (__DEV__) {
       console.log('[ReactQuery] Set cached data:', queryKey);
@@ -127,7 +127,7 @@ export const cacheUtils = {
   /**
    * Prefetches data
    */
-  prefetchQuery: async <T>(
+  prefetchQuery: async <T,>(
     queryKey: readonly unknown[],
     queryFn: () => Promise<T>,
     staleTime?: number

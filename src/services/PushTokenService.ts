@@ -12,6 +12,7 @@ import { supabase } from '../lib/supabaseClient';
 import { BaseDataService } from './BaseDataService';
 import { ApiResponse } from '../types/dataService';
 import { UUID } from '../types/database';
+import { TokenErrorCode, TokenErrorDetails } from '../types/notifications';
 import { notificationErrorHandler } from './NotificationErrorHandler';
 
 // =============================================================================
@@ -29,23 +30,6 @@ export interface TokenValidationResult {
   isValid: boolean;
   format: 'expo' | 'invalid';
   error?: string;
-}
-
-export interface TokenErrorDetails {
-  code: string;
-  message: string;
-  retryable: boolean;
-  timestamp: string;
-}
-
-export enum TokenErrorCode {
-  PERMISSION_DENIED = 'PERMISSION_DENIED',
-  TOKEN_INVALID = 'TOKEN_INVALID',
-  REGISTRATION_FAILED = 'REGISTRATION_FAILED',
-  DEVICE_NOT_SUPPORTED = 'DEVICE_NOT_SUPPORTED',
-  NETWORK_ERROR = 'NETWORK_ERROR',
-  EXPO_PROJECT_NOT_CONFIGURED = 'EXPO_PROJECT_NOT_CONFIGURED',
-  DATABASE_ERROR = 'DATABASE_ERROR'
 }
 
 // =============================================================================

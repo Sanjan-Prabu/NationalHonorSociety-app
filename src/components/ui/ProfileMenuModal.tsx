@@ -178,12 +178,6 @@ export const ProfileMenuModal: React.FC<ProfileMenuModalProps> = ({
     }
   };
 
-  const handleViewProfile = useCallback(() => {
-    // Future feature - for now just close modal
-    onClose();
-    showInfo('Coming Soon', 'Profile editing will be available soon');
-  }, [onClose, showInfo]);
-
   const handleSwitchOrganization = useCallback(async (orgId: string) => {
     try {
       const success = await switchToOrganization(orgId);
@@ -394,51 +388,6 @@ export const ProfileMenuModal: React.FC<ProfileMenuModalProps> = ({
 
                 {/* Action Buttons */}
                 <View style={styles.buttonSection}>
-                  <TouchableOpacity 
-                    style={[
-                      styles.viewProfileButton,
-                      isOperationInProgress && styles.disabledButton
-                    ]} 
-                    onPress={handleViewProfile}
-                    disabled={isOperationInProgress}
-                  >
-                    <MaterialIcons 
-                      name="person" 
-                      size={moderateScale(20)} 
-                      color={isOperationInProgress ? Colors.textLight : Colors.solidBlue} 
-                    />
-                    <Text style={[
-                      styles.viewProfileText,
-                      isOperationInProgress && styles.disabledText
-                    ]}>
-                      View Profile
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity 
-                    style={[
-                      styles.viewProfileButton,
-                      isOperationInProgress && styles.disabledButton
-                    ]} 
-                    onPress={() => {
-                      onClose();
-                      (navigation as any).navigate('NotificationSettings');
-                    }}
-                    disabled={isOperationInProgress}
-                  >
-                    <MaterialIcons 
-                      name="notifications" 
-                      size={moderateScale(20)} 
-                      color={isOperationInProgress ? Colors.textLight : Colors.solidBlue} 
-                    />
-                    <Text style={[
-                      styles.viewProfileText,
-                      isOperationInProgress && styles.disabledText
-                    ]}>
-                      Notification Settings
-                    </Text>
-                  </TouchableOpacity>
-
                   <TouchableOpacity 
                     style={[
                       styles.logoutButton,

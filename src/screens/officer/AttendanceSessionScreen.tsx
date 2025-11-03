@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Alert, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Alert, Platform, RefreshControl } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { scale, verticalScale, moderateScale } from 'react-native-size-matters';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -58,6 +58,7 @@ const AttendanceSessionScreen: React.FC<AttendanceSessionScreenProps> = ({ navig
   const [isCreating, setIsCreating] = useState(false);
   const [attendeeCount, setAttendeeCount] = useState(0);
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Update attendee count periodically when session is active
   useEffect(() => {
@@ -201,6 +202,24 @@ const AttendanceSessionScreen: React.FC<AttendanceSessionScreenProps> = ({ navig
     );
   };
 
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      // Refresh attendee count if session is active
+      if (currentSession && currentSession.isActive && activeOrganization?.id) {
+        const sessions = await BLESessionService.getActiveSessions(activeOrganization.id);
+        const activeSession = sessions.find(s => s.sessionToken === currentSession.sessionToken);
+        if (activeSession) {
+          setAttendeeCount(activeSession.attendeeCount);
+        }
+      }
+    } catch (error) {
+      console.error('Error refreshing session data:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const formatSessionTime = () => {
     if (!sessionStartTime) return '00:00';
     
@@ -259,6 +278,13 @@ const AttendanceSessionScreen: React.FC<AttendanceSessionScreenProps> = ({ navig
             paddingHorizontal: scale(16),
           }}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={onRefresh}
+              tintColor={Colors.solidBlue}
+            />
+          }
         >
           {/* Header */}
           <View style={styles.header}>

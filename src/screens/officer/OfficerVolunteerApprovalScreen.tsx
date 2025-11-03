@@ -320,6 +320,8 @@ const OfficerVerifyHours = ({ navigation }: any) => {
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.listContainer}
                 contentInsetAdjustmentBehavior="automatic"
+                refreshing={currentTabFetching}
+                onRefresh={handleRefresh}
               />
             )}
           </View>

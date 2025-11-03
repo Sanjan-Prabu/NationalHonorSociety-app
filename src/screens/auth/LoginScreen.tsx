@@ -21,6 +21,7 @@ import { tokenManager } from '../../services/TokenManager';
 import { sessionPersistence } from '../../services/SessionPersistence';
 import { AuthError, AuthErrorType } from '../../types/auth';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
+import Constants from 'expo-constants';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -137,9 +138,9 @@ const LoginScreen = ({ route, navigation }: LoginScreenProps) => {
         }
       }
 
-      // Call the secure Edge Function for sign-in
-      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-      const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_KEY;
+      // Get configuration from Constants
+      const supabaseUrl = Constants.expoConfig?.extra?.supabaseUrl || Constants.expoConfig?.extra?.SUPABASE_URL || 'https://lncrggkgvstvlmrlykpi.supabase.co';
+      const supabaseKey = Constants.expoConfig?.extra?.supabaseAnonKey || Constants.expoConfig?.extra?.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxuY3JnZ2tndnN0dmxtcmx5a3BpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyNTc1OTksImV4cCI6MjA3MzgzMzU5OX0.m605pLqr_Ie9a8jPT18MlPFH8CWRJArZTddABiSq5Yc';
       
       if (!supabaseUrl || !supabaseKey) {
         throw new AuthError({

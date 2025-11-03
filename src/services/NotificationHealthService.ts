@@ -7,6 +7,7 @@ import { BaseDataService } from './BaseDataService';
 import { ApiResponse } from '../types/dataService';
 import { notificationMonitoringService, HealthCheckResult, DeliveryMetrics, PerformanceMetrics } from './NotificationMonitoringService';
 import { notificationCacheService } from './NotificationCacheService';
+import Constants from 'expo-constants';
 
 // =============================================================================
 // HEALTH SERVICE INTERFACES
@@ -84,8 +85,8 @@ export class NotificationHealthService extends BaseDataService {
         status: latestHealthCheck?.status || 'healthy',
         timestamp: new Date().toISOString(),
         uptime: Date.now() - this.startTime,
-        version: '1.0.0', // This would come from package.json or environment
-        environment: process.env.NODE_ENV || 'development'
+        version: Constants.expoConfig?.version || '1.0.0',
+        environment: __DEV__ ? 'development' : 'production'
       };
 
       return {
@@ -102,8 +103,8 @@ export class NotificationHealthService extends BaseDataService {
           status: 'unhealthy',
           timestamp: new Date().toISOString(),
           uptime: Date.now() - this.startTime,
-          version: '1.0.0',
-          environment: process.env.NODE_ENV || 'development'
+          version: Constants.expoConfig?.version || '1.0.0',
+          environment: __DEV__ ? 'development' : 'production'
         },
         error: errorMessage,
         success: false,

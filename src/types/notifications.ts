@@ -35,3 +35,21 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
     end_time: '08:00',
   },
 };
+
+// Token Error Types (shared between PushTokenService and NotificationErrorHandler)
+export enum TokenErrorCode {
+  PERMISSION_DENIED = 'PERMISSION_DENIED',
+  TOKEN_INVALID = 'TOKEN_INVALID',
+  REGISTRATION_FAILED = 'REGISTRATION_FAILED',
+  DEVICE_NOT_SUPPORTED = 'DEVICE_NOT_SUPPORTED',
+  NETWORK_ERROR = 'NETWORK_ERROR',
+  EXPO_PROJECT_NOT_CONFIGURED = 'EXPO_PROJECT_NOT_CONFIGURED',
+  DATABASE_ERROR = 'DATABASE_ERROR'
+}
+
+export interface TokenErrorDetails {
+  code: TokenErrorCode;
+  message: string;
+  retryable: boolean;
+  timestamp: string;
+}
