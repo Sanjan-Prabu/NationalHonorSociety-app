@@ -261,10 +261,11 @@ const OfficerAttendance = ({ navigation }: any) => {
         }
       }
 
-      // Create session in database
+      // Create session in database - pass the actual organization ID
       const sessionToken = await createAttendanceSession(
         bleSessionTitle.trim(),
-        durationMinutes * 60 // Convert to seconds
+        durationMinutes * 60, // Convert to seconds
+        activeOrganization.id // Pass the real organization ID
       );
 
       // Get organization code for BLE broadcasting

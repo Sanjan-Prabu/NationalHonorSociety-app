@@ -41,7 +41,7 @@ export interface BLEContextProps {
 
 export interface AttendanceBLEContextProps extends BLEContextProps {
   // Session management
-  createAttendanceSession: (title: string, ttlSeconds: number) => Promise<string>;
+  createAttendanceSession: (title: string, ttlSeconds: number, orgId?: string) => Promise<string>;
   startAttendanceSession: (sessionToken: string, orgCode: number) => Promise<void>;
   stopAttendanceSession: () => Promise<void>;
   

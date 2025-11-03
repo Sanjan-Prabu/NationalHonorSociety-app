@@ -513,11 +513,18 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // Attendance-specific methods
-  const createAttendanceSession = async (title: string, ttlSeconds: number): Promise<string> => {
+  const createAttendanceSession = async (title: string, ttlSeconds: number, orgId?: string): Promise<string> => {
     try {
-      const { orgId } = getCurrentOrgContext();
+      // Use provided orgId or fall back to context (which should be replaced with real data)
+      const organizationId = orgId || getCurrentOrgContext().orgId;
       
-      const sessionToken = await BLESessionService.createSession(orgId, title, ttlSeconds);
+      // Validate that we have a valid UUID format
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(organizationId)) {
+        throw new Error(`Invalid organization ID format. Please ensure you're logged into an organization. Got: ${organizationId}`);
+      }
+      
+      const sessionToken = await BLESessionService.createSession(organizationId, title, ttlSeconds);
       logMessage(`Created attendance session: ${sessionToken}`);
       return sessionToken;
     } catch (error: any) {
