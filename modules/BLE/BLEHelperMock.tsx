@@ -1,5 +1,5 @@
 // Mock BLE Helper for Expo Go and Simulator environments
-import { BLEHelperType, Beacon } from "@/src/types";
+import { BLEHelperType, Beacon } from "../../src/types";
 
 const mockSubscription = {
   remove: () => console.log("Mock subscription removed")
