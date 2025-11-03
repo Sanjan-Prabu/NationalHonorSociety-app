@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode, useRef } from 'react';
-import BLEHelper from './BLEHelper';
+const BLEHelper = require('./BLEHelper').default;
 import { BLESessionService } from '../../src/services/BLESessionService';
 import { getOrgCode, validateBeaconPayload } from './AttendanceHelper';
 import { Beacon, BLEContextProps, AttendanceSession, AttendanceBLEContextProps, BLEPermissionState, BLEError, BLEErrorType } from '../../src/types/ble';

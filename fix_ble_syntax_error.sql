@@ -24,7 +24,7 @@ BEGIN
     -- Validate inputs
     IF p_org_id IS NULL THEN
         RETURN jsonb_build_object(
-            'success', false,
+            'success', false, 
             'error', 'invalid_input',
             'message', 'Organization ID cannot be null'
         );

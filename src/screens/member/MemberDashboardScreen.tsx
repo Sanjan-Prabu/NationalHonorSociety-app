@@ -275,13 +275,6 @@ const MemberDashboardScreen = ({ navigation }: any) => {
               containerStyle={styles.progressBarContainer}
             />
 
-            <TouchableOpacity 
-              style={styles.viewProfileButton}
-              onPress={() => navigation.navigate('MemberAnnouncements')} // Navigate to announcements as profile screen doesn't exist yet
-            >
-              <Text style={styles.viewProfileText}>View Profile</Text>
-              <Icon name="chevron-right" size={moderateScale(16)} color={Colors.solidBlue} />
-            </TouchableOpacity>
           </View>
 
     
@@ -398,8 +391,9 @@ const styles = StyleSheet.create({
     marginBottom: verticalScale(4),
   },
   headerSubtitle: {
-    fontSize: moderateScale(16),
+    fontSize: moderateScale(14),
     color: Colors.textMedium,
+    maxWidth: '85%',  // Prevent text from wrapping
   },
   profileButton: {
     width: scale(44),
@@ -460,7 +454,7 @@ const styles = StyleSheet.create({
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',  // Changed from center to align with date text
     marginBottom: verticalScale(12),
   },
   sectionTitle: {
@@ -490,6 +484,7 @@ const styles = StyleSheet.create({
   viewAllButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: verticalScale(18),  // Push down to align with date text
   },
   viewAllText: {
     fontSize: moderateScale(14),

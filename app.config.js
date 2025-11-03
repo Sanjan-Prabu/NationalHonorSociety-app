@@ -19,7 +19,7 @@ export default ({ config }) => {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.sanjanprabu.nationalhonorsociety",
-      buildNumber: process.env.IOS_BUILD_NUMBER || "11",
+      buildNumber: process.env.IOS_BUILD_NUMBER || "13",
       infoPlist: {
         NSBluetoothAlwaysUsageDescription: "This app uses Bluetooth to enable automatic attendance tracking when you're near NHS/NHSA events. This allows for seamless check-in without manual intervention.",
         NSBluetoothPeripheralUsageDescription: "This app uses Bluetooth to broadcast attendance sessions for NHS/NHSA events, allowing members to automatically check in when nearby.",
@@ -63,6 +63,8 @@ export default ({ config }) => {
       eas: {
         projectId: "7f08ade8-6a47-4450-9816-dc38a89bd6a2"
       },
+      // BLE Configuration
+      APP_UUID: "A495BB60-C5B6-466E-B5D2-DF4D449B0F03",
       // CRITICAL: Hardcode values for production builds
       SUPABASE_URL: "https://lncrggkgvstvlmrlykpi.supabase.co",
       SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxuY3JnZ2tndnN0dmxtcmx5a3BpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyNTc1OTksImV4cCI6MjA3MzgzMzU5OX0.m605pLqr_Ie9a8jPT18MlPFH8CWRJArZTddABiSq5Yc",

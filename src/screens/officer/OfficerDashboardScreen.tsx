@@ -182,18 +182,18 @@ const OfficerDashboard = ({ navigation }: any) => {
           <View style={styles.header}>
             <View style={styles.headerLeft}>
               <Text style={styles.headerTitle}>Executive Dashboard</Text>
-              <View style={styles.roleContainer}>
-                <Text style={styles.roleText}>{dashboardData.role}</Text>
-                <View style={styles.officerBadge}>
-                  <Text style={styles.officerBadgeText}>{dashboardData.officerType}</Text>
-                </View>
+              <Text style={styles.roleText}>{dashboardData.role}</Text>
+            </View>
+            <View style={styles.headerRight}>
+              <ProfileButton
+                color={Colors.solidBlue}
+                size={moderateScale(33)}
+                style={styles.profileButton}
+              />
+              <View style={styles.officerBadge}>
+                <Text style={styles.officerBadgeText}>{dashboardData.officerType}</Text>
               </View>
             </View>
-            <ProfileButton
-              color={Colors.solidBlue}
-              size={moderateScale(33)}
-              style={styles.profileButton}
-            />
           </View>
 
           {/* Welcome Section */}
@@ -328,26 +328,27 @@ const styles = StyleSheet.create({
   headerLeft: {
     flex: 1,
   },
+  headerRight: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
   headerTitle: {
     fontSize: moderateScale(24),
     fontWeight: 'bold',
     color: Colors.textDark,
     marginBottom: verticalScale(8),
   },
-  roleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
   roleText: {
     fontSize: moderateScale(16),
     color: Colors.textMedium,
-    marginRight: scale(12),
   },
   officerBadge: {
     backgroundColor: Colors.purple,
     paddingHorizontal: scale(12),
     paddingVertical: verticalScale(4),
     borderRadius: moderateScale(12),
+    marginTop: verticalScale(5), // Space between profile button and badge
   },
   officerBadgeText: {
     fontSize: moderateScale(12),
@@ -515,8 +516,7 @@ const styles = StyleSheet.create({
     height: verticalScale(100),
   },
   profileButton: {
-    bottom: verticalScale(5),
-    right: moderateScale(-10)
+    // Remove positioning adjustments
   },
   approvalRate: {
     fontSize: moderateScale(14),

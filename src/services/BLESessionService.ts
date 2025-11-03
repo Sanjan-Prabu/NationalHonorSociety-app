@@ -92,12 +92,14 @@ export class BLESessionService {
       throw new Error(`Token security validation failed: ${validation.error}`);
     }
 
-    console.log('Secure BLE session created:', {
-      eventId: data.event_id,
-      entropyBits: data.entropy_bits,
-      securityLevel: data.security_level,
-      expiresAt: data.expires_at
-    });
+    if (__DEV__) {
+      console.log('Secure BLE session created:', {
+        eventId: data.event_id,
+        entropyBits: data.entropy_bits,
+        securityLevel: data.security_level,
+        expiresAt: data.expires_at
+      });
+    }
 
     return sessionToken;
   }
@@ -208,11 +210,13 @@ export class BLESessionService {
           message: 'Attendance recorded successfully with enhanced security validation'
         };
 
-        console.log('Secure attendance recorded:', {
-          eventId: result.event_id,
-          tokenSecurity: result.token_security,
-          timeRemaining: result.time_remaining_seconds
-        });
+        if (__DEV__) {
+          console.log('Secure attendance recorded:', {
+            eventId: result.event_id,
+            tokenSecurity: result.token_security,
+            timeRemaining: result.time_remaining_seconds
+          });
+        }
 
         return attendanceResult;
       } else {
@@ -359,7 +363,9 @@ export class BLESessionService {
       // Validate beacon payload first
       const orgSlug = major === 1 ? 'nhs' : major === 2 ? 'nhsa' : '';
       if (!orgSlug || !this.validateBeaconPayload(major, minor, orgSlug)) {
-        console.log('Invalid beacon payload for findSessionByBeacon');
+        if (__DEV__) {
+          console.log('Invalid beacon payload for findSessionByBeacon');
+        }
         return null;
       }
 
@@ -377,7 +383,9 @@ export class BLESessionService {
         }
       }
       
-      console.log(`No session found for beacon major:${major} minor:${minor} in ${activeSessions.length} active sessions`);
+      if (__DEV__) {
+        console.log(`No session found for beacon major:${major} minor:${minor} in ${activeSessions.length} active sessions`);
+      }
       return null;
     } catch (error) {
       console.error('Failed to find session by beacon:', error);

@@ -27,7 +27,7 @@
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "12"
+      "buildNumber": "14"
     },
     "android": {
       "adaptiveIcon": {
@@ -50,6 +50,7 @@
       ]
     },
     "extra": {
+      "APP_UUID": "A495BB60-C5B6-466E-B5D2-DF4D449B0F03",
       "SUPABASE_URL": "https://lncrggkgvstvlmrlykpi.supabase.co",
       "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxuY3JnZ2tndnN0dmxtcmx5a3BpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyNTc1OTksImV4cCI6MjA3MzgzMzU5OX0.m605pLqr_Ie9a8jPT18MlPFH8CWRJArZTddABiSq5Yc",
       "eas": {

@@ -33,7 +33,7 @@ export class BLESecurityService {
     collisionProbability: 0,
     uniqueTokensGenerated: 0,
     validationFailures: 0,
-    securityLevel: 'weak'
+    securityLevel: 'moderate'
   };
 
   /**
@@ -97,10 +97,8 @@ export class BLESecurityService {
       };
     }
 
-    // Check character set compliance (escape special regex characters)
-    const escapedCharset = this.SECURE_CHARSET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const validChars = new RegExp(`^[${escapedCharset}]+$`);
-    if (!validChars.test(token)) {
+    // Check if token uses alphanumeric characters (both cases allowed)
+    if (!/^[A-Za-z0-9]+$/.test(token)) {
       this.metrics.validationFailures++;
       return {
         isValid: false,
@@ -236,10 +234,11 @@ export class BLESecurityService {
     isValid: boolean;
     expiresAt?: Date;
     timeRemaining?: number;
+    sessionAge?: number;
     error?: string;
   }> {
     try {
-      const { data, error } = await supabase.rpc('validate_session_expiration', {
+      const { data, error } = await (supabase as any).rpc('validate_session_expiration', {
         p_session_token: sessionToken
       });
 
@@ -250,7 +249,7 @@ export class BLESecurityService {
         };
       }
 
-      if (!data || data.length === 0) {
+      if (!data || !Array.isArray(data) || data.length === 0) {
         return {
           isValid: false,
           error: 'Session not found'
@@ -258,14 +257,15 @@ export class BLESecurityService {
       }
 
       const session = data[0];
-      const expiresAt = new Date(session.expires_at);
+      const expiresAt = new Date(session.expires_at || session.ends_at);
       const now = new Date();
       const timeRemaining = expiresAt.getTime() - now.getTime();
 
       return {
-        isValid: session.is_valid && timeRemaining > 0,
+        isValid: (session.is_valid !== false) && timeRemaining > 0,
         expiresAt,
         timeRemaining: Math.max(0, timeRemaining),
+        sessionAge: session.session_age_seconds,
         error: timeRemaining <= 0 ? 'Session expired' : undefined
       };
     } catch (error) {
@@ -284,6 +284,15 @@ export class BLESecurityService {
   }
 
   /**
+   * Validates token format (12 alphanumeric characters)
+   * Accepts both uppercase and lowercase for flexibility
+   */
+  static isValidTokenFormat(token: string): boolean {
+    if (!token || typeof token !== 'string') return false;
+    return /^[A-Za-z0-9]{12}$/.test(token);
+  }
+
+  /**
    * Resets security metrics (for testing)
    */
   static resetMetrics(): void {
@@ -292,19 +301,8 @@ export class BLESecurityService {
       collisionProbability: 0,
       uniqueTokensGenerated: 0,
       validationFailures: 0,
-      securityLevel: 'weak'
+      securityLevel: 'moderate'
     };
-  }
-
-  /**
-   * Validates token format using regex
-   */
-  static isValidTokenFormat(token: string): boolean {
-    if (!token || typeof token !== 'string') return false;
-    
-    const escapedCharset = this.SECURE_CHARSET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const tokenRegex = new RegExp(`^[${escapedCharset}]{${this.TOKEN_LENGTH}}$`);
-    return tokenRegex.test(token);
   }
 
   /**
@@ -313,13 +311,19 @@ export class BLESecurityService {
   static sanitizeToken(token: string): string | null {
     if (!token || typeof token !== 'string') return null;
     
-    // Remove whitespace and convert to uppercase
-    const sanitized = token.trim().toUpperCase();
+    // Remove whitespace only, keep original case for mixed tokens
+    const cleaned = token.trim();
     
-    // Validate format
-    if (!this.isValidTokenFormat(sanitized)) return null;
+    // Remove any spaces within the token
+    const sanitized = cleaned.replace(/\s+/g, '');
     
-    return sanitized;
+    // If it's exactly 12 alphanumeric characters, convert to uppercase
+    if (/^[A-Za-z0-9]{12}$/.test(sanitized)) {
+      return sanitized.toUpperCase();
+    }
+    
+    // Otherwise return null
+    return null;
   }
 
   /**

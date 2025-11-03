@@ -287,7 +287,7 @@ const BLEHelper: BLEHelperType = {
       console.warn("BLE emitter not available - returning mock subscription");
       return { remove: () => {} } as any;
     }
-    return emitter.addListener<Beacon>("BeaconDetected", listener);
+    return emitter.addListener("BeaconDetected", listener);
   },
   removeBeaconDetectedListener: (subscription: Subscription): void => {
     if (subscription && subscription.remove) {
@@ -323,46 +323,17 @@ const BLEHelper: BLEHelperType = {
     }
   },
   testBeaconEvent: async (): Promise<void> => {
-    requireNativeModule("BLEBeaconManager").testBeaconEvent();
+    if (Platform.OS === "android" && BLEBeaconManager && BLEBeaconManager.testBeaconEvent) {
+      BLEBeaconManager.testBeaconEvent();
+    }
   },
 
-  // Location permission methods for iOS
-  requestLocationPermission: async (): Promise<string> => {
-    if (Platform.OS === "ios") {
-      if (
-        !NativeModules.BeaconBroadcaster ||
-        !NativeModules.BeaconBroadcaster.requestLocationPermission
-      ) {
-        throw new Error(
-          "BeaconBroadcaster native module is not available for requestLocationPermission"
-        );
-      }
-      return NativeModules.BeaconBroadcaster.requestLocationPermission();
-    }
-    // Android handles this through checkAndRequestPermissions
-    return "granted";
-  },
-
-  getLocationPermissionStatus: async (): Promise<string> => {
-    if (Platform.OS === "ios") {
-      if (
-        !NativeModules.BeaconBroadcaster ||
-        !NativeModules.BeaconBroadcaster.getLocationPermissionStatus
-      ) {
-        throw new Error(
-          "BeaconBroadcaster native module is not available for getLocationPermissionStatus"
-        );
-      }
-      return NativeModules.BeaconBroadcaster.getLocationPermissionStatus();
-    }
-    // Android handles this through checkAndRequestPermissions
-    return "granted";
-  },
 
   // Attendance-specific methods
   broadcastAttendanceSession: async (
-    orgCode: number,
     sessionToken: string,
+    orgCode: number,
+    title: string,
     advertiseMode: number = 2,
     txPowerLevel: number = 3
   ): Promise<void> => {
@@ -376,8 +347,8 @@ const BLEHelper: BLEHelperType = {
         );
       }
       return NativeModules.BeaconBroadcaster.broadcastAttendanceSession(
-        orgCode,
-        sessionToken
+        sessionToken,
+        orgCode
       );
     } else if (Platform.OS === "android") {
       if (!BLEBeaconManager || !BLEBeaconManager.broadcastAttendanceSession) {
@@ -392,8 +363,8 @@ const BLEHelper: BLEHelperType = {
       }
 
       return BLEBeaconManager.broadcastAttendanceSession(
-        orgCode,
         sessionToken,
+        orgCode,
         advertiseMode,
         txPowerLevel
       );
@@ -402,7 +373,7 @@ const BLEHelper: BLEHelperType = {
     }
   },
 
-  stopAttendanceSession: async (orgCode: number): Promise<void> => {
+  stopAttendanceSession: async (): Promise<void> => {
     if (Platform.OS === "ios") {
       if (
         !NativeModules.BeaconBroadcaster ||
@@ -412,7 +383,7 @@ const BLEHelper: BLEHelperType = {
           "BeaconBroadcaster native module is not available for stopAttendanceSession"
         );
       }
-      return NativeModules.BeaconBroadcaster.stopAttendanceSession(orgCode);
+      return NativeModules.BeaconBroadcaster.stopAttendanceSession();
     } else if (Platform.OS === "android") {
       if (!BLEBeaconManager || !BLEBeaconManager.stopAttendanceSession) {
         throw new Error(
@@ -425,55 +396,11 @@ const BLEHelper: BLEHelperType = {
         throw new Error("Bluetooth permissions not granted.");
       }
 
-      return BLEBeaconManager.stopAttendanceSession(orgCode);
+      return BLEBeaconManager.stopAttendanceSession();
     } else {
       throw new Error("Unsupported platform");
     }
-  },
-
-  validateAttendanceBeacon: async (
-    uuid: string,
-    major: number,
-    minor: number,
-    expectedOrgCode: number
-  ): Promise<boolean> => {
-    if (Platform.OS === "ios") {
-      if (
-        !NativeModules.BeaconBroadcaster ||
-        !NativeModules.BeaconBroadcaster.validateAttendanceBeacon
-      ) {
-        throw new Error(
-          "BeaconBroadcaster native module is not available for validateAttendanceBeacon"
-        );
-      }
-      return NativeModules.BeaconBroadcaster.validateAttendanceBeacon(
-        uuid,
-        major,
-        minor,
-        expectedOrgCode
-      );
-    } else if (Platform.OS === "android") {
-      if (!BLEBeaconManager || !BLEBeaconManager.validateAttendanceBeacon) {
-        throw new Error(
-          "BLEBeaconManager native module is not available for validateAttendanceBeacon"
-        );
-      }
-
-      const hasPermissions = await checkAndRequestPermissions();
-      if (!hasPermissions) {
-        throw new Error("Bluetooth permissions not granted.");
-      }
-
-      return BLEBeaconManager.validateAttendanceBeacon(
-        uuid,
-        major,
-        minor,
-        expectedOrgCode
-      );
-    } else {
-      throw new Error("Unsupported platform");
-    }
-  },
+  }
 };
 
 // Export mock if native modules are not available, real implementation otherwise

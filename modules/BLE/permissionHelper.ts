@@ -51,21 +51,9 @@ export const getRequiredPermissions = (): AndroidPermission[] => {
       });
     }
   } else {
-    // Android 11 and below – use legacy permissions.
-    if (PermissionsAndroid.PERMISSIONS.BLUETOOTH) {
-      permissions.push({
-        permission: PermissionsAndroid.PERMISSIONS.BLUETOOTH,
-        label: "Bluetooth",
-        rationale: "This app needs Bluetooth access for attendance tracking functionality."
-      });
-    }
-    if (PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADMIN) {
-      permissions.push({
-        permission: PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADMIN,
-        label: "Bluetooth Admin",
-        rationale: "This app needs Bluetooth administrative access to manage attendance sessions."
-      });
-    }
+    // Android 11 and below – use legacy permissions (removed in newer APIs)
+    // These permissions are now handled automatically by the system
+    // when BLUETOOTH_SCAN/CONNECT/ADVERTISE are granted
   }
 
   if (PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION) {
@@ -184,16 +172,9 @@ export const requestBLEPermissions = async (): Promise<BLEPermissionState> => {
   const requiredPermissions = getRequiredPermissions();
   
   try {
-    // Request permissions with rationale
+    // Request permissions
     const results = await PermissionsAndroid.requestMultiple(
-      requiredPermissions.map(p => p.permission),
-      {
-        title: "BLE Attendance Permissions",
-        message: "This app needs Bluetooth and Location permissions to enable automatic attendance tracking.",
-        buttonNeutral: "Ask Me Later",
-        buttonNegative: "Cancel",
-        buttonPositive: "OK",
-      }
+      requiredPermissions.map(p => p.permission)
     );
 
     // Analyze results
