@@ -1,0 +1,10 @@
+{
+  "name": "beacon-broadcaster",
+  "version": "1.0.0",
+  "description": "Custom BLE beacon broadcaster for NHS attendance tracking",
+  "main": "index.ts",
+  "scripts": {},
+  "keywords": ["expo", "ble", "beacon", "bluetooth"],
+  "author": "Arshan S",
+  "license": "MIT"
+}

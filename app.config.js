@@ -19,7 +19,7 @@ export default ({ config }) => {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.sanjanprabu.nationalhonorsociety",
-      buildNumber: process.env.IOS_BUILD_NUMBER || "13",
+      buildNumber: process.env.IOS_BUILD_NUMBER || "30",
       infoPlist: {
         NSBluetoothAlwaysUsageDescription: "This app uses Bluetooth to enable automatic attendance tracking when you're near NHS/NHSA events. This allows for seamless check-in without manual intervention.",
         NSBluetoothPeripheralUsageDescription: "This app uses Bluetooth to broadcast attendance sessions for NHS/NHSA events, allowing members to automatically check in when nearby.",
@@ -28,11 +28,12 @@ export default ({ config }) => {
         NSUserNotificationsUsageDescription: "This app sends push notifications to keep you informed about NHS announcements, events, volunteer hour approvals, and BLE attendance sessions.",
         UIBackgroundModes: ["bluetooth-central", "bluetooth-peripheral", "location", "remote-notification"],
         ITSAppUsesNonExemptEncryption: false
-      },
-      // Production APNs configuration
-      entitlements: {
-        "aps-environment": process.env.EXPO_PUBLIC_ENVIRONMENT === "production" ? "production" : "development"
       }
+      // NOTE: Bluetooth entitlements removed - Core Bluetooth uses UIBackgroundModes, not explicit entitlements!
+      // BLE functionality is controlled by:
+      // 1. UIBackgroundModes: ["bluetooth-central", "bluetooth-peripheral"] (above)
+      // 2. NSBluetooth* Info.plist keys (above)
+      // 3. Native module implementation (BeaconBroadcaster.swift)
     },
     android: {
       adaptiveIcon: {

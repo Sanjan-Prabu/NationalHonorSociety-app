@@ -2,6 +2,8 @@
 -- This migration enhances the BLE session management with improved security
 
 -- Function to validate session expiration with detailed information
+DROP FUNCTION IF EXISTS validate_session_expiration(TEXT);
+
 CREATE OR REPLACE FUNCTION validate_session_expiration(p_session_token TEXT)
 RETURNS TABLE(
     is_valid BOOLEAN,
@@ -10,7 +12,7 @@ RETURNS TABLE(
     session_age_seconds INTEGER,
     org_id UUID,
     event_id UUID
-) AS $
+) AS $$
 BEGIN
     -- Validate input format
     IF p_session_token IS NULL OR LENGTH(TRIM(p_session_token)) != 12 THEN
@@ -34,7 +36,7 @@ BEGIN
     AND e.description::JSONB->>'attendance_method' = 'ble'
     LIMIT 1;
 END;
-$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Enhanced create_session function with cryptographically secure token generation
 CREATE OR REPLACE FUNCTION create_session_secure(
@@ -42,7 +44,7 @@ CREATE OR REPLACE FUNCTION create_session_secure(
     p_title TEXT,
     p_starts_at TIMESTAMPTZ DEFAULT NOW(),
     p_ttl_seconds INTEGER DEFAULT 3600
-) RETURNS JSONB AS $
+) RETURNS JSONB AS $$
 DECLARE
     session_token TEXT;
     event_id UUID;
@@ -161,11 +163,11 @@ BEGIN
         END
     );
 END;
-$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function to validate token security properties
 CREATE OR REPLACE FUNCTION validate_token_security(p_session_token TEXT)
-RETURNS JSONB AS $
+RETURNS JSONB AS $$
 DECLARE
     secure_chars TEXT := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     token_length INTEGER := 12;
@@ -238,11 +240,11 @@ BEGIN
         END
     );
 END;
-$ LANGUAGE plpgsql IMMUTABLE;
+$$ LANGUAGE plpgsql IMMUTABLE;
 
 -- Function to test token collision resistance
 CREATE OR REPLACE FUNCTION test_token_collision_resistance(p_sample_size INTEGER DEFAULT 1000)
-RETURNS JSONB AS $
+RETURNS JSONB AS $$
 DECLARE
     secure_chars TEXT := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     token_length INTEGER := 12;
@@ -301,11 +303,11 @@ BEGIN
         END
     );
 END;
-$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql;
 
 -- Enhanced add_attendance function with additional security checks
 CREATE OR REPLACE FUNCTION add_attendance_secure(p_session_token TEXT)
-RETURNS JSONB AS $
+RETURNS JSONB AS $$
 DECLARE
     session_info RECORD;
     member_org_id UUID;
@@ -413,7 +415,7 @@ BEGIN
     
     RETURN result;
 END;
-$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Grant execute permissions
 GRANT EXECUTE ON FUNCTION validate_session_expiration(TEXT) TO authenticated;

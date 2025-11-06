@@ -12,10 +12,12 @@ import { Platform } from 'react-native';
 // SENTRY CONFIGURATION
 // =============================================================================
 
-// Sentry is currently disabled - add DSN to enable
-const SENTRY_DSN = ''; // Add your Sentry DSN here if you want crash reporting
-const SENTRY_ENVIRONMENT = 'production';
-const SENTRY_ENABLED = false; // Set to true when you have a Sentry DSN
+// Sentry configuration for production error monitoring
+const SENTRY_DSN = 'https://4e86686f4cbd0b819a2b42e82e0710b9@o4510296386830336.ingest.us.sentry.io/4510296401772544';
+// Use Constants to determine environment more reliably for production builds
+const IS_PRODUCTION = !__DEV__ && Constants.executionEnvironment === 'standalone';
+const SENTRY_ENVIRONMENT = IS_PRODUCTION ? 'production' : 'development';
+const SENTRY_ENABLED = true; // Enabled for error tracking and monitoring
 
 // =============================================================================
 // SENTRY INITIALIZATION
@@ -69,10 +71,10 @@ export function initializeSentry(): void {
       
       // Before send hook - filter sensitive data
       beforeSend(event, hint) {
-        // Don't send events in development
+        // Log in development but still send to Sentry for testing
         if (__DEV__) {
           console.log('[Sentry] Event captured (dev mode):', event);
-          return null; // Don't send to Sentry in dev
+          // Still send to Sentry even in dev mode for testing
         }
         
         // Filter out sensitive data
@@ -118,6 +120,11 @@ export function initializeSentry(): void {
     console.log('[Sentry] Initialized successfully');
     console.log(`[Sentry] Environment: ${SENTRY_ENVIRONMENT}`);
     console.log(`[Sentry] Release: nhs-app@${Constants.expoConfig?.version || '1.0.0'}`);
+    console.log(`[Sentry] IS_PRODUCTION: ${IS_PRODUCTION}`);
+    console.log(`[Sentry] executionEnvironment: ${Constants.executionEnvironment}`);
+    
+    // Send a test message to verify Sentry is working
+    Sentry.captureMessage('Sentry initialized successfully', 'info');
   } catch (error) {
     console.error('[Sentry] Failed to initialize:', error);
   }

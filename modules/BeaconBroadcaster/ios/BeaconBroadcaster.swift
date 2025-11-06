@@ -267,16 +267,12 @@ class BeaconBroadcaster: RCTEventEmitter {
     
     /**
      * Gets organization UUID based on org code
+     * Uses single APP_UUID for all organizations to ensure member devices can detect broadcasts
      */
     private func getOrgUUID(_ orgCode: Int) -> UUID? {
-        switch orgCode {
-        case 1:
-            return UUID(uuidString: "6BA7B810-9DAD-11D1-80B4-00C04FD430C8") // NHS UUID
-        case 2:
-            return UUID(uuidString: "6BA7B811-9DAD-11D1-80B4-00C04FD430C8") // NHSA UUID
-        default:
-            return nil
-        }
+        // Use APP_UUID from app.json for all organizations
+        // Organization differentiation is handled by Major field (orgCode)
+        return UUID(uuidString: "A495BB60-C5B6-466E-B5D2-DF4D449B0F03")
     }
     
     /**
@@ -303,16 +299,16 @@ class BeaconBroadcaster: RCTEventEmitter {
     
     /**
      * Gets organization code from UUID
+     * Since we now use single APP_UUID, we cannot determine org from UUID alone
+     * Organization code must come from the beacon's Major field
      */
     private func getOrgCodeFromUUID(_ uuid: UUID) -> Int {
-        switch uuid.uuidString.uppercased() {
-        case "6BA7B810-9DAD-11D1-80B4-00C04FD430C8":
-            return 1 // NHS
-        case "6BA7B811-9DAD-11D1-80B4-00C04FD430C8":
-            return 2 // NHSA
-        default:
-            return 0 // Unknown/invalid
+        // Check if this is our APP_UUID
+        if uuid.uuidString.uppercased() == "A495BB60-C5B6-466E-B5D2-DF4D449B0F03" {
+            // Return 0 to indicate valid APP_UUID but org code must come from Major field
+            return 0
         }
+        return 0 // Unknown/invalid
     }
 }
 
@@ -354,10 +350,10 @@ extension BeaconBroadcaster: CLLocationManagerDelegate {
                 "minor": beacon.minor,
                 "timestamp": Date().timeIntervalSince1970,
                 "isAttendanceBeacon": isAttendanceBeacon,
-                "orgCode": orgCode
+                "orgCode": orgCode,
+                "rssi": beacon.rssi
                 // "proximity": beacon.proximity.rawValue,
-                // "accuracy": beacon.accuracy,
-                // "rssi": beacon.rssi
+                // "accuracy": beacon.accuracy
             ]
             
             if isAttendanceBeacon {
@@ -430,40 +426,74 @@ extension BeaconBroadcaster: CBPeripheralManagerDelegate {
         resolver: @escaping RCTPromiseResolveBlock,
         rejecter: @escaping RCTPromiseRejectBlock
     ) {
+        print("🔴 SWIFT: broadcastAttendanceSession CALLED")
+        print("🔴 SWIFT: orgCode = \(orgCode)")
+        print("🔴 SWIFT: sessionToken = \(sessionToken)")
+        
         let orgCodeInt = orgCode.intValue
+        print("🔴 SWIFT: orgCodeInt = \(orgCodeInt)")
         
         // Validate session token format
         guard isValidSessionToken(sessionToken) else {
-            print("\(DEBUG_PREFIX) Invalid session token format: \(sessionToken)")
+            print("❌ SWIFT: Invalid session token format: \(sessionToken)")
             rejecter("invalid_session_token", "Invalid session token format. Must be 12 alphanumeric characters.", nil)
             return
         }
+        print("🟢 SWIFT: Session token format valid")
         
         // Validate organization code
         guard orgCodeInt >= 1 && orgCodeInt <= 2 else {
-            print("\(DEBUG_PREFIX) Invalid organization code: \(orgCodeInt)")
+            print("❌ SWIFT: Invalid organization code: \(orgCodeInt)")
             rejecter("invalid_org_code", "Invalid organization code. Must be 1 (NHS) or 2 (NHSA).", nil)
             return
         }
+        print("🟢 SWIFT: Organization code valid")
         
         // Get UUID for organization
         guard let uuid = getOrgUUID(orgCodeInt) else {
-            print("\(DEBUG_PREFIX) Could not get UUID for org code: \(orgCodeInt)")
+            print("❌ SWIFT: Could not get UUID for org code: \(orgCodeInt)")
             rejecter("uuid_error", "Could not get UUID for organization code", nil)
             return
         }
+        print("🟢 SWIFT: UUID = \(uuid.uuidString)")
         
         // Encode session token to minor field
         let minor = encodeSessionToken(sessionToken)
+        print("🔴 SWIFT: minor = \(minor)")
         
-        print("\(DEBUG_PREFIX) Broadcasting attendance session - OrgCode: \(orgCodeInt), SessionToken: \(sessionToken), Minor: \(minor)")
+        let major = CLBeaconMajorValue(orgCodeInt)
+        print("🔴 SWIFT: major = \(major)")
+        
+        print("🔴 SWIFT: Broadcasting attendance session - OrgCode: \(orgCodeInt), SessionToken: \(sessionToken), Minor: \(minor)")
+        
+        // Check Bluetooth permission state
+        let authState = CBPeripheralManager.authorization
+        print("🔴 SWIFT: Bluetooth permission state: \(authState.rawValue)")
+        // 0 = notDetermined, 1 = restricted, 2 = denied, 3 = allowedAlways
+        
+        if authState != .allowedAlways {
+            print("❌ SWIFT: Bluetooth NOT AUTHORIZED (state: \(authState.rawValue))")
+            rejecter("permission_denied", "Bluetooth permission not granted", nil)
+            return
+        }
+        print("🟢 SWIFT: Bluetooth permission authorized")
         
         // Check if Bluetooth is not powered on
-        if peripheralManager?.state != .poweredOn {
-            print("\(DEBUG_PREFIX) Bluetooth is not powered on.")
+        guard let manager = peripheralManager else {
+            print("❌ SWIFT: peripheralManager is nil!")
+            rejecter("manager_error", "Peripheral manager not initialized", nil)
+            return
+        }
+        
+        print("🔴 SWIFT: CBPeripheralManager state: \(manager.state.rawValue)")
+        // 0 = unknown, 1 = resetting, 2 = unsupported, 3 = unauthorized, 4 = poweredOff, 5 = poweredOn
+        
+        if manager.state != .poweredOn {
+            print("❌ SWIFT: Bluetooth is not powered on (state: \(manager.state.rawValue))")
             rejecter("bluetooth_not_powered_on", "Bluetooth is not powered on", nil)
             return
         }
+        print("🟢 SWIFT: Bluetooth is powered on")
         
         // Stop any existing attendance session for this org
         if activeAttendanceSessions[orgCodeInt] != nil {
@@ -471,32 +501,54 @@ extension BeaconBroadcaster: CBPeripheralManagerDelegate {
             // The actual stopping will be handled by the new session starting
         }
         
+        print("🔴 SWIFT: Creating CLBeaconRegion...")
         let bundleURL = Bundle.main.bundleIdentifier!
+        print("🔴 SWIFT: Bundle identifier: \(bundleURL)")
+        
         let constraint = CLBeaconIdentityConstraint(uuid: uuid, major: CLBeaconMajorValue(orgCodeInt), minor: CLBeaconMinorValue(minor))
+        print("🔴 SWIFT: CLBeaconIdentityConstraint created")
+        
         beaconRegion = CLBeaconRegion(beaconIdentityConstraint: constraint, identifier: bundleURL)
+        print("🔴 SWIFT: CLBeaconRegion created")
 
         guard let beaconData = beaconRegion?.peripheralData(withMeasuredPower: nil) as? [String: Any] else {
-            print("\(DEBUG_PREFIX) Could not create attendance beacon data")
+            print("❌ SWIFT: Could not create attendance beacon data")
             rejecter("beacon_data_error", "Could not create attendance beacon data", nil)
             return
         }
+        print("🟢 SWIFT: Beacon data created successfully")
+        print("🔴 SWIFT: Beacon data keys: \(beaconData.keys)")
 
         pendingBeaconData = beaconData
         activeAttendanceSessions[orgCodeInt] = sessionToken
-        print("\(DEBUG_PREFIX) Attendance beacon data created for org: \(orgCodeInt)")
+        print("🔴 SWIFT: Attendance beacon data stored for org: \(orgCodeInt)")
 
         if peripheralManager?.state == .poweredOn {
+            print("🔴 SWIFT: Starting advertising...")
             peripheralManager?.startAdvertising(beaconData)
-            print("\(DEBUG_PREFIX) isAdvertising after startAdvertising: \(peripheralManager?.isAdvertising ?? false)")
+            
+            // Wait a moment for advertising to start
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                let isAdvertising = self.peripheralManager?.isAdvertising ?? false
+                print("🔴 SWIFT: isAdvertising after startAdvertising: \(isAdvertising)")
+                
+                if isAdvertising {
+                    print("🟢 SWIFT: ✅ ADVERTISING CONFIRMED - Bluetooth signal IS being transmitted!")
+                } else {
+                    print("❌ SWIFT: ⚠️ NOT ADVERTISING - startAdvertising was called but isAdvertising = false")
+                    print("❌ SWIFT: This means iOS rejected the advertising request")
+                }
+            }
+            
             resolver("Attendance session broadcasting started - OrgCode: \(orgCodeInt), SessionToken: \(sessionToken)")
             emitEvent(name: BeaconBroadcaster.BeaconBroadcastingStarted, body: [
                 "orgCode": orgCodeInt,
                 "sessionToken": sessionToken,
                 "minor": minor
             ])
-            print("\(DEBUG_PREFIX) Attendance session broadcasting started successfully.")
+            print("🟢 SWIFT: Attendance session broadcasting started successfully.")
         } else {
-            print("\(DEBUG_PREFIX) Bluetooth is not powered on. Waiting to start advertising.")
+            print("❌ SWIFT: Bluetooth is not powered on. Waiting to start advertising.")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 resolver("Attendance session broadcasting will start once Bluetooth is powered on")
             }

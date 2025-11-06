@@ -248,7 +248,7 @@ BEGIN
             'token_version', 2,
             'security_level', 'enhanced',
             'retry_count', retry_count
-        )::TEXT
+        )
     )
     RETURNING id INTO event_id;
     

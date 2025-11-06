@@ -14,9 +14,9 @@ import { NoAttendanceEmptyState, NetworkErrorEmptyState } from '../../components
 import { useUserAttendance, useAttendanceMarking } from '../../hooks/useAttendanceData';
 import { useCurrentOrganizationId } from '../../hooks/useUserData';
 import { AttendanceRecord } from '../../types/dataService';
-// Temporarily disabled BLE imports for Expo Go testing
-// import { useBLE } from '../../../modules/BLE/BLEContext';
-// import { AttendanceSession } from '../../types/ble';
+import { useBLE } from '../../../modules/BLE/BLEContext';
+import { AttendanceSession } from '../../types/ble';
+import { BLESessionService } from '../../services/BLESessionService';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -41,13 +41,14 @@ const MemberAttendanceScreen = ({ navigation }: any) => {
   const insets = useSafeAreaInsets();
   const currentOrgId = useCurrentOrganizationId();
 
-  // BLE Context
-  // Temporarily disabled BLE functionality for Expo Go testing
-  const bluetoothState = 'unknown';
-  const autoAttendanceEnabled = false;
-  const detectedSessions: any[] = [];
-  const enableAutoAttendance = () => console.log('BLE disabled in Expo Go');
-  const disableAutoAttendance = () => console.log('BLE disabled in Expo Go');
+  // BLE Context - ENABLED for production builds
+  const {
+    bluetoothState,
+    autoAttendanceEnabled,
+    detectedSessions,
+    enableAutoAttendance,
+    disableAutoAttendance,
+  } = useBLE() as any;
 
   const [hasJoinedSession, setHasJoinedSession] = useState(false);
 
@@ -110,19 +111,27 @@ const MemberAttendanceScreen = ({ navigation }: any) => {
   const handleJoinSession = async () => {
     if (!activeSession || !activeOrganization?.id || !user?.id) return;
 
-    console.log('Joining session via BLE...');
+    console.log('Joining session via BLE with token:', activeSession.id);
     
     try {
-      await markAttendanceMutation.mutateAsync({
-        event_id: activeSession.id, // This would be a real event ID in practice
-        member_id: user.id,
-        method: 'manual_checkin',
-        note: 'Joined via mobile app'
-      });
-
-      setHasJoinedSession(true);
-      showSuccess('Attendance Recorded', `You have successfully joined the session for ${activeOrganization.name}!`);
+      // activeSession.id is actually the sessionToken, not event_id
+      // Use BLESessionService.addAttendance() for BLE sessions
+      const result = await BLESessionService.addAttendance(activeSession.id);
       
+      if (result.success) {
+        setHasJoinedSession(true);
+        showSuccess('Checked In', `Successfully checked in to ${activeSession.title}`);
+        await refetchAttendance();
+      } else {
+        // Handle specific error cases
+        if (result.error === 'already_checked_in') {
+          showError('Already Checked In', `You're already checked in to ${activeSession.title}`);
+        } else if (result.error === 'session_expired') {
+          showError('Session Expired', 'This session has expired');
+        } else {
+          showError('Check-in Failed', result.message || 'Unable to check in. Please try again.');
+        }
+      }
     } catch (error) {
       console.error('Error recording attendance:', error);
       showError('Attendance Error', 'Failed to record attendance. Please try again.');
@@ -220,7 +229,7 @@ const MemberAttendanceScreen = ({ navigation }: any) => {
             
             {autoAttendanceEnabled && detectedSessions.length > 0 && (
               <View style={styles.bleSessionsPreview}>
-                {detectedSessions.slice(0, 2).map((session, index) => (
+                {detectedSessions.slice(0, 2).map((session: AttendanceSession, index: number) => (
                   <View key={session.sessionToken} style={styles.bleSessionItem}>
                     <Icon 
                       name={session.isActive ? 'radio-button-checked' : 'radio-button-unchecked'} 

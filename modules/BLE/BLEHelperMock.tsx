@@ -64,8 +64,8 @@ const BLEHelperMock: BLEHelperType = {
     return Promise.resolve();
   },
   
-  stopAttendanceSession: async () => {
-    console.log("Mock: stopAttendanceSession called");
+  stopAttendanceSession: async (orgCode: number) => {
+    console.log("Mock: stopAttendanceSession called with orgCode:", orgCode);
     return Promise.resolve();
   },
   

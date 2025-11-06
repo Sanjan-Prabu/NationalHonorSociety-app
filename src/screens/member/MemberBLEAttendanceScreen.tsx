@@ -51,12 +51,17 @@ const MemberBLEAttendanceScreen = ({ navigation }: any) => {
     disableAutoAttendance,
     isListening,
     startListening,
-    stopListening
-  } = useBLE();
+    stopListening,
+    requestPermissions,
+    getBluetoothStatus,
+    refreshBluetoothState
+  } = useBLE() as any;
 
   // Local state
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [manualCheckInLoading, setManualCheckInLoading] = useState<string | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanTimeout, setScanTimeout] = useState<NodeJS.Timeout | null>(null);
 
   // Data hooks
   const { 
@@ -91,6 +96,31 @@ const MemberBLEAttendanceScreen = ({ navigation }: any) => {
 
   const recentAttendance = attendanceData ? transformAttendanceData(attendanceData.slice(0, 10)) : [];
 
+  // Start listening for BLE beacons when Bluetooth becomes ready
+  useEffect(() => {
+    const initializeBLEListening = async () => {
+      console.log('[MemberBLEAttendance] Bluetooth state changed:', bluetoothState);
+      console.log('[MemberBLEAttendance] Is listening:', isListening);
+      
+      if (bluetoothState === 'poweredOn' && !isListening) {
+        try {
+          console.log('[MemberBLEAttendance] ✅ Starting BLE listening on mount');
+          await startListening(0); // Mode 0 for AltBeacon scanning (more reliable)
+          showSuccess('BLE Ready', 'Now scanning for nearby sessions');
+        } catch (error) {
+          console.error('[MemberBLEAttendance] ❌ Failed to start listening:', error);
+          showError('BLE Error', 'Failed to start scanning for sessions');
+        }
+      } else if (bluetoothState === 'poweredOff') {
+        console.log('[MemberBLEAttendance] ⚠️ Bluetooth is powered off');
+      } else if (bluetoothState === 'unauthorized') {
+        console.log('[MemberBLEAttendance] ⚠️ Bluetooth is unauthorized');
+      }
+    };
+
+    initializeBLEListening();
+  }, [bluetoothState, isListening]);
+
   // Auto-attendance toggle handler
   const handleAutoAttendanceToggle = async (enabled: boolean) => {
     try {
@@ -101,7 +131,7 @@ const MemberBLEAttendanceScreen = ({ navigation }: any) => {
         }
         await enableAutoAttendance();
         if (!isListening) {
-          await startListening(1); // Mode 1 for attendance scanning
+          await startListening(0); // Mode 0 for AltBeacon scanning (more reliable)
         }
       } else {
         await disableAutoAttendance();
@@ -119,13 +149,20 @@ const MemberBLEAttendanceScreen = ({ navigation }: any) => {
     setManualCheckInLoading(session.sessionToken);
     
     try {
-      const success = await BLESessionService.addAttendance(session.sessionToken);
+      const result = await BLESessionService.addAttendance(session.sessionToken);
       
-      if (success) {
+      if (result.success) {
         showSuccess('Checked In', `Successfully checked in to ${session.title}`);
         await refetchAttendance();
       } else {
-        showError('Check-in Failed', 'Unable to check in. Session may be expired or you may not be authorized.');
+        // Handle specific error cases
+        if (result.error === 'already_checked_in') {
+          showWarning('Already Checked In', `You're already checked in to ${session.title}`);
+        } else if (result.error === 'session_expired') {
+          showError('Session Expired', 'This session has expired');
+        } else {
+          showError('Check-in Failed', result.message || 'Unable to check in. Session may be expired or you may not be authorized.');
+        }
       }
     } catch (error: any) {
       console.error('Manual check-in error:', error);
@@ -145,16 +182,104 @@ const MemberBLEAttendanceScreen = ({ navigation }: any) => {
     }
   };
 
+  // Handle Bluetooth enable button press with scanning timeout
+  const handleEnableBluetoothPress = async () => {
+    console.log('[MemberBLEAttendance] Enable Bluetooth button pressed');
+    console.log('[MemberBLEAttendance] Current Bluetooth state:', bluetoothState);
+    
+    try {
+      // First, request permissions
+      const permissionsGranted = await requestPermissions();
+      console.log('[MemberBLEAttendance] Permissions granted:', permissionsGranted);
+      
+      if (!permissionsGranted) {
+        showError(
+          'Permissions Required',
+          'Please grant Bluetooth and Location permissions in Settings to use auto-attendance.'
+        );
+        return;
+      }
+      
+      // Refresh Bluetooth state after permissions
+      await refreshBluetoothState();
+      
+      // Check if Bluetooth is now powered on
+      const status = getBluetoothStatus();
+      console.log('[MemberBLEAttendance] Bluetooth status after permission:', status);
+      
+      if (bluetoothState === 'poweredOn') {
+        // Start scanning
+        setIsScanning(true);
+        showSuccess('Scanning...', 'Looking for nearby sessions');
+        
+        // Start listening if not already
+        if (!isListening) {
+          await startListening(0); // Mode 0 for AltBeacon scanning (more reliable)
+        }
+        
+        // Clear any existing timeout
+        if (scanTimeout) {
+          clearTimeout(scanTimeout);
+        }
+        
+        // Set timeout to check for sessions after 10 seconds
+        const timeout = setTimeout(() => {
+          setIsScanning(false);
+          if (detectedSessions.length === 0) {
+            showWarning('No Sessions Found', 'No active meetings detected nearby. Make sure you\'re near an officer broadcasting a session.');
+          }
+        }, 10000); // 10 second scan
+        
+        setScanTimeout(timeout);
+      } else if (bluetoothState === 'poweredOff') {
+        showWarning(
+          'Enable Bluetooth',
+          'Please turn on Bluetooth in your device settings to use auto-attendance.'
+        );
+      } else if (bluetoothState === 'unauthorized') {
+        showError(
+          'Permissions Denied',
+          'Bluetooth permissions were denied. Please enable them in Settings > NHS App > Bluetooth.'
+        );
+      }
+    } catch (error: any) {
+      console.error('[MemberBLEAttendance] Error enabling Bluetooth:', error);
+      setIsScanning(false);
+      showError('Error', error.message || 'Failed to enable Bluetooth');
+    }
+  };
+  
+  // Clean up timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (scanTimeout) {
+        clearTimeout(scanTimeout);
+      }
+    };
+  }, [scanTimeout]);
+  
+  // Stop scanning when sessions are detected
+  useEffect(() => {
+    if (isScanning && detectedSessions.length > 0) {
+      setIsScanning(false);
+      if (scanTimeout) {
+        clearTimeout(scanTimeout);
+      }
+      showSuccess('Session Found!', `Detected ${detectedSessions.length} nearby session${detectedSessions.length > 1 ? 's' : ''}`);
+    }
+  }, [detectedSessions.length, isScanning]);
+
   // Bluetooth status indicator
   const getBluetoothStatusInfo = () => {
     switch (bluetoothState) {
       case 'poweredOn':
         return {
-          color: Colors.successGreen,
-          backgroundColor: Colors.lightGreen,
-          icon: 'bluetooth',
-          text: 'Bluetooth Active',
-          description: 'Ready for auto-attendance'
+          color: isScanning ? Colors.primaryBlue : Colors.successGreen,
+          backgroundColor: isScanning ? Colors.lightBlue : Colors.lightGreen,
+          icon: isScanning ? 'bluetooth-searching' : 'bluetooth',
+          text: isScanning ? 'Scanning...' : 'Bluetooth Active',
+          description: isScanning ? 'Looking for nearby sessions' : 'Ready for auto-attendance',
+          actionable: !isScanning
         };
       case 'poweredOff':
         return {
@@ -162,15 +287,17 @@ const MemberBLEAttendanceScreen = ({ navigation }: any) => {
           backgroundColor: Colors.lightRed,
           icon: 'bluetooth-disabled',
           text: 'Bluetooth Disabled',
-          description: 'Enable Bluetooth for auto-attendance'
+          description: 'Tap to enable Bluetooth',
+          actionable: true
         };
       case 'unauthorized':
         return {
           color: Colors.warningOrange,
           backgroundColor: Colors.lightOrange,
           icon: 'bluetooth-disabled',
-          text: 'Bluetooth Unauthorized',
-          description: 'Grant Bluetooth permissions'
+          text: 'Permissions Required',
+          description: 'Tap to grant Bluetooth permissions',
+          actionable: true
         };
       case 'unsupported':
         return {
@@ -178,15 +305,17 @@ const MemberBLEAttendanceScreen = ({ navigation }: any) => {
           backgroundColor: Colors.lightRed,
           icon: 'bluetooth-disabled',
           text: 'Bluetooth Unsupported',
-          description: 'Device does not support BLE'
+          description: 'Device does not support BLE',
+          actionable: false
         };
       default:
         return {
           color: Colors.textLight,
           backgroundColor: Colors.dividerColor,
           icon: 'bluetooth-searching',
-          text: 'Bluetooth Unknown',
-          description: 'Checking Bluetooth status...'
+          text: 'Checking Bluetooth...',
+          description: 'Please wait',
+          actionable: false
         };
     }
   };
@@ -257,7 +386,12 @@ const MemberBLEAttendanceScreen = ({ navigation }: any) => {
               <Text style={styles.sectionTitle}>Bluetooth Status</Text>
             </View>
 
-            <View style={[styles.statusCard, { backgroundColor: bluetoothStatus.backgroundColor }]}>
+            <TouchableOpacity 
+              style={[styles.statusCard, { backgroundColor: bluetoothStatus.backgroundColor }]}
+              onPress={bluetoothStatus.actionable ? handleEnableBluetoothPress : undefined}
+              activeOpacity={bluetoothStatus.actionable ? 0.7 : 1}
+              disabled={!bluetoothStatus.actionable}
+            >
               <View style={styles.statusHeader}>
                 <Icon name={bluetoothStatus.icon} size={moderateScale(24)} color={bluetoothStatus.color} />
                 <View style={styles.statusInfo}>
@@ -267,9 +401,14 @@ const MemberBLEAttendanceScreen = ({ navigation }: any) => {
                   <Text style={styles.statusDescription}>
                     {bluetoothStatus.description}
                   </Text>
+                  {bluetoothStatus.actionable && (
+                    <View style={styles.actionButton}>
+                      <Text style={styles.actionButtonText}>Tap to Enable →</Text>
+                    </View>
+                  )}
                 </View>
               </View>
-            </View>
+            </TouchableOpacity>
           </View>
 
           {/* Auto-Attendance Toggle Section */}
@@ -312,7 +451,7 @@ const MemberBLEAttendanceScreen = ({ navigation }: any) => {
             </View>
 
             {detectedSessions.length > 0 ? (
-              detectedSessions.map((session) => (
+              detectedSessions.map((session: AttendanceSession) => (
                 <View key={session.sessionToken} style={styles.sessionCard}>
                   <View style={styles.sessionHeader}>
                     <View style={styles.sessionInfo}>
@@ -503,6 +642,19 @@ const styles = StyleSheet.create({
   statusDescription: {
     fontSize: moderateScale(14),
     color: Colors.textMedium,
+  },
+  actionButton: {
+    marginTop: verticalScale(8),
+    paddingVertical: verticalScale(6),
+    paddingHorizontal: scale(12),
+    backgroundColor: Colors.solidBlue,
+    borderRadius: moderateScale(6),
+    alignSelf: 'flex-start',
+  },
+  actionButtonText: {
+    fontSize: moderateScale(12),
+    fontWeight: '600',
+    color: Colors.white,
   },
   toggleCard: {
     backgroundColor: Colors.cardBackground,

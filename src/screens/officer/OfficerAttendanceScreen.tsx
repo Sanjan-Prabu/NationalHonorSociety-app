@@ -10,6 +10,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { withRoleProtection } from 'components/hoc/withRoleProtection';
 import LoadingSkeleton from 'components/ui/LoadingSkeleton';
 import EmptyState from 'components/ui/EmptyState';
+import Tag from 'components/ui/Tag';
 import { useOrganization } from '../../contexts/OrganizationContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useOrganizationEvents, useCreateEvent } from 'hooks/useEventData';
@@ -18,6 +19,7 @@ import { useBLE } from '../../../modules/BLE/BLEContext';
 import { BLESessionService } from '../../services/BLESessionService';
 import BLEAttendanceMonitor from 'components/ui/BLEAttendanceMonitor';
 import { checkAllPermissions, requestAllPermissions } from '../../utils/requestIOSPermissions';
+import { supabase } from '../../lib/supabaseClient';
 
 const Colors = {
   LandingScreenGradient: ['#F0F6FF', '#F8FBFF', '#FFFFFF'] as const,
@@ -63,15 +65,78 @@ const OfficerAttendance = ({ navigation }: any) => {
 
   // BLE session state
   const [bleSessionTitle, setBleSessionTitle] = useState('');
-  const [bleSessionDuration, setBleSessionDuration] = useState('60');
+  const [bleSessionDuration, setBleSessionDuration] = useState('5'); // Changed default to 5 minutes
   const [isCreatingBleSession, setIsCreatingBleSession] = useState(false);
   const [attendeeCount, setAttendeeCount] = useState(0);
+  const [testMode] = useState(__DEV__); // Auto-disable in production builds
+  const [activeBleSession, setActiveBleSession] = useState<any>(null);
+  const [completedSessions, setCompletedSessions] = useState<any[]>([]);
+  const [pastBLESessions, setPastBLESessions] = useState<any[]>([]);
 
   // Active session state (simulated for now)
   const [activeSession, setActiveSession] = useState<any>(null);
 
   // Memoize the organization ID to prevent infinite re-renders
   const organizationId = useMemo(() => activeOrganization?.id || '', [activeOrganization?.id]);
+
+  // Function to fetch BLE sessions from events
+  const fetchBLESessions = async () => {
+    if (!organizationId) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('events')
+        .select('*')
+        .eq('org_id', organizationId)
+        .eq('event_type', 'meeting')
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error) {
+        console.error('Error fetching BLE sessions:', error);
+        return;
+      }
+
+      // Filter and format BLE sessions
+      const bleSessions = (data || []).filter((event: any) => {
+        try {
+          const desc = typeof event.description === 'string' 
+            ? JSON.parse(event.description) 
+            : event.description;
+          return desc?.attendance_method === 'ble';
+        } catch {
+          return false;
+        }
+      }).map((event: any) => {
+        const desc = typeof event.description === 'string' 
+          ? JSON.parse(event.description) 
+          : event.description;
+        
+        return {
+          id: event.id,
+          title: event.title,
+          startTime: new Date(event.starts_at),
+          endTime: new Date(event.ends_at),
+          sessionToken: desc.session_token,
+          duration: Math.round((new Date(event.ends_at).getTime() - new Date(event.starts_at).getTime()) / 60000),
+          createdBy: event.created_by,
+          attendeeCount: 0, // Will be updated with actual count
+          createdAt: new Date(event.created_at)
+        };
+      });
+
+      setPastBLESessions(bleSessions);
+    } catch (error) {
+      console.error('Error processing BLE sessions:', error);
+    }
+  };
+
+  // Fetch BLE sessions on mount and when organization changes
+  useEffect(() => {
+    if (organizationId) {
+      fetchBLESessions();
+    }
+  }, [organizationId]);
 
   // Dynamic data hooks
   const {
@@ -90,7 +155,7 @@ const OfficerAttendance = ({ navigation }: any) => {
     const eventDate = new Date(event.starts_at);
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    return eventDate >= thirtyDaysAgo && (event.attendee_count || 0) > 0;
+    return eventDate >= thirtyDaysAgo && ((event as any).attendee_count || 0) > 0;
   }).slice(0, 5) || [];
 
   // Update attendee count for BLE sessions
@@ -122,6 +187,7 @@ const OfficerAttendance = ({ navigation }: any) => {
     setRefreshing(true);
     try {
       await refetchEvents();
+      await fetchBLESessions();
     } catch (error) {
       console.error('Error refreshing data:', error);
     } finally {
@@ -152,10 +218,11 @@ const OfficerAttendance = ({ navigation }: any) => {
         is_public: true,
       };
 
-      const result = await createEventMutation.mutateAsync({
-        eventData,
-        orgId: activeOrganization?.id
-      });
+      const result = await createEventMutation.createEvent(eventData);
+
+      if (!result) {
+        throw new Error('Failed to create event');
+      }
 
       // Set as active session
       setActiveSession({
@@ -216,48 +283,51 @@ const OfficerAttendance = ({ navigation }: any) => {
     }
 
     const durationMinutes = parseInt(bleSessionDuration);
-    if (isNaN(durationMinutes) || durationMinutes < 1 || durationMinutes > 480) {
-      showError('Validation Error', 'Duration must be between 1 and 480 minutes (8 hours)');
+    if (isNaN(durationMinutes) || durationMinutes < 1 || durationMinutes > 20) {
+      showError('Validation Error', 'Duration must be between 1 and 20 minutes');
       return;
     }
 
     setIsCreatingBleSession(true);
 
     try {
-      // Check and request permissions first (iOS only)
-      if (Platform.OS === 'ios') {
-        const permissionStatus = await checkAllPermissions();
-        
-        // If location permission not granted, request it
-        if (!permissionStatus.locationGranted) {
-          const updatedStatus = await requestAllPermissions();
+      // Skip Bluetooth checks if in test mode
+      if (!testMode) {
+        // Check and request permissions first (iOS only)
+        if (Platform.OS === 'ios') {
+          const permissionStatus = await checkAllPermissions();
           
-          // If still not granted after request, stop
-          if (!updatedStatus.locationGranted) {
+          // If location permission not granted, request it
+          if (!permissionStatus.locationGranted) {
+            const updatedStatus = await requestAllPermissions();
+            
+            // If still not granted after request, stop
+            if (!updatedStatus.locationGranted) {
+              showError(
+                'Permission Required',
+                'Location permission is required to broadcast BLE sessions. Please enable it in Settings.'
+              );
+              setIsCreatingBleSession(false);
+              return;
+            }
+          }
+          
+          // Check Bluetooth after permissions
+          if (!permissionStatus.bluetoothReady) {
             showError(
-              'Permission Required',
-              'Location permission is required to broadcast BLE sessions. Please enable it in Settings.'
+              'Bluetooth Required',
+              'Please enable Bluetooth in Control Center or Settings to start a BLE session.'
             );
             setIsCreatingBleSession(false);
             return;
           }
-        }
-        
-        // Check Bluetooth after permissions
-        if (!permissionStatus.bluetoothReady) {
-          showError(
-            'Bluetooth Required',
-            'Please enable Bluetooth in Control Center or Settings to start a BLE session.'
-          );
-          setIsCreatingBleSession(false);
-          return;
-        }
-      } else {
-        // Android: just check Bluetooth state
-        if (bluetoothState !== 'poweredOn') {
-          showError('Bluetooth Required', 'Please enable Bluetooth to start a BLE session');
-          setIsCreatingBleSession(false);
-          return;
+        } else {
+          // Android: just check Bluetooth state
+          if (bluetoothState !== 'poweredOn') {
+            showError('Bluetooth Required', 'Please enable Bluetooth to start a BLE session');
+            setIsCreatingBleSession(false);
+            return;
+          }
         }
       }
 
@@ -271,13 +341,27 @@ const OfficerAttendance = ({ navigation }: any) => {
       // Get organization code for BLE broadcasting
       const orgCode = BLESessionService.getOrgCode(activeOrganization.slug);
 
-      // Start BLE broadcasting
-      await startAttendanceSession(sessionToken, orgCode);
+      // Start BLE broadcasting (skip if in test mode)
+      if (!testMode) {
+        await startAttendanceSession(sessionToken, orgCode);
+      }
+
+      // Set up active BLE session with all details
+      setActiveBleSession({
+        sessionToken,
+        title: bleSessionTitle.trim(),
+        startTime: new Date(),
+        duration: durationMinutes,
+        attendeeCount: 0, // Always start at 0, will be updated from real database queries
+        orgCode,
+        createdBy: (user as any)?.full_name || user?.email || 'Unknown',
+        eventId: sessionToken, // We'll use this to track the session
+      });
 
       // Reset form
       setBleSessionTitle('');
-      setBleSessionDuration('60');
-      setAttendeeCount(0);
+      setBleSessionDuration('5'); // Reset to default 5 minutes
+      setAttendeeCount(0); // Always start at 0, will be updated from real database queries
 
       showSuccess('BLE Session Started', 'Members can now check in via Bluetooth');
     } catch (error: any) {
@@ -288,25 +372,40 @@ const OfficerAttendance = ({ navigation }: any) => {
     }
   };
 
-  const handleStopBleSession = () => {
-    if (!currentSession) return;
+  const handleEndBleSession = () => {
+    if (!activeBleSession) return;
 
     Alert.alert(
-      'Stop BLE Session',
-      'Are you sure you want to stop the Bluetooth attendance session?',
+      'End BLE Session',
+      'Are you sure you want to end this Bluetooth attendance session?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Stop Session',
+          text: 'End Session',
           style: 'destructive',
           onPress: async () => {
             try {
-              await stopAttendanceSession();
+              // Stop BLE broadcasting if active
+              if (currentSession && currentSession.isActive && currentSession.orgCode) {
+                await stopAttendanceSession(currentSession.orgCode);
+              }
+
+              // Add to completed sessions
+              const completedSession = {
+                ...activeBleSession,
+                endTime: new Date(),
+                finalAttendeeCount: attendeeCount,
+              };
+              setCompletedSessions(prev => [completedSession, ...prev]);
+
+              // Clear active session
+              setActiveBleSession(null);
               setAttendeeCount(0);
-              showSuccess('BLE Session Stopped', 'Bluetooth attendance session has been stopped');
+              
+              showSuccess('Session Ended', `BLE session ended with ${attendeeCount} attendees`);
             } catch (error: any) {
-              console.error('Error stopping BLE session:', error);
-              showError('Error', 'Failed to stop BLE session');
+              console.error('Error ending BLE session:', error);
+              showError('Error', 'Failed to end BLE session');
             }
           },
         },
@@ -403,74 +502,255 @@ const OfficerAttendance = ({ navigation }: any) => {
             />
           </View>
 
-          {/* BLE Session Creation */}
-          {(!currentSession || !currentSession.isActive) && (
+          {/* Active BLE Session */}
+          {activeBleSession && (
             <View style={styles.sectionContainer}>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Bluetooth Attendance</Text>
+                <Text style={styles.sectionTitle}>Current Session</Text>
+                <View style={styles.liveBadge}>
+                  <View style={styles.liveDot} />
+                  <Text style={styles.liveBadgeText}>Live</Text>
+                </View>
               </View>
 
-              <View style={styles.formCard}>
-                <View style={styles.bleStatusRow}>
-                  <Icon
-                    name="bluetooth"
-                    size={moderateScale(20)}
-                    color={bluetoothState === 'poweredOn' ? Colors.successGreen : Colors.errorRed}
-                  />
-                  <Text style={[
-                    styles.bleStatusText,
-                    { color: bluetoothState === 'poweredOn' ? Colors.successGreen : Colors.errorRed }
-                  ]}>
-                    {bluetoothState === 'poweredOn' ? 'Bluetooth Ready' : 'Bluetooth Required'}
-                  </Text>
+              <View style={styles.activeSessionCard}>
+                <Text style={styles.sessionTitle}>{activeBleSession.title}</Text>
+                
+                <View style={styles.sessionInfo}>
+                  <View style={styles.sessionInfoRow}>
+                    <View style={styles.sessionInfoItem}>
+                      <Text style={styles.sessionInfoLabel}>Started:</Text>
+                      <Text style={styles.sessionInfoValue}>
+                        {activeBleSession.startTime.toLocaleTimeString('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true
+                        })}
+                      </Text>
+                    </View>
+                    <View style={styles.sessionInfoItem}>
+                      <Text style={styles.sessionInfoLabel}>Duration:</Text>
+                      <Text style={styles.sessionInfoValue}>
+                        {activeBleSession.duration} minutes
+                      </Text>
+                    </View>
+                  </View>
                 </View>
 
-                <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>BLE Session Title</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="Enter BLE session title"
-                    placeholderTextColor={Colors.textLight}
-                    value={bleSessionTitle}
-                    onChangeText={setBleSessionTitle}
-                    maxLength={100}
-                    editable={!isCreatingBleSession}
-                  />
-                </View>
-
-                <View style={styles.inputContainer}>
-                  <Text style={styles.inputLabel}>Duration (minutes)</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="60"
-                    placeholderTextColor={Colors.textLight}
-                    value={bleSessionDuration}
-                    onChangeText={setBleSessionDuration}
-                    keyboardType="numeric"
-                    maxLength={3}
-                    editable={!isCreatingBleSession}
-                  />
+                <View style={styles.sessionStats}>
+                  <View style={styles.sessionStatItem}>
+                    <Text style={styles.sessionStatNumber}>{attendeeCount}</Text>
+                    <Text style={styles.sessionStatLabel}>Members Joined</Text>
+                  </View>
                 </View>
 
                 <TouchableOpacity
-                  style={[
-                    styles.startBleSessionButton,
-                    (!bleSessionTitle.trim() || isCreatingBleSession || bluetoothState !== 'poweredOn') &&
-                    styles.startBleSessionButtonDisabled
-                  ]}
-                  onPress={handleCreateBleSession}
-                  disabled={!bleSessionTitle.trim() || isCreatingBleSession || bluetoothState !== 'poweredOn'}
+                  style={styles.endSessionButton}
+                  onPress={handleEndBleSession}
                 >
-                  <Icon
-                    name="bluetooth"
-                    size={moderateScale(16)}
-                    color={Colors.white}
-                  />
-                  <Text style={styles.startBleSessionButtonText}>
-                    {isCreatingBleSession ? 'Starting BLE...' : 'Start BLE Session'}
-                  </Text>
+                  <Text style={styles.endSessionButtonText}>End Session</Text>
                 </TouchableOpacity>
               </View>
+            </View>
+          )}
+
+          {/* BLE Session Creation Form */}
+          <View style={styles.sectionContainer}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Create BLE Session</Text>
+            </View>
+
+            <View style={[styles.formCard, activeBleSession && styles.formCardDisabled]}>
+              <View style={styles.bleStatusRow}>
+                <Icon
+                  name="bluetooth"
+                  size={moderateScale(20)}
+                  color={bluetoothState === 'poweredOn' ? Colors.successGreen : Colors.errorRed}
+                />
+                <Text style={[
+                  styles.bleStatusText,
+                  { color: bluetoothState === 'poweredOn' ? Colors.successGreen : Colors.errorRed }
+                ]}>
+                  {bluetoothState === 'poweredOn' ? 'Bluetooth Ready' : 'Bluetooth Required'}
+                </Text>
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Session Title</Text>
+                <TextInput
+                  style={[styles.textInput, activeBleSession && styles.textInputDisabled]}
+                  placeholder="Enter session title"
+                  placeholderTextColor={Colors.textLight}
+                  value={bleSessionTitle}
+                  onChangeText={setBleSessionTitle}
+                  maxLength={100}
+                  editable={!isCreatingBleSession && !activeBleSession}
+                />
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Duration (max 20)</Text>
+                <TextInput
+                  style={[
+                    styles.textInput,
+                    activeBleSession && styles.textInputDisabled,
+                    parseInt(bleSessionDuration) > 20 && styles.textInputError
+                  ]}
+                  placeholder="5"
+                  placeholderTextColor={Colors.textLight}
+                  value={bleSessionDuration}
+                  onChangeText={setBleSessionDuration}
+                  keyboardType="numeric"
+                  maxLength={2}
+                  editable={!isCreatingBleSession && !activeBleSession}
+                />
+                {parseInt(bleSessionDuration) > 20 && (
+                  <Text style={styles.errorText}>Maximum 20 minutes allowed</Text>
+                )}
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.startBleSessionButton,
+                  (!bleSessionTitle.trim() || isCreatingBleSession || (!testMode && bluetoothState !== 'poweredOn') || activeBleSession) &&
+                  styles.startBleSessionButtonDisabled
+                ]}
+                onPress={activeBleSession ? () => showError('Session Active', 'Please end the current session before starting a new one') : handleCreateBleSession}
+                disabled={!bleSessionTitle.trim() || isCreatingBleSession || (!testMode && bluetoothState !== 'poweredOn') || activeBleSession}
+              >
+                <Icon
+                  name="bluetooth"
+                  size={moderateScale(16)}
+                  color={Colors.white}
+                />
+                <Text style={styles.startBleSessionButtonText}>
+                  {activeBleSession ? 'Session Already Active' : (isCreatingBleSession ? 'Starting BLE...' : 'Start BLE Session')}
+                </Text>
+              </TouchableOpacity>
+              
+              {activeBleSession && (
+                <Text style={styles.sessionActiveWarning}>Session already active</Text>
+              )}
+            </View>
+          </View>
+
+          {/* Past BLE Sessions */}
+          {(pastBLESessions.length > 0 || completedSessions.length > 0) && (
+            <View style={styles.sectionContainer}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Past BLE Sessions</Text>
+              </View>
+
+              {/* Show recently completed sessions first */}
+              {completedSessions.map((session, index) => (
+                <View key={`recent-${index}`} style={styles.completedSessionCard}>
+                  {/* Header with Tag */}
+                  <View style={styles.sessionCardHeader}>
+                    <Tag text="Attendance" variant="red" active={true} />
+                    <Text style={styles.sessionCardDate}>
+                      {session.startTime.toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric'
+                      })}
+                    </Text>
+                  </View>
+
+                  {/* Session Title */}
+                  <Text style={styles.sessionCardTitle}>{session.title}</Text>
+
+                  {/* Stats Row */}
+                  <View style={styles.sessionCardStats}>
+                    <View style={styles.sessionCardStatItem}>
+                      <Icon name="people" size={moderateScale(18)} color={Colors.solidBlue} />
+                      <Text style={styles.sessionCardStatText}>
+                        {session.finalAttendeeCount || 0} attended
+                      </Text>
+                    </View>
+                    <View style={styles.sessionCardStatItem}>
+                      <Icon name="schedule" size={moderateScale(18)} color={Colors.textMedium} />
+                      <Text style={styles.sessionCardStatText}>
+                        {session.duration} min
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Time Info */}
+                  <View style={styles.sessionCardTimeInfo}>
+                    <Icon name="access-time" size={moderateScale(14)} color={Colors.textLight} />
+                    <Text style={styles.sessionCardTimeText}>
+                      {session.startTime.toLocaleTimeString('en-US', {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        hour12: true
+                      })}
+                    </Text>
+                  </View>
+
+                  {/* Divider */}
+                  <View style={styles.sessionCardDivider} />
+
+                  {/* Footer */}
+                  <Text style={styles.sessionCardCreator}>
+                    Hosted by {session.createdBy}
+                  </Text>
+                </View>
+              ))}
+              
+              {/* Show past sessions from database */}
+              {pastBLESessions.map((session) => (
+                <View key={session.id} style={styles.completedSessionCard}>
+                  {/* Header with Tag */}
+                  <View style={styles.sessionCardHeader}>
+                    <Tag text="Attendance" variant="red" active={true} />
+                    <Text style={styles.sessionCardDate}>
+                      {session.startTime.toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      })}
+                    </Text>
+                  </View>
+
+                  {/* Session Title */}
+                  <Text style={styles.sessionCardTitle}>{session.title}</Text>
+
+                  {/* Stats Row */}
+                  <View style={styles.sessionCardStats}>
+                    <View style={styles.sessionCardStatItem}>
+                      <Icon name="people" size={moderateScale(18)} color={Colors.solidBlue} />
+                      <Text style={styles.sessionCardStatText}>
+                        {session.attendeeCount || 0} attended
+                      </Text>
+                    </View>
+                    <View style={styles.sessionCardStatItem}>
+                      <Icon name="schedule" size={moderateScale(18)} color={Colors.textMedium} />
+                      <Text style={styles.sessionCardStatText}>
+                        {session.duration} min
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Time Info */}
+                  <View style={styles.sessionCardTimeInfo}>
+                    <Icon name="access-time" size={moderateScale(14)} color={Colors.textLight} />
+                    <Text style={styles.sessionCardTimeText}>
+                      {session.startTime.toLocaleTimeString('en-US', {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        hour12: true
+                      })}
+                    </Text>
+                  </View>
+
+                  {/* Divider */}
+                  <View style={styles.sessionCardDivider} />
+
+                  {/* Footer */}
+                  <Text style={styles.sessionCardCreator}>
+                    BLE Session
+                  </Text>
+                </View>
+              ))}
             </View>
           )}
 
@@ -592,10 +872,237 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: moderateScale(16),
     fontWeight: '600',
-    marginLeft: scale(8),
+  },
+  // Form Styles
+  formCardDisabled: {
+    opacity: 0.5,
+  },
+  textInputDisabled: {
+    backgroundColor: '#F0F0F0',
+    color: Colors.textLight,
+  },
+  sessionActiveWarning: {
+    fontSize: moderateScale(12),
+    color: Colors.errorRed,
+    fontWeight: '600',
+    marginTop: verticalScale(8),
+    textAlign: 'center',
+  },
+  // Completed Sessions Styles - Beautiful Card Design
+  completedSessionCard: {
+    backgroundColor: Colors.white,
+    borderRadius: moderateScale(16),
+    padding: scale(20),
+    marginBottom: verticalScale(14),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: verticalScale(4) },
+    shadowOpacity: 0.08,
+    shadowRadius: moderateScale(8),
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.05)',
+  },
+  sessionCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: verticalScale(12),
+  },
+  sessionCardDate: {
+    fontSize: moderateScale(12),
+    color: Colors.textLight,
+    fontWeight: '500',
+  },
+  sessionCardTitle: {
+    fontSize: moderateScale(18),
+    fontWeight: 'bold',
+    color: Colors.textDark,
+    marginBottom: verticalScale(14),
+    lineHeight: moderateScale(24),
+  },
+  sessionCardStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: verticalScale(12),
+    paddingVertical: verticalScale(12),
+    backgroundColor: '#F7FAFC',
+    borderRadius: moderateScale(12),
+    marginHorizontal: scale(-8),
+    paddingHorizontal: scale(8),
+  },
+  sessionCardStatItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+  },
+  sessionCardStatText: {
+    fontSize: moderateScale(14),
+    color: Colors.textMedium,
+    fontWeight: '600',
+    marginLeft: scale(6),
+  },
+  sessionCardTimeInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: verticalScale(10),
+  },
+  sessionCardTimeText: {
+    fontSize: moderateScale(13),
+    color: Colors.textLight,
+    marginLeft: scale(6),
+  },
+  sessionCardDivider: {
+    height: 1,
+    backgroundColor: Colors.dividerColor,
+    marginVertical: verticalScale(12),
+    marginHorizontal: scale(-20),
+  },
+  sessionCardCreator: {
+    fontSize: moderateScale(12),
+    color: Colors.textLight,
+    fontStyle: 'italic',
+  },
+  // Legacy styles kept for compatibility
+  completedSessionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: verticalScale(8),
+  },
+  completedSessionTitle: {
+    fontSize: moderateScale(16),
+    fontWeight: '600',
+    color: Colors.textDark,
+    flex: 1,
+  },
+  completedSessionTime: {
+    fontSize: moderateScale(12),
+    color: Colors.textLight,
+  },
+  completedSessionInfo: {
+    marginTop: verticalScale(4),
+  },
+  completedSessionDetail: {
+    fontSize: moderateScale(13),
+    color: Colors.textMedium,
+    marginBottom: verticalScale(2),
+  },
+  completedSessionCreator: {
+    fontSize: moderateScale(12),
+    color: Colors.textLight,
+    marginTop: verticalScale(4),
   },
   bottomSpacer: {
-    height: verticalScale(100),
+    height: verticalScale(20),
+  },
+  // Active Session Styles
+  liveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: scale(10),
+    paddingVertical: verticalScale(4),
+    borderRadius: moderateScale(12),
+  },
+  liveDot: {
+    width: scale(8),
+    height: scale(8),
+    borderRadius: scale(4),
+    backgroundColor: Colors.liveRed,
+    marginRight: scale(6),
+  },
+  liveBadgeText: {
+    fontSize: moderateScale(12),
+    fontWeight: '600',
+    color: Colors.liveRed,
+  },
+  activeSessionCard: {
+    backgroundColor: '#E6F7FF',
+    borderRadius: moderateScale(12),
+    padding: scale(20),
+    borderWidth: 2,
+    borderColor: Colors.primaryBlue,
+  },
+  sessionTitle: {
+    fontSize: moderateScale(22),
+    fontWeight: 'bold',
+    color: Colors.textDark,
+    marginBottom: verticalScale(16),
+  },
+  sessionInfo: {
+    marginBottom: verticalScale(16),
+  },
+  sessionInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  sessionInfoItem: {
+    flex: 1,
+  },
+  sessionInfoLabel: {
+    fontSize: moderateScale(12),
+    color: Colors.textMedium,
+    marginBottom: verticalScale(4),
+  },
+  sessionInfoValue: {
+    fontSize: moderateScale(16),
+    fontWeight: '600',
+    color: Colors.textDark,
+  },
+  sessionStats: {
+    alignItems: 'center',
+    marginVertical: verticalScale(20),
+  },
+  sessionStatItem: {
+    alignItems: 'center',
+  },
+  sessionStatNumber: {
+    fontSize: moderateScale(48),
+    fontWeight: 'bold',
+    color: Colors.solidBlue,
+  },
+  sessionStatLabel: {
+    fontSize: moderateScale(14),
+    color: Colors.textMedium,
+    marginTop: verticalScale(4),
+  },
+  endSessionButton: {
+    backgroundColor: Colors.errorRed,
+    borderRadius: moderateScale(8),
+    paddingVertical: verticalScale(14),
+    alignItems: 'center',
+    shadowColor: Colors.errorRed,
+    shadowOffset: { width: 0, height: verticalScale(4) },
+    shadowOpacity: 0.3,
+    shadowRadius: moderateScale(6),
+    elevation: 6,
+  },
+  endSessionButtonText: {
+    color: Colors.white,
+    fontSize: moderateScale(14),
+    fontWeight: '600',
+    marginLeft: scale(8),
+  },
+  devModeIndicator: {
+    fontSize: moderateScale(10),
+    fontWeight: 'bold',
+    color: Colors.warningOrange,
+    backgroundColor: 'rgba(255, 152, 0, 0.1)',
+    paddingHorizontal: scale(6),
+    paddingVertical: verticalScale(2),
+    borderRadius: moderateScale(4),
+    marginLeft: scale(8),
+  },
+  textInputError: {
+    borderColor: Colors.errorRed,
+    borderWidth: 2,
+  },
+  errorText: {
+    fontSize: moderateScale(12),
+    color: Colors.errorRed,
+    marginTop: verticalScale(4),
+    fontWeight: '500',
   },
 });
 

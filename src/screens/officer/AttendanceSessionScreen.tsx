@@ -60,6 +60,22 @@ const AttendanceSessionScreen: React.FC<AttendanceSessionScreenProps> = ({ navig
   const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Cleanup orphaned sessions on mount
+  useEffect(() => {
+    const cleanupOrphaned = async () => {
+      try {
+        const result = await BLESessionService.cleanupOrphanedSessions();
+        if (result.success && result.orphanedCount && result.orphanedCount > 0) {
+          console.log(`Cleaned up ${result.orphanedCount} orphaned sessions`);
+        }
+      } catch (error) {
+        console.error('Error cleaning up orphaned sessions:', error);
+      }
+    };
+    
+    cleanupOrphaned();
+  }, []);
+
   // Update attendee count periodically when session is active
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -148,10 +164,11 @@ const AttendanceSessionScreen: React.FC<AttendanceSessionScreenProps> = ({ navig
         }
       }
 
-      // Create session in database
+      // Create session in database - pass the actual organization ID
       const sessionToken = await createAttendanceSession(
         sessionTitle.trim(),
-        durationMinutes * 60 // Convert to seconds
+        durationMinutes * 60, // Convert to seconds
+        activeOrganization.id // Pass the real organization ID
       );
 
       // Get organization code for BLE broadcasting
@@ -188,10 +205,32 @@ const AttendanceSessionScreen: React.FC<AttendanceSessionScreenProps> = ({ navig
           style: 'destructive',
           onPress: async () => {
             try {
-              await stopAttendanceSession();
-              setAttendeeCount(0);
-              setSessionStartTime(null);
-              showSuccess('Session Stopped', 'BLE attendance session has been stopped');
+              // Terminate session in database first
+              const terminateResult = await BLESessionService.terminateSession(currentSession.sessionToken);
+              
+              if (terminateResult.success) {
+                // Stop BLE broadcasting
+                await stopAttendanceSession();
+                
+                // Reset state
+                setAttendeeCount(0);
+                setSessionStartTime(null);
+                
+                const timeSaved = terminateResult.timeSavedSeconds 
+                  ? ` (${Math.round(terminateResult.timeSavedSeconds / 60)} minutes early)`
+                  : '';
+                
+                showSuccess(
+                  'Session Stopped', 
+                  `BLE attendance session has been stopped${timeSaved}`
+                );
+              } else {
+                // Even if database termination fails, stop broadcasting
+                await stopAttendanceSession();
+                setAttendeeCount(0);
+                setSessionStartTime(null);
+                showError('Warning', terminateResult.message || 'Session stopped but may not be properly terminated in database');
+              }
             } catch (error: any) {
               console.error('Error stopping session:', error);
               showError('Error', 'Failed to stop session');

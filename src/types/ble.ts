@@ -1,6 +1,6 @@
 // BLE Attendance System Types
 
-import { Subscription } from 'expo-modules-core';
+import { EventSubscription } from 'expo-modules-core';
 
 export interface Beacon {
   uuid: string;
@@ -43,7 +43,7 @@ export interface AttendanceBLEContextProps extends BLEContextProps {
   // Session management
   createAttendanceSession: (title: string, ttlSeconds: number, orgId?: string) => Promise<string>;
   startAttendanceSession: (sessionToken: string, orgCode: number) => Promise<void>;
-  stopAttendanceSession: () => Promise<void>;
+  stopAttendanceSession: (orgCode: number) => Promise<void>;
   
   // Member functionality
   enableAutoAttendance: () => Promise<void>;
@@ -61,22 +61,22 @@ export interface BLEHelperType {
   startListening: (uuid: string, mode?: number) => Promise<void>;
   stopListening: () => Promise<void>;
   getDetectedBeacons: () => Promise<Beacon[]>;
-  addBluetoothStateListener: (callback: (event: { state: string }) => void) => Subscription;
-  removeBluetoothStateListener: (subscription: Subscription) => void;
-  addBeaconDetectedListener: (listener: (event: Beacon) => void) => Subscription;
-  removeBeaconDetectedListener: (subscription: Subscription) => void;
+  addBluetoothStateListener: (callback: (event: { state: string }) => void) => EventSubscription;
+  removeBluetoothStateListener: (subscription: EventSubscription) => void;
+  addBeaconDetectedListener: (listener: (event: Beacon) => void) => EventSubscription;
+  removeBeaconDetectedListener: (subscription: EventSubscription) => void;
   getBluetoothState: () => Promise<string>;
   testBeaconEvent: () => Promise<void>;
   
   // Attendance-specific methods
-  broadcastAttendanceSession?: (sessionToken: string, orgCode: number, title: string) => Promise<void>;
-  stopAttendanceSession?: () => Promise<void>;
+  broadcastAttendanceSession?: (orgCode: number, sessionToken: string, title?: string) => Promise<void>;
+  stopAttendanceSession?: (orgCode: number) => Promise<void>;
 }
 
 export interface AttendanceBLEHelperType extends BLEHelperType {
   // Attendance-specific methods
-  broadcastAttendanceSession: (sessionToken: string, orgCode: number, title: string) => Promise<void>;
-  stopAttendanceSession: () => Promise<void>;
+  broadcastAttendanceSession: (orgCode: number, sessionToken: string, title?: string) => Promise<void>;
+  stopAttendanceSession: (orgCode: number) => Promise<void>;
   handleBeaconDetected: (beacon: Beacon) => Promise<void>;
 }
 

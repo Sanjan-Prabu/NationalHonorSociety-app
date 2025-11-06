@@ -250,14 +250,14 @@ class BLEBeaconManager : Module(), BeaconConsumer {
 
     /**
      * Gets organization UUID based on org code
-     * Uses a deterministic UUID generation for each organization
+     * CRITICAL: Uses single APP_UUID for ALL organizations to ensure cross-platform compatibility
+     * Organization differentiation is handled by the Major field (orgCode)
+     * This MUST match the UUID used in iOS BeaconBroadcaster.swift
      */
     private fun getOrgUUID(orgCode: Int): String {
-        return when (orgCode) {
-            1 -> "6BA7B810-9DAD-11D1-80B4-00C04FD430C8" // NHS UUID
-            2 -> "6BA7B811-9DAD-11D1-80B4-00C04FD430C8" // NHSA UUID
-            else -> "00000000-0000-0000-0000-000000000000" // Default/fallback UUID
-        }
+        // Use the same APP_UUID across all platforms and organizations
+        // This ensures iOS officers can broadcast to Android members and vice versa
+        return "A495BB60-C5B6-466E-B5D2-DF4D449B0F03"
     }
 
     /**
@@ -282,11 +282,15 @@ class BLEBeaconManager : Module(), BeaconConsumer {
 
     /**
      * Gets organization code from UUID
+     * CRITICAL: Since we now use a single APP_UUID for all organizations,
+     * we cannot determine org code from UUID alone. This function is deprecated.
+     * Organization code should be determined from the Major field of the beacon.
      */
     private fun getOrgCodeFromUUID(uuid: String): Int {
+        // With unified UUID approach, we use the APP_UUID for all organizations
+        // Organization differentiation is handled by the Major field
         return when (uuid.uppercase()) {
-            "6BA7B810-9DAD-11D1-80B4-00C04FD430C8" -> 1 // NHS
-            "6BA7B811-9DAD-11D1-80B4-00C04FD430C8" -> 2 // NHSA
+            "A495BB60-C5B6-466E-B5D2-DF4D449B0F03" -> 0 // APP_UUID - org code in Major field
             else -> 0 // Unknown/invalid
         }
     }

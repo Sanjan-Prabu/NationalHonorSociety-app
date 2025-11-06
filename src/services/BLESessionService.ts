@@ -360,21 +360,37 @@ export class BLESessionService {
     orgId: string
   ): Promise<BLESession | null> {
     try {
+      console.log(`[BLESessionService] 🔍 findSessionByBeacon called with:`, {
+        major,
+        minor,
+        orgId
+      });
+      
       // Validate beacon payload first
       const orgSlug = major === 1 ? 'nhs' : major === 2 ? 'nhsa' : '';
+      console.log(`[BLESessionService] Determined orgSlug: ${orgSlug} from major: ${major}`);
+      
       if (!orgSlug || !this.validateBeaconPayload(major, minor, orgSlug)) {
-        if (__DEV__) {
-          console.log('Invalid beacon payload for findSessionByBeacon');
-        }
+        console.log(`[BLESessionService] ❌ Invalid beacon payload - orgSlug: ${orgSlug}, validation: ${this.validateBeaconPayload(major, minor, orgSlug)}`);
         return null;
       }
 
+      console.log(`[BLESessionService] ✅ Beacon payload valid, fetching active sessions for orgId: ${orgId}`);
       const activeSessions = await this.getActiveSessions(orgId);
+      console.log(`[BLESessionService] 📋 Found ${activeSessions.length} active sessions`);
       
       // Find session with matching encoded token hash
       for (const session of activeSessions) {
         const sessionHash = this.encodeSessionToken(session.sessionToken);
+        console.log(`[BLESessionService] Comparing session "${session.eventTitle}":`, {
+          sessionToken: session.sessionToken,
+          sessionHash,
+          targetMinor: minor,
+          match: sessionHash === minor
+        });
+        
         if (sessionHash === minor) {
+          console.log(`[BLESessionService] ✅ MATCH FOUND! Session: "${session.eventTitle}"`);
           return {
             ...session,
             orgSlug,
@@ -383,12 +399,10 @@ export class BLESessionService {
         }
       }
       
-      if (__DEV__) {
-        console.log(`No session found for beacon major:${major} minor:${minor} in ${activeSessions.length} active sessions`);
-      }
+      console.log(`[BLESessionService] ❌ No session found for beacon major:${major} minor:${minor} in ${activeSessions.length} active sessions`);
       return null;
     } catch (error) {
-      console.error('Failed to find session by beacon:', error);
+      console.error('[BLESessionService] ❌ Failed to find session by beacon:', error);
       return null;
     }
   }
@@ -503,6 +517,194 @@ export class BLESessionService {
    */
   static getSecurityMetrics() {
     return BLESecurityService.getSecurityMetrics();
+  }
+
+  /**
+   * Terminates an active BLE session manually
+   * Useful when officer needs to end session early or if app crashes
+   */
+  static async terminateSession(sessionToken: string): Promise<{
+    success: boolean;
+    error?: string;
+    message?: string;
+    eventId?: string;
+    eventTitle?: string;
+    terminatedAt?: Date;
+    timeSavedSeconds?: number;
+  }> {
+    const sanitizedToken = BLESecurityService.sanitizeToken(sessionToken);
+    if (!sanitizedToken) {
+      return {
+        success: false,
+        error: 'invalid_token',
+        message: 'Invalid session token format',
+      };
+    }
+
+    try {
+      const { data, error } = await supabase.rpc('terminate_session', {
+        p_session_token: sanitizedToken,
+      });
+
+      if (error) {
+        console.error('Failed to terminate session:', error);
+        return {
+          success: false,
+          error: 'network_error',
+          message: `Failed to terminate session: ${error.message}`,
+        };
+      }
+
+      if (typeof data === 'object' && data !== null) {
+        const result = data as any;
+        
+        if (result.success) {
+          return {
+            success: true,
+            eventId: result.event_id,
+            eventTitle: result.event_title,
+            terminatedAt: new Date(result.terminated_at),
+            timeSavedSeconds: result.time_saved_seconds,
+            message: 'Session terminated successfully',
+          };
+        } else {
+          return {
+            success: false,
+            error: result.error || 'unknown_error',
+            message: result.message || 'Failed to terminate session',
+          };
+        }
+      }
+
+      return {
+        success: false,
+        error: 'unexpected_response',
+        message: 'Unexpected response from server',
+      };
+    } catch (error) {
+      console.error('Error terminating session:', error);
+      return {
+        success: false,
+        error: 'exception',
+        message: `Exception: ${error}`,
+      };
+    }
+  }
+
+  /**
+   * Gets the current status of a BLE session
+   */
+  static async getSessionStatus(sessionToken: string): Promise<{
+    success: boolean;
+    status?: 'active' | 'expired' | 'terminated' | 'scheduled';
+    isActive?: boolean;
+    timeRemainingSeconds?: number;
+    attendeeCount?: number;
+    error?: string;
+  }> {
+    const sanitizedToken = BLESecurityService.sanitizeToken(sessionToken);
+    if (!sanitizedToken) {
+      return {
+        success: false,
+        error: 'invalid_token',
+      };
+    }
+
+    try {
+      const { data, error } = await supabase.rpc('get_session_status', {
+        p_session_token: sanitizedToken,
+      });
+
+      if (error) {
+        console.error('Failed to get session status:', error);
+        return {
+          success: false,
+          error: 'network_error',
+        };
+      }
+
+      if (typeof data === 'object' && data !== null) {
+        const result = data as any;
+        
+        if (result.success) {
+          return {
+            success: true,
+            status: result.status,
+            isActive: result.is_active,
+            timeRemainingSeconds: result.time_remaining_seconds,
+            attendeeCount: result.attendee_count,
+          };
+        } else {
+          return {
+            success: false,
+            error: result.error || 'unknown_error',
+          };
+        }
+      }
+
+      return {
+        success: false,
+        error: 'unexpected_response',
+      };
+    } catch (error) {
+      console.error('Error getting session status:', error);
+      return {
+        success: false,
+        error: 'exception',
+      };
+    }
+  }
+
+  /**
+   * Cleans up orphaned sessions (sessions that expired but weren't properly terminated)
+   * Should be called periodically or when officer logs in
+   */
+  static async cleanupOrphanedSessions(): Promise<{
+    success: boolean;
+    orphanedCount?: number;
+    error?: string;
+  }> {
+    try {
+      const { data, error } = await supabase.rpc('cleanup_orphaned_sessions');
+
+      if (error) {
+        console.error('Failed to cleanup orphaned sessions:', error);
+        return {
+          success: false,
+          error: 'network_error',
+        };
+      }
+
+      if (typeof data === 'object' && data !== null) {
+        const result = data as any;
+        
+        if (result.success) {
+          if (__DEV__ && result.orphaned_count > 0) {
+            console.log(`Cleaned up ${result.orphaned_count} orphaned sessions`);
+          }
+          return {
+            success: true,
+            orphanedCount: result.orphaned_count,
+          };
+        } else {
+          return {
+            success: false,
+            error: result.error || 'unknown_error',
+          };
+        }
+      }
+
+      return {
+        success: false,
+        error: 'unexpected_response',
+      };
+    } catch (error) {
+      console.error('Error cleaning up orphaned sessions:', error);
+      return {
+        success: false,
+        error: 'exception',
+      };
+    }
   }
 }
 

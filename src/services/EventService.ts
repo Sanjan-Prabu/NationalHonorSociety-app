@@ -232,6 +232,10 @@ export class EventService extends BaseDataService {
         .eq('org_id', organizationId)
         .eq('status', 'active') // Only fetch active events
         .order('event_date', { ascending: true });
+      
+      // Exclude BLE sessions from regular events list
+      // BLE sessions have description.attendance_method = 'ble'
+      // We filter them out in post-processing since Supabase doesn't support NOT on JSONB easily
 
       // Apply filters safely
       if (filters) {
@@ -271,8 +275,23 @@ export class EventService extends BaseDataService {
       if (result.success && result.data) {
         // Transform database events to Event format
         const events = result.data as any[];
+        
+        // Filter out BLE sessions (they should only appear in attendance tab, not events)
+        const nonBLEEvents = events.filter((event: any) => {
+          try {
+            const desc = typeof event.description === 'string' 
+              ? JSON.parse(event.description) 
+              : event.description;
+            // Exclude events with attendance_method = 'ble'
+            return desc?.attendance_method !== 'ble';
+          } catch {
+            // If description is not valid JSON or doesn't exist, include the event
+            return true;
+          }
+        });
+        
         const transformedEvents = await Promise.all(
-          events.map(async (event: any) => {
+          nonBLEEvents.map(async (event: any) => {
             // Fetch creator info separately if needed
             if (event.created_by) {
               const { data: creator } = await supabase

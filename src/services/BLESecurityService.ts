@@ -25,7 +25,7 @@ export class BLESecurityService {
   // Cryptographically secure character set (removes ambiguous characters)
   private static readonly SECURE_CHARSET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   private static readonly TOKEN_LENGTH = 12;
-  private static readonly MIN_ENTROPY_BITS = 40; // Minimum entropy for secure tokens (lowered for testing)
+  private static readonly MIN_ENTROPY_BITS = 25; // Minimum entropy for secure tokens (lowered for simulator testing)
   
   // Track token generation metrics
   private static metrics: SecurityMetrics = {

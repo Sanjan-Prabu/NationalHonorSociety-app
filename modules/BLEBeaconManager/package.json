@@ -1,0 +1,9 @@
+{
+  "name": "ble-beacon-manager",
+  "version": "1.0.0",
+  "description": "Android BLE beacon manager for NHS attendance tracking",
+  "main": "index.ts",
+  "keywords": ["expo", "ble", "beacon", "bluetooth", "android"],
+  "author": "Arshan S",
+  "license": "MIT"
+}

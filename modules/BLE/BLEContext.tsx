@@ -7,6 +7,7 @@ import { bluetoothStateManager, BluetoothState } from './BluetoothStateManager';
 import { handlePermissionFlow, checkBLEPermissions, createBLEError } from './permissionHelper';
 import { bleLoggingService, logBLEInfo, logBLEError, logBLEDebug } from '../../src/services/BLELoggingService';
 import { notificationService } from '../../src/services/NotificationService';
+import SentryService from '../../src/services/SentryService';
 import Constants from 'expo-constants';
 import { EventSubscription } from "expo-modules-core";
 
@@ -24,7 +25,19 @@ const APP_UUID = Constants.expoConfig?.extra?.APP_UUID?.toUpperCase() || '000000
 
 const DEBUG_PREFIX = '[GlobalBLEManager]';
 
-export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+interface BLEProviderProps {
+  children: ReactNode;
+  organizationId?: string;
+  organizationSlug?: string;
+  organizationCode?: number;
+}
+
+export const BLEProvider: React.FC<BLEProviderProps> = ({ 
+  children, 
+  organizationId, 
+  organizationSlug, 
+  organizationCode 
+}) => {
   const [bluetoothState, setBluetoothState] = useState<string>('unknown');
   const [detectedBeacons, setDetectedBeacons] = useState<Beacon[]>([]);
   const [isListening, setIsListening] = useState<boolean>(false);
@@ -62,15 +75,25 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // Helper function to get current organization context
-  // This would ideally use useOrganization hook, but we can't use hooks in this context
-  // So we'll use a placeholder approach for now
+  // Uses props passed from App.tsx which has access to OrganizationContext
   const getCurrentOrgContext = () => {
-    // TODO: Replace with actual organization context
-    return {
-      orgId: 'placeholder-org-id',
-      orgSlug: 'nhs', // Default to NHS for now
-      orgCode: 1
+    if (!organizationId) {
+      const errorMsg = 'No organization ID available. User must be logged into an organization to use BLE attendance.';
+      console.error(`${DEBUG_PREFIX} ❌ ${errorMsg}`);
+      throw new Error(errorMsg);
+    }
+    
+    const context = {
+      orgId: organizationId,
+      orgSlug: organizationSlug || 'nhs', // Default to NHS
+      orgCode: organizationCode || 1 // Default to NHS code
     };
+    
+    if (__DEV__) {
+      console.log(`${DEBUG_PREFIX} 🏢 Organization Context:`, context);
+    }
+    
+    return context;
   };
 
   useEffect(() => {
@@ -190,6 +213,20 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const handleBeaconDetected = async (beacon: Beacon & { isAttendanceBeacon?: boolean; orgCode?: number }) => {
+    console.log(`${DEBUG_PREFIX} 🔔 RAW BEACON DETECTED:`, {
+      uuid: beacon.uuid,
+      major: beacon.major,
+      minor: beacon.minor,
+      rssi: beacon.rssi
+    });
+    
+    // Show toast for ANY beacon detection to confirm scanning works
+    showMessage(
+      '🔔 Beacon Detected!',
+      `UUID: ${beacon.uuid.substring(0, 8)}... Major: ${beacon.major} Minor: ${beacon.minor} RSSI: ${beacon.rssi}`,
+      'info'
+    );
+    
     setDetectedBeacons((prevBeacons) => {
       console.log(`${DEBUG_PREFIX} Previous beacons:`, prevBeacons);
 
@@ -211,8 +248,16 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // Determine if this is an attendance beacon by checking organization codes
     const isAttendanceBeacon = beacon.major === 1 || beacon.major === 2; // NHS or NHSA org codes
     
+    console.log(`${DEBUG_PREFIX} Is attendance beacon? ${isAttendanceBeacon} (major=${beacon.major})`);
+    
     // Handle attendance-specific beacon detection
     if (isAttendanceBeacon) {
+      console.log(`${DEBUG_PREFIX} ✅ Processing as ATTENDANCE beacon`);
+      showMessage(
+        '📍 Attendance Beacon Found!',
+        `Org Code: ${beacon.major}, Processing session lookup...`,
+        'success'
+      );
       try {
         await handleAttendanceBeaconDetected({
           ...beacon,
@@ -220,7 +265,19 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         });
       } catch (error) {
         console.error(`${DEBUG_PREFIX} Error handling attendance beacon:`, error);
+        showMessage(
+          'Beacon Processing Error',
+          `Failed to process attendance beacon: ${error}`,
+          'error'
+        );
       }
+    } else {
+      console.log(`${DEBUG_PREFIX} ⚠️ NOT an attendance beacon (major=${beacon.major} not 1 or 2)`);
+      showMessage(
+        'Non-Attendance Beacon',
+        `Detected beacon with major=${beacon.major} (not NHS/NHSA)`,
+        'info'
+      );
     }
 
     logMessage(`Beacon detected: ${beacon.uuid}, Major: ${beacon.major}, Minor: ${beacon.minor}${isAttendanceBeacon ? ' (Attendance)' : ''}`);
@@ -308,17 +365,56 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const startListening = async (mode : number) => {
     try {
+      console.log(`${DEBUG_PREFIX} 🎧 Starting BLE listening...`);
+      console.log(`${DEBUG_PREFIX} Mode: ${mode}, APP_UUID: ${APP_UUID}`);
+      console.log(`${DEBUG_PREFIX} Current Bluetooth State: ${bluetoothState}`);
+      
       // Check Bluetooth readiness
       await ensureBluetoothReady();
       
+      console.log(`${DEBUG_PREFIX} ✅ Bluetooth ready, calling BLEHelper.startListening`);
       await BLEHelper.startListening(APP_UUID, mode);
       setIsListening(true);
       logMessage(`Started listening for UUID: ${APP_UUID}`);
       showMessage('Started Listening', 'Now listening for beacons.', 'success');
       setLastError(null);
+      console.log(`${DEBUG_PREFIX} ✅ BLE listening started successfully`);
     } catch (error: any) {
       console.error(`${DEBUG_PREFIX} Error starting listening:`, error);
       logMessage(`StartListening Error: ${error.message}`);
+      
+      // Check if this is a native module error
+      const isNativeModuleError = error.message && (
+        error.message.includes('native module is not available') ||
+        error.message.includes('BeaconBroadcaster') ||
+        error.message.includes('BLEBeaconManager')
+      );
+      
+      if (isNativeModuleError) {
+        console.error(`${DEBUG_PREFIX} ❌ CRITICAL: Native BLE modules not available!`);
+        console.error(`${DEBUG_PREFIX} ❌ You must use a development build, NOT Expo Go.`);
+        showMessage(
+          'BLE Not Available',
+          'BLE native modules are not loaded. Please use a development build, not Expo Go.',
+          'error'
+        );
+        setLastError(createBLEError(
+          BLEErrorType.HARDWARE_UNSUPPORTED,
+          'BLE native modules not available. Use a development build.',
+          error,
+          false,
+          'Build and install a development client with: eas build --profile development'
+        ));
+        return;
+      }
+      
+      // Report to Sentry
+      SentryService.captureException(error, {
+        ble_operation: 'start_listening',
+        bluetooth_state: bluetoothState,
+        app_uuid: APP_UUID,
+        mode: mode
+      });
       
       if (error.type) {
         setLastError(error);
@@ -361,6 +457,16 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch (error: any) {
       console.error(`${DEBUG_PREFIX} Error starting broadcasting:`, error);
       logMessage(`StartBroadcasting Error: ${error.message}`);
+      
+      // Report to Sentry
+      SentryService.captureException(error, {
+        ble_operation: 'start_broadcasting',
+        bluetooth_state: bluetoothState,
+        uuid: uuid,
+        major: major,
+        minor: minor,
+        title: title
+      });
       
       if (error.type) {
         setLastError(error);
@@ -515,21 +621,37 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Attendance-specific methods
   const createAttendanceSession = async (title: string, ttlSeconds: number, orgId?: string): Promise<string> => {
     try {
-      // Use provided orgId or fall back to context (which should be replaced with real data)
-      const organizationId = orgId || getCurrentOrgContext().orgId;
+      // CRITICAL: orgId MUST be provided by the calling screen
+      if (!orgId) {
+        const errorMsg = 'Organization ID is required to create a session. This is a critical error - the calling screen must pass activeOrganization.id';
+        console.error(`${DEBUG_PREFIX} ${errorMsg}`);
+        throw new Error(errorMsg);
+      }
       
       // Validate that we have a valid UUID format
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (!uuidRegex.test(organizationId)) {
-        throw new Error(`Invalid organization ID format. Please ensure you're logged into an organization. Got: ${organizationId}`);
+      if (!uuidRegex.test(orgId)) {
+        const errorMsg = `Invalid organization ID format. Expected UUID, got: ${orgId}. Please ensure you're logged into an organization.`;
+        console.error(`${DEBUG_PREFIX} ${errorMsg}`);
+        throw new Error(errorMsg);
       }
       
-      const sessionToken = await BLESessionService.createSession(organizationId, title, ttlSeconds);
-      logMessage(`Created attendance session: ${sessionToken}`);
+      if (!title || !title.trim()) {
+        throw new Error('Session title is required');
+      }
+      
+      if (ttlSeconds <= 0 || ttlSeconds > 86400) {
+        throw new Error('Session duration must be between 1 second and 24 hours');
+      }
+      
+      logMessage(`Creating attendance session: "${title}" for org ${orgId}, TTL: ${ttlSeconds}s`);
+      const sessionToken = await BLESessionService.createSession(orgId, title, ttlSeconds);
+      logMessage(`✅ Created attendance session successfully: ${sessionToken}`);
       return sessionToken;
     } catch (error: any) {
-      console.error(`${DEBUG_PREFIX} Error creating attendance session:`, error);
-      throw error;
+      console.error(`${DEBUG_PREFIX} ❌ Error creating attendance session:`, error);
+      // Re-throw with more context
+      throw new Error(`Failed to create BLE session: ${error.message || 'Unknown error'}`);
     }
   };
 
@@ -540,6 +662,16 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
 
     try {
+      if (__DEV__) {
+        console.log(`${DEBUG_PREFIX} 🔵 Starting BLE broadcast with:`, {
+          sessionToken,
+          orgCode,
+          APP_UUID,
+          major: orgCode,
+          minor: BLESessionService.encodeSessionToken(sessionToken)
+        });
+      }
+      
       await BLEHelper.broadcastAttendanceSession(orgCode, sessionToken);
       
       // Resolve session to get event details for notification
@@ -557,7 +689,10 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setCurrentSession(session);
       setIsBroadcasting(true);
       
-      logMessage(`Started attendance session: ${sessionToken} for org ${orgCode}`);
+      logMessage(`✅ Started attendance session: ${sessionToken} for org ${orgCode}`);
+      if (__DEV__) {
+        console.log(`${DEBUG_PREFIX} 📡 Broadcasting beacon - Members should now be able to detect this session`);
+      }
       showMessage('Attendance Session Started', 'Members can now check in via BLE.', 'success');
 
       // Send high-priority push notification to all organization members
@@ -619,12 +754,22 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const handleAttendanceBeaconDetected = async (beacon: Beacon & { orgCode?: number }): Promise<void> => {
     try {
+      console.log(`${DEBUG_PREFIX} 📱 ATTENDANCE BEACON DETECTED:`, {
+        uuid: beacon.uuid,
+        major: beacon.major,
+        minor: beacon.minor,
+        rssi: beacon.rssi
+      });
+      
       // Get current organization context
       const { orgId, orgSlug, orgCode: userOrgCode } = getCurrentOrgContext();
+      console.log(`${DEBUG_PREFIX} 🔍 Using org context - ID: ${orgId}, Slug: ${orgSlug}, Code: ${userOrgCode}`);
       
       // Validate beacon payload format
       if (!BLESessionService.validateBeaconPayload(beacon.major, beacon.minor, orgSlug)) {
-        console.log(`${DEBUG_PREFIX} Invalid beacon payload for organization ${orgSlug}`);
+        if (__DEV__) {
+          console.log(`${DEBUG_PREFIX} ❌ Invalid beacon payload for organization ${orgSlug}`);
+        }
         return;
       }
 
@@ -634,11 +779,19 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       );
       
       if (existingSession) {
-        console.log(`${DEBUG_PREFIX} Session already detected: ${existingSession.sessionToken}`);
+        if (__DEV__) {
+          console.log(`${DEBUG_PREFIX} ⚠️ Session already detected: ${existingSession.sessionToken}`);
+        }
         return;
       }
 
+      if (__DEV__) {
+        console.log(`${DEBUG_PREFIX} 🔍 Looking up session for beacon major:${beacon.major} minor:${beacon.minor}`);
+      }
+
       // Find session by beacon payload using organization ID
+      console.log(`${DEBUG_PREFIX} 🔍 Calling findSessionByBeacon with major:${beacon.major} minor:${beacon.minor} orgId:${orgId}`);
+      
       const session = await BLESessionService.findSessionByBeacon(
         beacon.major,
         beacon.minor,
@@ -646,15 +799,44 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       );
 
       if (!session) {
-        console.log(`${DEBUG_PREFIX} No valid session found for beacon major:${beacon.major} minor:${beacon.minor}`);
+        console.log(`${DEBUG_PREFIX} ❌ No valid session found for beacon major:${beacon.major} minor:${beacon.minor}`);
+        showMessage(
+          'No Session Found',
+          `Beacon detected but no matching active session found (major:${beacon.major} minor:${beacon.minor})`,
+          'info'
+        );
         return;
       }
 
+      console.log(`${DEBUG_PREFIX} ✅ Found session:`, {
+        sessionToken: session.sessionToken,
+        title: session.eventTitle,
+        expiresAt: session.endsAt
+      });
+      
+      showMessage(
+        '🎯 Session Found!',
+        `Found: "${session.eventTitle}" - Checking validity...`,
+        'success'
+      );
+
       // Check if session is still valid (not expired)
       if (!session.isValid || session.endsAt <= new Date()) {
-        console.log(`${DEBUG_PREFIX} Session expired: ${session.sessionToken}`);
+        console.log(`${DEBUG_PREFIX} ⏰ Session expired: ${session.sessionToken}`);
+        showMessage(
+          'Session Expired',
+          `"${session.eventTitle}" has expired`,
+          'info'
+        );
         return;
       }
+      
+      console.log(`${DEBUG_PREFIX} ✅ Session is VALID and ACTIVE`);
+      showMessage(
+        '✅ Valid Session!',
+        `"${session.eventTitle}" is active and ready`,
+        'success'
+      );
 
       // Add to detected sessions first
       const attendanceSession: AttendanceSession = {
@@ -668,8 +850,23 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setDetectedSessions(prev => {
         const existing = prev.find(s => s.sessionToken === session.sessionToken);
         if (!existing) {
-          return [...prev, attendanceSession];
+          console.log(`${DEBUG_PREFIX} ✅ ADDING SESSION TO DETECTED LIST:`, {
+            title: attendanceSession.title,
+            token: attendanceSession.sessionToken,
+            expiresAt: attendanceSession.expiresAt
+          });
+          const newSessions = [...prev, attendanceSession];
+          console.log(`${DEBUG_PREFIX} 📋 Total detected sessions: ${newSessions.length}`);
+          
+          showMessage(
+            '🎉 Session Added!',
+            `"${attendanceSession.title}" added to detected sessions (${newSessions.length} total)`,
+            'success'
+          );
+          
+          return newSessions;
         }
+        console.log(`${DEBUG_PREFIX} ⚠️ Session already in detected list: ${session.sessionToken}`);
         return prev;
       });
 
@@ -713,6 +910,37 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  // Permission request function for member screens
+  const requestPermissions = async (): Promise<boolean> => {
+    try {
+      const { requestAllPermissions } = require('../../src/utils/requestIOSPermissions');
+      const status = await requestAllPermissions();
+      
+      // Update permission state
+      setPermissionState({
+        bluetooth: { 
+          granted: status.bluetoothReady, 
+          denied: !status.bluetoothReady, 
+          neverAskAgain: false, 
+          canRequest: true 
+        },
+        location: { 
+          granted: status.locationGranted, 
+          denied: !status.locationGranted, 
+          neverAskAgain: false, 
+          canRequest: true 
+        },
+        allGranted: status.locationGranted && status.bluetoothReady,
+        criticalMissing: []
+      });
+      
+      return status.locationGranted && status.bluetoothReady;
+    } catch (error) {
+      console.error(`${DEBUG_PREFIX} Error requesting permissions:`, error);
+      return false;
+    }
+  };
+
   const contextValue: AttendanceBLEContextProps & {
     // Enhanced state management
     bluetoothHardwareState: BluetoothState;
@@ -721,6 +949,7 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     getBluetoothStatus: () => any;
     refreshBluetoothState: () => Promise<void>;
     ensureBluetoothReady: () => Promise<void>;
+    requestPermissions: () => Promise<boolean>;
   } = {
     bluetoothState,
     detectedBeacons,
@@ -750,7 +979,8 @@ export const BLEProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     lastError,
     getBluetoothStatus,
     refreshBluetoothState,
-    ensureBluetoothReady
+    ensureBluetoothReady,
+    requestPermissions
   };
 
   return <BLEContext.Provider value={contextValue}>{children}</BLEContext.Provider>;
