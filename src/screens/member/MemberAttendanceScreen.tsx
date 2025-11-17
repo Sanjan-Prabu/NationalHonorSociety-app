@@ -32,25 +32,31 @@ const Colors = {
   successGreen: '#38A169',
   verifiedGreen: '#48BB78',
   errorRed: '#E53E3E',
+  lightGreen: '#F0FFF4',
+  lightRed: '#FED7D7',
 };
 
 const MemberAttendanceScreen = ({ navigation }: any) => {
   const { activeOrganization, activeMembership, isLoading: orgLoading } = useOrganization();
   const { user } = useAuth();
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showWarning } = useToast();
   const insets = useSafeAreaInsets();
   const currentOrgId = useCurrentOrganizationId();
 
-  // BLE Context - ENABLED for production builds
+  // BLE Context - Manual scanning only (no auto-attendance)
   const {
     bluetoothState,
-    autoAttendanceEnabled,
     detectedSessions,
-    enableAutoAttendance,
-    disableAutoAttendance,
+    isListening,
+    startListening,
+    requestPermissions,
+    refreshBluetoothState,
   } = useBLE() as any;
 
-  const [hasJoinedSession, setHasJoinedSession] = useState(false);
+  // Local state for scanning
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanTimeout, setScanTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [manualCheckInLoading, setManualCheckInLoading] = useState<string | null>(null);
 
   // Use dynamic data hooks
   const { 
@@ -81,60 +87,128 @@ const MemberAttendanceScreen = ({ navigation }: any) => {
       method: record.method || 'manual',
       verified: false, // Verification status not available in current AttendanceRecord type
       present: record.status === 'present' || record.status === 'attended',
+      createdBy: record.recorded_by,
+      createdByName: record.recorded_by_name || 'Unknown Host',
     }));
   };
 
   const recentAttendance = attendanceData ? transformAttendanceData(attendanceData.slice(0, 10)) : [];
 
-  // Use detected BLE sessions instead of mock data
-  const activeSession = detectedSessions.length > 0 ? {
-    id: detectedSessions[0].sessionToken,
-    title: detectedSessions[0].title,
-    host: 'Officer', // We don't have host info in BLE sessions
-    date: new Date().toLocaleDateString('en-US', { 
-      month: 'long', 
-      day: 'numeric', 
-      year: 'numeric' 
-    }),
-    time: new Date().toLocaleTimeString('en-US', { 
-      hour: 'numeric', 
-      minute: '2-digit', 
-      hour12: true 
-    }),
-    isActive: detectedSessions[0].isActive,
-  } : null;
-
   const onRefresh = async () => {
     await refetchAttendance();
   };
 
-  const handleJoinSession = async () => {
-    if (!activeSession || !activeOrganization?.id || !user?.id) return;
+  // Clean up timeout on unmount
+  React.useEffect(() => {
+    return () => {
+      if (scanTimeout) {
+        clearTimeout(scanTimeout);
+      }
+    };
+  }, [scanTimeout]);
 
-    console.log('Joining session via BLE with token:', activeSession.id);
+  // Handle manual scan button press
+  const handleManualScan = async () => {
+    if (bluetoothState !== 'poweredOn') {
+      showError(
+        'Bluetooth Required',
+        'Please enable Bluetooth to scan for sessions.'
+      );
+      return;
+    }
     
     try {
-      // activeSession.id is actually the sessionToken, not event_id
-      // Use BLESessionService.addAttendance() for BLE sessions
-      const result = await BLESessionService.addAttendance(activeSession.id);
+      setIsScanning(true);
+      showSuccess('Scanning Started', 'Looking for nearby sessions...');
+      
+      // Start listening if not already
+      if (!isListening) {
+        await startListening(0); // Mode 0 for AltBeacon scanning
+      }
+      
+      // Clear any existing timeout
+      if (scanTimeout) {
+        clearTimeout(scanTimeout);
+      }
+      
+      // Set timeout to check for sessions after 5 seconds
+      const timeout = setTimeout(() => {
+        setIsScanning(false);
+        
+        if (detectedSessions.length === 0) {
+          showWarning(
+            'No Sessions Found', 
+            'No active sessions detected nearby. Make sure an officer has started a session.'
+          );
+        } else {
+          showSuccess(
+            'Scan Complete!',
+            `Found ${detectedSessions.length} active session${detectedSessions.length > 1 ? 's' : ''}`
+          );
+        }
+      }, 5000); // 5 second scan
+      
+      setScanTimeout(timeout);
+    } catch (error: any) {
+      setIsScanning(false);
+      showError('Scan Error', error.message || 'Failed to start scanning');
+    }
+  };
+
+  // Handle manual check-in
+  const handleManualCheckIn = async (session: AttendanceSession) => {
+    if (!user?.id || !activeOrganization?.id) return;
+
+    setManualCheckInLoading(session.sessionToken);
+    
+    try {
+      const result = await BLESessionService.addAttendance(session.sessionToken);
       
       if (result.success) {
-        setHasJoinedSession(true);
-        showSuccess('Checked In', `Successfully checked in to ${activeSession.title}`);
+        showSuccess('Checked In', `Successfully checked in to ${session.title}`);
         await refetchAttendance();
       } else {
         // Handle specific error cases
         if (result.error === 'already_checked_in') {
-          showError('Already Checked In', `You're already checked in to ${activeSession.title}`);
+          showWarning('Already Checked In', `You're already checked in to ${session.title}`);
         } else if (result.error === 'session_expired') {
-          showError('Session Expired', 'This session has expired');
+          showWarning('Session Expired', 'This session has expired, but your check-in may still be recorded.');
         } else {
           showError('Check-in Failed', result.message || 'Unable to check in. Please try again.');
         }
       }
-    } catch (error) {
-      console.error('Error recording attendance:', error);
-      showError('Attendance Error', 'Failed to record attendance. Please try again.');
+    } catch (error: any) {
+      showError('Check-in Error', 'Failed to check in. Please try again.');
+    } finally {
+      setManualCheckInLoading(null);
+    }
+  };
+
+  // Handle Bluetooth enable
+  const handleEnableBluetooth = async () => {
+    try {
+      const permissionsGranted = await requestPermissions();
+      
+      if (!permissionsGranted) {
+        showError(
+          'Permissions Required',
+          'Please grant Bluetooth and Location permissions in Settings.'
+        );
+        return;
+      }
+      
+      await refreshBluetoothState();
+      
+      if (bluetoothState === 'poweredOn') {
+        showSuccess('Bluetooth Enabled', 'You can now scan for sessions.');
+      } else if (bluetoothState === 'poweredOff') {
+        showWarning(
+          'Enable Bluetooth',
+          'Please turn on Bluetooth in your device settings.'
+        );
+      }
+    } catch (error: any) {
+      showError('Error', error.message || 'Failed to enable Bluetooth');
     }
   };
 
@@ -196,110 +270,135 @@ const MemberAttendanceScreen = ({ navigation }: any) => {
 
           <View style={styles.divider} />
 
-          {/* BLE Status Indicator */}
-          <TouchableOpacity 
-            style={styles.bleStatusCard}
-            onPress={() => {
-              if (navigation?.navigate) {
-                navigation.navigate('MemberBLEAttendance');
-              } else {
-                console.log('Navigation not available - BLE screen disabled in Expo Go');
-              }
-            }}
-          >
-            <View style={styles.bleStatusHeader}>
-              <Icon 
-                name={bluetoothState === 'poweredOn' ? 'bluetooth' : 'bluetooth-disabled'} 
-                size={moderateScale(20)} 
-                color={bluetoothState === 'poweredOn' ? Colors.solidBlue : Colors.textLight} 
-              />
-              <View style={styles.bleStatusInfo}>
-                <Text style={styles.bleStatusTitle}>
-                  {autoAttendanceEnabled ? 'Auto-Attendance Active' : 'Auto-Attendance Available'}
-                </Text>
-                <Text style={styles.bleStatusSubtitle}>
-                  {bluetoothState === 'poweredOn' 
-                    ? `${detectedSessions.length} session${detectedSessions.length !== 1 ? 's' : ''} detected`
-                    : 'Enable Bluetooth for auto check-in'
-                  }
-                </Text>
-              </View>
-              <Icon name="chevron-right" size={moderateScale(20)} color={Colors.textLight} />
-            </View>
-            
-            {autoAttendanceEnabled && detectedSessions.length > 0 && (
-              <View style={styles.bleSessionsPreview}>
-                {detectedSessions.slice(0, 2).map((session: AttendanceSession, index: number) => (
-                  <View key={session.sessionToken} style={styles.bleSessionItem}>
-                    <Icon 
-                      name={session.isActive ? 'radio-button-checked' : 'radio-button-unchecked'} 
-                      size={moderateScale(12)} 
-                      color={session.isActive ? Colors.successGreen : Colors.textLight} 
-                    />
-                    <Text style={styles.bleSessionText}>{session.title}</Text>
-                  </View>
-                ))}
-                {detectedSessions.length > 2 && (
-                  <Text style={styles.bleMoreSessions}>
-                    +{detectedSessions.length - 2} more
-                  </Text>
-                )}
-              </View>
-            )}
-          </TouchableOpacity>
-
+          {/* BLE Scan Section */}
           <View style={styles.sectionContainer}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Session Status</Text>
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusBadgeText}>
-                  {activeSession?.isActive ? 'Active Session' : 'No Active Session'}
+              <Text style={styles.sectionTitle}>BLE Check-In</Text>
+              <View style={[
+                styles.connectionBadge,
+                { backgroundColor: bluetoothState === 'poweredOn' ? Colors.lightGreen : Colors.lightRed }
+              ]}>
+                <Icon 
+                  name={bluetoothState === 'poweredOn' ? 'bluetooth' : 'bluetooth-disabled'} 
+                  size={moderateScale(12)} 
+                  color={bluetoothState === 'poweredOn' ? Colors.successGreen : Colors.errorRed} 
+                />
+                <Text style={[
+                  styles.connectionBadgeText,
+                  { color: bluetoothState === 'poweredOn' ? Colors.successGreen : Colors.errorRed }
+                ]}>
+                  {bluetoothState === 'poweredOn' ? 'Connected' : 'Disconnected'}
                 </Text>
               </View>
             </View>
 
-            {activeSession?.isActive ? (
-              <View style={styles.sessionCard}>
-                <View style={styles.sessionHeader}>
-                  <View style={styles.checkboxContainer}>
-                    <View style={styles.emptyCheckbox} />
-                  </View>
-                  <View style={styles.sessionInfo}>
-                    <Text style={styles.sessionTitle}>{activeSession.title}</Text>
-                    <Text style={styles.sessionHost}>Started by {activeSession.host}</Text>
-                    <Text style={styles.sessionTime}>
-                      {activeSession.date} • {activeSession.time}
-                    </Text>
-                  </View>
+            {/* Bluetooth Enable Button or Scan Button */}
+            {bluetoothState !== 'poweredOn' ? (
+              <TouchableOpacity
+                style={styles.enableBluetoothButton}
+                onPress={handleEnableBluetooth}
+                activeOpacity={0.7}
+              >
+                <Icon name="bluetooth-disabled" size={moderateScale(24)} color={Colors.white} />
+                <View style={styles.scanButtonContent}>
+                  <Text style={styles.scanButtonTitle}>Enable Bluetooth</Text>
+                  <Text style={styles.scanButtonSubtitle}>Tap to enable Bluetooth and scan for sessions</Text>
                 </View>
-                
-                {!hasJoinedSession && (
-                  <TouchableOpacity 
-                    style={[
-                      styles.joinButton,
-                      markAttendanceMutation.isPending && styles.joinButtonDisabled
-                    ]}
-                    onPress={handleJoinSession}
-                    disabled={markAttendanceMutation.isPending}
-                  >
-                    <Text style={styles.joinButtonText}>
-                      {markAttendanceMutation.isPending ? 'Joining...' : 'Join Active Session'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-                
-                {hasJoinedSession && (
-                  <View style={styles.joinedStatus}>
-                    <Icon name="check-circle" size={moderateScale(20)} color={Colors.successGreen} />
-                    <Text style={styles.joinedText}>Successfully Joined</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[
+                  styles.scanButton,
+                  isScanning && styles.scanButtonActive
+                ]}
+                onPress={handleManualScan}
+                disabled={isScanning}
+                activeOpacity={0.7}
+              >
+                <Icon 
+                  name={isScanning ? 'bluetooth-searching' : 'search'} 
+                  size={moderateScale(24)} 
+                  color={Colors.white} 
+                />
+                <View style={styles.scanButtonContent}>
+                  <Text style={styles.scanButtonTitle}>
+                    {isScanning ? 'Scanning for Sessions...' : 'Scan for Attendance Sessions'}
+                  </Text>
+                  <Text style={styles.scanButtonSubtitle}>
+                    {isScanning 
+                      ? 'Keep your device near the officer' 
+                      : 'Tap to detect nearby attendance sessions'
+                    }
+                  </Text>
+                </View>
+                {isScanning && (
+                  <View style={styles.scanningIndicator}>
+                    <View style={styles.scanningDot} />
                   </View>
                 )}
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Detected Sessions Section */}
+          <View style={styles.sectionContainer}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Detected Sessions</Text>
+              <View style={styles.sessionCountBadge}>
+                <Text style={styles.sessionCountText}>{detectedSessions.length}</Text>
               </View>
+            </View>
+
+            {detectedSessions.length > 0 ? (
+              detectedSessions.map((session: AttendanceSession) => (
+                <View key={session.sessionToken} style={styles.sessionCard}>
+                  <View style={styles.sessionHeader}>
+                    <View style={styles.sessionInfo}>
+                      <Text style={styles.sessionTitle}>{session.title}</Text>
+                      <Text style={styles.sessionTime}>
+                        Expires: {new Date(session.expiresAt).toLocaleTimeString('en-US', { 
+                          hour: 'numeric', 
+                          minute: '2-digit', 
+                          hour12: true 
+                        })}
+                      </Text>
+                      <View style={styles.sessionStatus}>
+                        <Icon 
+                          name={session.isActive ? 'radio-button-checked' : 'radio-button-unchecked'} 
+                          size={moderateScale(16)} 
+                          color={session.isActive ? Colors.successGreen : Colors.textLight} 
+                        />
+                        <Text style={[
+                          styles.sessionStatusText,
+                          { color: session.isActive ? Colors.successGreen : Colors.textLight }
+                        ]}>
+                          {session.isActive ? 'Active' : 'Inactive'}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                  
+                  {session.isActive && (
+                    <TouchableOpacity 
+                      style={[
+                        styles.checkInButton,
+                        manualCheckInLoading === session.sessionToken && styles.checkInButtonDisabled
+                      ]}
+                      onPress={() => handleManualCheckIn(session)}
+                      disabled={manualCheckInLoading === session.sessionToken}
+                    >
+                      <Text style={styles.checkInButtonText}>
+                        {manualCheckInLoading === session.sessionToken ? 'Checking In...' : 'Check In'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))
             ) : (
               <View style={styles.emptyState}>
-                <Icon name="event-busy" size={moderateScale(48)} color={Colors.textLight} />
+                <Icon name="bluetooth-searching" size={moderateScale(48)} color={Colors.textLight} />
                 <Text style={styles.emptyStateText}>
-                  No active sessions for {activeOrganization.name} at this time.
+                  No sessions detected. Tap "Scan for Attendance Sessions" to search for nearby meetings.
                 </Text>
               </View>
             )}
@@ -340,6 +439,12 @@ const MemberAttendanceScreen = ({ navigation }: any) => {
                   <Text style={styles.attendanceTime}>
                     {attendance.date} • {attendance.time}
                   </Text>
+                  
+                  {attendance.createdByName && (
+                    <Text style={styles.attendanceHost}>
+                      Host: {attendance.createdByName}
+                    </Text>
+                  )}
                   
                   <View style={styles.attendanceStatus}>
                     <View style={styles.statusRow}>
@@ -562,7 +667,13 @@ const styles = StyleSheet.create({
   attendanceTime: {
     fontSize: moderateScale(14),
     color: Colors.textMedium,
+    marginBottom: verticalScale(8),
+  },
+  attendanceHost: {
+    fontSize: moderateScale(13),
+    color: Colors.textLight,
     marginBottom: verticalScale(12),
+    fontStyle: 'italic',
   },
   attendanceStatus: {
     borderTopWidth: 1,
@@ -658,6 +769,110 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(12),
     fontWeight: '600',
     marginLeft: scale(4),
+  },
+  connectionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: scale(10),
+    paddingVertical: verticalScale(5),
+    borderRadius: moderateScale(12),
+    gap: scale(4),
+  },
+  connectionBadgeText: {
+    fontSize: moderateScale(12),
+    fontWeight: '600',
+  },
+  scanButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.solidBlue,
+    borderRadius: moderateScale(12),
+    padding: scale(16),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: verticalScale(2) },
+    shadowOpacity: 0.1,
+    shadowRadius: moderateScale(4),
+    elevation: 3,
+  },
+  scanButtonActive: {
+    backgroundColor: Colors.primaryBlue,
+  },
+  enableBluetoothButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.errorRed,
+    borderRadius: moderateScale(12),
+    padding: scale(16),
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: verticalScale(2) },
+    shadowOpacity: 0.1,
+    shadowRadius: moderateScale(4),
+    elevation: 3,
+  },
+  scanButtonContent: {
+    flex: 1,
+    marginLeft: scale(12),
+  },
+  scanButtonTitle: {
+    fontSize: moderateScale(16),
+    fontWeight: '600',
+    color: Colors.white,
+    marginBottom: verticalScale(2),
+  },
+  scanButtonSubtitle: {
+    fontSize: moderateScale(12),
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  scanningIndicator: {
+    width: scale(12),
+    height: scale(12),
+    borderRadius: scale(6),
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scanningDot: {
+    width: scale(6),
+    height: scale(6),
+    borderRadius: scale(3),
+    backgroundColor: Colors.white,
+  },
+  sessionCountBadge: {
+    backgroundColor: Colors.lightBlue,
+    paddingHorizontal: scale(8),
+    paddingVertical: verticalScale(4),
+    borderRadius: moderateScale(12),
+    minWidth: scale(24),
+    alignItems: 'center',
+  },
+  sessionCountText: {
+    fontSize: moderateScale(12),
+    fontWeight: '600',
+    color: Colors.solidBlue,
+  },
+  sessionStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sessionStatusText: {
+    fontSize: moderateScale(14),
+    fontWeight: '500',
+    marginLeft: scale(6),
+  },
+  checkInButton: {
+    backgroundColor: Colors.solidBlue,
+    borderRadius: moderateScale(8),
+    paddingVertical: verticalScale(10),
+    alignItems: 'center',
+    marginTop: verticalScale(8),
+  },
+  checkInButtonText: {
+    color: Colors.white,
+    fontSize: moderateScale(14),
+    fontWeight: '600',
+  },
+  checkInButtonDisabled: {
+    opacity: 0.6,
   },
 });
 

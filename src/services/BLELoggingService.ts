@@ -1,6 +1,8 @@
 // BLELoggingService.ts
-import { Platform } from 'react-native';
+import { Platform, NativeModules } from 'react-native';
 import { BLEError, BLEErrorType } from '../types/ble';
+
+const { BeaconBroadcaster } = NativeModules;
 
 export enum BLELogLevel {
   DEBUG = 0,
@@ -130,6 +132,7 @@ class BLELoggingService {
     
     const prefix = `🔵 [BLE-${levelName}] [${category}] ${timestamp}`;
     
+    // Log to JavaScript console (Metro/Xcode)
     switch (level) {
       case BLELogLevel.DEBUG:
         console.debug(prefix, message, data || '');
@@ -154,6 +157,28 @@ class BLELoggingService {
     
     if (context && Object.keys(context).length > 0) {
       console.log('Context:', context);
+    }
+    
+    // ALSO log to native Console app (macOS Console.app)
+    if (Platform.OS === 'ios' && BeaconBroadcaster && BeaconBroadcaster.logToNativeConsole) {
+      try {
+        const logData: any = {};
+        if (data) logData.data = JSON.stringify(data);
+        if (error) logData.error = error.message;
+        if (context) logData.context = JSON.stringify(context);
+        
+        BeaconBroadcaster.logToNativeConsole(
+          levelName.toLowerCase(),
+          category,
+          message,
+          Object.keys(logData).length > 0 ? logData : null
+        );
+      } catch (nativeLogError) {
+        // Silent fail - don't break app if native logging fails
+        if (__DEV__) {
+          console.warn('Failed to send log to native Console:', nativeLogError);
+        }
+      }
     }
   }
 

@@ -23,14 +23,27 @@ SentryService.setPlatformContext();
 const BLEProviderWrapper = ({ children }: { children: React.ReactNode }) => {
   const { activeOrganization } = useOrganization();
   
-  const orgCode = activeOrganization?.slug 
-    ? BLESessionService.getOrgCode(activeOrganization.slug as 'nhs' | 'nhsa')
-    : 1;
+  // CRITICAL FIX: Don't render BLE context until we have an organization
+  // This prevents a race condition where beacons are detected before org context loads
+  if (!activeOrganization) {
+    console.log('[BLEProviderWrapper] ⏳ No active organization yet, waiting...');
+    return <>{children}</>;
+  }
+  
+  const orgCode = BLESessionService.getOrgCode(activeOrganization.slug as 'nhs' | 'nhsa');
+  
+  // Log when organization context changes
+  console.log('[BLEProviderWrapper] ✅ Rendering BLE with organization:', {
+    id: activeOrganization.id,
+    slug: activeOrganization.slug,
+    orgCode,
+    hasActiveOrg: true
+  });
   
   return (
     <BLEProvider
-      organizationId={activeOrganization?.id}
-      organizationSlug={activeOrganization?.slug}
+      organizationId={activeOrganization.id}
+      organizationSlug={activeOrganization.slug}
       organizationCode={orgCode}
     >
       {children}

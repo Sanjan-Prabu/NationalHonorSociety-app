@@ -41,7 +41,7 @@ const Colors = {
 };
 
 const OfficerAttendance = ({ navigation }: any) => {
-  const { showSuccess, showError } = useToast();
+  const { showSuccess, showError, showWarning } = useToast();
   const { activeOrganization } = useOrganization();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
@@ -68,7 +68,7 @@ const OfficerAttendance = ({ navigation }: any) => {
   const [bleSessionDuration, setBleSessionDuration] = useState('5'); // Changed default to 5 minutes
   const [isCreatingBleSession, setIsCreatingBleSession] = useState(false);
   const [attendeeCount, setAttendeeCount] = useState(0);
-  const [testMode] = useState(__DEV__); // Auto-disable in production builds
+  const [testMode] = useState(false); // Always enable BLE broadcasting
   const [activeBleSession, setActiveBleSession] = useState<any>(null);
   const [completedSessions, setCompletedSessions] = useState<any[]>([]);
   const [pastBLESessions, setPastBLESessions] = useState<any[]>([]);
@@ -158,30 +158,65 @@ const OfficerAttendance = ({ navigation }: any) => {
     return eventDate >= thirtyDaysAgo && ((event as any).attendee_count || 0) > 0;
   }).slice(0, 5) || [];
 
-  // Update attendee count for BLE sessions
+  // Restore session state from currentSession when screen loads
+  useEffect(() => {
+    if (currentSession && !activeBleSession) {
+      console.log('[OfficerAttendance] 🔄 Restoring session state from context:', currentSession);
+      // Restore the local state from the persisted context session
+      setActiveBleSession({
+        sessionToken: currentSession.sessionToken,
+        title: currentSession.title || 'Active Session',
+        startTime: currentSession.startTime || new Date(),
+        duration: currentSession.duration || 5,
+        attendeeCount: 0, // Will be updated by polling
+        orgCode: currentSession.orgCode,
+      });
+    }
+  }, [currentSession, activeBleSession]);
+
+  // Update attendee count for BLE sessions - Poll every 2 seconds for real-time updates
   useEffect(() => {
     let interval: NodeJS.Timeout;
 
-    if (currentSession && currentSession.isActive) {
-      interval = setInterval(async () => {
+    const sessionToken = activeBleSession?.sessionToken || currentSession?.sessionToken;
+    
+    if (sessionToken) {
+      console.log('[OfficerAttendance] 🔄 Starting attendee count polling for session:', sessionToken);
+      
+      // Initial fetch
+      const fetchAttendeeCount = async () => {
         try {
           const sessions = await BLESessionService.getActiveSessions(activeOrganization?.id || '');
-          const activeSession = sessions.find(s => s.sessionToken === currentSession.sessionToken);
+          const activeSession = sessions.find(s => s.sessionToken === sessionToken);
           if (activeSession) {
-            setAttendeeCount(activeSession.attendeeCount);
+            const newCount = activeSession.attendeeCount || 0;
+            console.log('[OfficerAttendance] 📊 Attendee count updated:', newCount);
+            setAttendeeCount(newCount);
+            
+            // Update the active session object with new count
+            if (activeBleSession) {
+              setActiveBleSession(prev => prev ? { ...prev, attendeeCount: newCount } : null);
+            }
           }
         } catch (error) {
-          console.error('Error updating attendee count:', error);
+          console.error('[OfficerAttendance] ❌ Error updating attendee count:', error);
         }
-      }, 30000);
+      };
+      
+      // Fetch immediately
+      fetchAttendeeCount();
+      
+      // Then poll every 2 seconds for near-instant updates
+      interval = setInterval(fetchAttendeeCount, 2000);
     }
 
     return () => {
       if (interval) {
+        console.log('[OfficerAttendance] 🛑 Stopping attendee count polling');
         clearInterval(interval);
       }
     };
-  }, [currentSession, activeOrganization?.id]);
+  }, [activeBleSession?.sessionToken, currentSession?.sessionToken, activeOrganization?.id]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -341,10 +376,10 @@ const OfficerAttendance = ({ navigation }: any) => {
       // Get organization code for BLE broadcasting
       const orgCode = BLESessionService.getOrgCode(activeOrganization.slug);
 
-      // Start BLE broadcasting (skip if in test mode)
-      if (!testMode) {
-        await startAttendanceSession(sessionToken, orgCode);
-      }
+      // Start BLE broadcasting
+      console.log('[OfficerAttendance] 🚀 Starting BLE broadcast...', { sessionToken, orgCode });
+      await startAttendanceSession(sessionToken, orgCode);
+      console.log('[OfficerAttendance] ✅ BLE broadcast started successfully');
 
       // Set up active BLE session with all details
       setActiveBleSession({
@@ -385,6 +420,15 @@ const OfficerAttendance = ({ navigation }: any) => {
           style: 'destructive',
           onPress: async () => {
             try {
+              // Terminate session in database FIRST to prevent member detection
+              const terminateResult = await BLESessionService.terminateSession(activeBleSession.sessionToken);
+              
+              if (!terminateResult.success) {
+                console.warn('Failed to terminate session in database:', terminateResult.error);
+                // Don't block the user - stop broadcasting anyway
+                console.log('[OfficerAttendance] Continuing to stop broadcast despite DB error');
+              }
+              
               // Stop BLE broadcasting if active
               if (currentSession && currentSession.isActive && currentSession.orgCode) {
                 await stopAttendanceSession(currentSession.orgCode);
@@ -402,7 +446,11 @@ const OfficerAttendance = ({ navigation }: any) => {
               setActiveBleSession(null);
               setAttendeeCount(0);
               
-              showSuccess('Session Ended', `BLE session ended with ${attendeeCount} attendees`);
+              const timeSaved = terminateResult.timeSavedSeconds 
+                ? ` (ended ${Math.round(terminateResult.timeSavedSeconds / 60)} min early)`
+                : '';
+              
+              showSuccess('Session Ended', `BLE session ended with ${attendeeCount} attendees${timeSaved}`);
             } catch (error: any) {
               console.error('Error ending BLE session:', error);
               showError('Error', 'Failed to end BLE session');
@@ -502,8 +550,8 @@ const OfficerAttendance = ({ navigation }: any) => {
             />
           </View>
 
-          {/* Active BLE Session */}
-          {activeBleSession && (
+          {/* Active BLE Session - Use currentSession from context OR local activeBleSession */}
+          {(currentSession || activeBleSession) && (
             <View style={styles.sectionContainer}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Current Session</Text>
@@ -514,14 +562,14 @@ const OfficerAttendance = ({ navigation }: any) => {
               </View>
 
               <View style={styles.activeSessionCard}>
-                <Text style={styles.sessionTitle}>{activeBleSession.title}</Text>
+                <Text style={styles.sessionTitle}>{activeBleSession?.title || currentSession?.title || 'Active Session'}</Text>
                 
                 <View style={styles.sessionInfo}>
                   <View style={styles.sessionInfoRow}>
                     <View style={styles.sessionInfoItem}>
                       <Text style={styles.sessionInfoLabel}>Started:</Text>
                       <Text style={styles.sessionInfoValue}>
-                        {activeBleSession.startTime.toLocaleTimeString('en-US', {
+                        {(activeBleSession?.startTime || currentSession?.startTime || new Date()).toLocaleTimeString('en-US', {
                           hour: 'numeric',
                           minute: '2-digit',
                           hour12: true
@@ -531,7 +579,7 @@ const OfficerAttendance = ({ navigation }: any) => {
                     <View style={styles.sessionInfoItem}>
                       <Text style={styles.sessionInfoLabel}>Duration:</Text>
                       <Text style={styles.sessionInfoValue}>
-                        {activeBleSession.duration} minutes
+                        {activeBleSession?.duration || currentSession?.duration || 'N/A'} minutes
                       </Text>
                     </View>
                   </View>
@@ -560,7 +608,7 @@ const OfficerAttendance = ({ navigation }: any) => {
               <Text style={styles.sectionTitle}>Create BLE Session</Text>
             </View>
 
-            <View style={[styles.formCard, activeBleSession && styles.formCardDisabled]}>
+            <View style={[styles.formCard, (currentSession || activeBleSession) && styles.formCardDisabled]}>
               <View style={styles.bleStatusRow}>
                 <Icon
                   name="bluetooth"
@@ -578,13 +626,13 @@ const OfficerAttendance = ({ navigation }: any) => {
               <View style={styles.inputContainer}>
                 <Text style={styles.inputLabel}>Session Title</Text>
                 <TextInput
-                  style={[styles.textInput, activeBleSession && styles.textInputDisabled]}
+                  style={[styles.textInput, (currentSession || activeBleSession) && styles.textInputDisabled]}
                   placeholder="Enter session title"
                   placeholderTextColor={Colors.textLight}
                   value={bleSessionTitle}
                   onChangeText={setBleSessionTitle}
                   maxLength={100}
-                  editable={!isCreatingBleSession && !activeBleSession}
+                  editable={!isCreatingBleSession && !currentSession && !activeBleSession}
                 />
               </View>
 
@@ -593,7 +641,7 @@ const OfficerAttendance = ({ navigation }: any) => {
                 <TextInput
                   style={[
                     styles.textInput,
-                    activeBleSession && styles.textInputDisabled,
+                    (currentSession || activeBleSession) && styles.textInputDisabled,
                     parseInt(bleSessionDuration) > 20 && styles.textInputError
                   ]}
                   placeholder="5"
@@ -602,7 +650,7 @@ const OfficerAttendance = ({ navigation }: any) => {
                   onChangeText={setBleSessionDuration}
                   keyboardType="numeric"
                   maxLength={2}
-                  editable={!isCreatingBleSession && !activeBleSession}
+                  editable={!isCreatingBleSession && !currentSession && !activeBleSession}
                 />
                 {parseInt(bleSessionDuration) > 20 && (
                   <Text style={styles.errorText}>Maximum 20 minutes allowed</Text>
@@ -612,11 +660,11 @@ const OfficerAttendance = ({ navigation }: any) => {
               <TouchableOpacity
                 style={[
                   styles.startBleSessionButton,
-                  (!bleSessionTitle.trim() || isCreatingBleSession || (!testMode && bluetoothState !== 'poweredOn') || activeBleSession) &&
+                  (!bleSessionTitle.trim() || isCreatingBleSession || (!testMode && bluetoothState !== 'poweredOn') || currentSession || activeBleSession) &&
                   styles.startBleSessionButtonDisabled
                 ]}
-                onPress={activeBleSession ? () => showError('Session Active', 'Please end the current session before starting a new one') : handleCreateBleSession}
-                disabled={!bleSessionTitle.trim() || isCreatingBleSession || (!testMode && bluetoothState !== 'poweredOn') || activeBleSession}
+                onPress={(currentSession || activeBleSession) ? () => showError('Session Active', 'Please end the current session before starting a new one') : handleCreateBleSession}
+                disabled={!bleSessionTitle.trim() || isCreatingBleSession || (!testMode && bluetoothState !== 'poweredOn') || currentSession || activeBleSession}
               >
                 <Icon
                   name="bluetooth"
@@ -624,11 +672,11 @@ const OfficerAttendance = ({ navigation }: any) => {
                   color={Colors.white}
                 />
                 <Text style={styles.startBleSessionButtonText}>
-                  {activeBleSession ? 'Session Already Active' : (isCreatingBleSession ? 'Starting BLE...' : 'Start BLE Session')}
+                  {(currentSession || activeBleSession) ? 'Session Already Active' : (isCreatingBleSession ? 'Starting BLE...' : 'Start BLE Session')}
                 </Text>
               </TouchableOpacity>
               
-              {activeBleSession && (
+              {(currentSession || activeBleSession) && (
                 <Text style={styles.sessionActiveWarning}>Session already active</Text>
               )}
             </View>

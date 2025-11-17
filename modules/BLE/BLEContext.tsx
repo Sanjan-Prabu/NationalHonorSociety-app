@@ -45,7 +45,6 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
   
   // Attendance-specific state
   const [currentSession, setCurrentSession] = useState<AttendanceSession | null>(null);
-  const [autoAttendanceEnabled, setAutoAttendanceEnabled] = useState<boolean>(false);
   const [detectedSessions, setDetectedSessions] = useState<AttendanceSession[]>([]);
   
   // Enhanced state management
@@ -68,6 +67,13 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
 
   const bluetoothStateSubscription = useRef<EventSubscription | null>(null);
   const beaconDetectedSubscription = useRef<EventSubscription | null>(null);
+  
+  // Cache to prevent processing the same beacon repeatedly
+  // Key: "major-minor", Value: timestamp of last processing
+  const processedBeaconsCache = useRef<Map<string, number>>(new Map());
+  const skippedBeaconsCache = useRef<(Beacon & { orgCode?: number })[]>([]);
+  const BEACON_PROCESS_COOLDOWN_MS = 10000; // 10 seconds between processing same beacon
+  const SESSION_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes grace period for expired sessions
 
   // Simple logging instead of toast/modal for now
   const showMessage = (title: string, description: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -135,18 +141,67 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
     initializeBluetoothState();
 
     // Set up session cleanup timer
-    sessionCleanupTimer.current = setInterval(() => {
+    sessionCleanupTimer.current = setInterval(async () => {
       const now = new Date();
+      const SESSION_TIMEOUT_MS = 15000; // 15 seconds without seeing beacon
       
-      // Clean up expired detected sessions
-      setDetectedSessions(prev => prev.filter(session => session.expiresAt > now));
+      // Validate detected sessions against database to catch terminated sessions
+      if (detectedSessions.length > 0) {
+        try {
+          const sessionTokens = detectedSessions.map(s => s.sessionToken);
+          const validSessions = await BLESessionService.validateSessions(sessionTokens);
+          
+          // Remove sessions that are no longer valid in the database
+          setDetectedSessions(prev => prev.filter(session => {
+            const isValidInDb = validSessions.includes(session.sessionToken);
+            if (!isValidInDb) {
+              console.log(`${DEBUG_PREFIX} 🗑️ Removing terminated session: ${session.title}`);
+              showMessage('Session Ended', `"${session.title}" was ended by the officer`, 'info');
+              return false;
+            }
+            return true;
+          }));
+        } catch (error) {
+          console.error(`${DEBUG_PREFIX} ❌ Error validating sessions:`, error);
+        }
+      }
+      
+      // Clean up expired or stale detected sessions
+      setDetectedSessions(prev => prev.filter(session => {
+        // Keep if not expired by time
+        if (session.expiresAt <= now) {
+          console.log(`${DEBUG_PREFIX} 🗑️ Removing expired session: ${session.title}`);
+          return false;
+        }
+        
+        // Keep if seen recently (still broadcasting)
+        if (session.lastSeen) {
+          const timeSinceLastSeen = now.getTime() - session.lastSeen.getTime();
+          if (timeSinceLastSeen > SESSION_TIMEOUT_MS) {
+            console.log(`${DEBUG_PREFIX} 🗑️ Removing stale session (not broadcasting): ${session.title}`);
+            return false;
+          }
+        }
+        
+        return true;
+      }));
       
       // Check if current session has expired
       if (currentSession && currentSession.expiresAt <= now) {
         console.log(`${DEBUG_PREFIX} Current session expired, stopping broadcast`);
         stopAttendanceSession();
       }
-    }, 30000); // Check every 30 seconds
+      
+      // Clean up old beacon cache entries (older than cooldown period)
+      const nowTimestamp = Date.now();
+      const keysToDelete: string[] = [];
+      processedBeaconsCache.current.forEach((timestamp, key) => {
+        if (nowTimestamp - timestamp > BEACON_PROCESS_COOLDOWN_MS) {
+          keysToDelete.push(key);
+        }
+      });
+      keysToDelete.forEach(key => processedBeaconsCache.current.delete(key));
+    }, 3000); // Check every 3 seconds for near-instant removal
 
     return () => {
       if (bluetoothStateSubscription.current) {
@@ -158,20 +213,70 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
       bluetoothStateUnsubscribe();
       bluetoothStateManager.cleanup();
       
+      // Only stop listening on unmount, not broadcasting
+      // Broadcasting should persist even if the component unmounts
       if (isListening) {
         stopListening();
       }
-      if (isBroadcasting) {
-        stopBroadcasting();
-      }
-      if (currentSession) {
-        stopAttendanceSession();
-      }
+      
+      // Clean up timers
       if (sessionCleanupTimer.current) {
         clearInterval(sessionCleanupTimer.current);
       }
+      
+      // NOTE: We intentionally do NOT stop broadcasting or the session here
+      // because BLE sessions should persist across screen navigation
+      // Users must explicitly tap "Stop Session" to end broadcasting
     };
   }, []);
+
+  // Monitor organization context updates and reprocess pending beacons
+  useEffect(() => {
+    console.log(`${DEBUG_PREFIX} 🔍 Organization context effect triggered:`, {
+      organizationId,
+      organizationSlug,
+      organizationCode,
+      hasOrganizationId: !!organizationId,
+      skippedBeaconsCount: skippedBeaconsCache.current.length
+    });
+    
+    if (organizationId) {
+      console.log(`${DEBUG_PREFIX} ✅ Organization context loaded successfully:`, {
+        organizationId,
+        organizationSlug,
+        organizationCode
+      });
+      
+      // Reprocess any beacons that were skipped before org context loaded
+      if (skippedBeaconsCache.current.length > 0) {
+        console.log(`${DEBUG_PREFIX} 🔄 Reprocessing ${skippedBeaconsCache.current.length} skipped beacons now that org context is loaded`);
+        
+        // Clear the processed cache to allow reprocessing
+        processedBeaconsCache.current.clear();
+        
+        // Get all skipped beacons and clear the cache
+        const beaconsToProcess = [...skippedBeaconsCache.current];
+        skippedBeaconsCache.current = [];
+        
+        // Reprocess each beacon
+        beaconsToProcess.forEach(beacon => {
+          if (beacon.major === organizationCode) {
+            console.log(`${DEBUG_PREFIX} 🔄 Reprocessing skipped beacon: major=${beacon.major} minor=${beacon.minor}`);
+            handleAttendanceBeaconDetected({
+              ...beacon,
+              orgCode: beacon.major
+            });
+          } else {
+            console.log(`${DEBUG_PREFIX} ⏭️ Skipping beacon from different org: major=${beacon.major} (expected ${organizationCode})`);
+          }
+        });
+      } else {
+        console.log(`${DEBUG_PREFIX} ℹ️ No skipped beacons to reprocess`);
+      }
+    } else {
+      console.log(`${DEBUG_PREFIX} ⏳ Waiting for organization context to load... (organizationId is ${organizationId})`);
+    }
+  }, [organizationId, organizationSlug, organizationCode]);
 
   const fetchInitialBluetoothState = async () => {
     try {
@@ -217,8 +322,25 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
       uuid: beacon.uuid,
       major: beacon.major,
       minor: beacon.minor,
-      rssi: beacon.rssi
+      rssi: beacon.rssi,
+      timestamp: new Date().toISOString()
     });
+    
+    // Log detailed beacon information for debugging
+    console.log(`${DEBUG_PREFIX} 📊 BEACON DETAILS:`);
+    console.log(`  - UUID: ${beacon.uuid}`);
+    console.log(`  - Expected UUID: ${APP_UUID}`);
+    console.log(`  - UUID Match: ${beacon.uuid.toUpperCase() === APP_UUID.toUpperCase()}`);
+    console.log(`  - Major (Org Code): ${beacon.major}`);
+    console.log(`  - Minor (Session Token): ${beacon.minor}`);
+    console.log(`  - RSSI (Signal Strength): ${beacon.rssi} dBm`);
+    
+    SentryService.addBreadcrumb(
+      'BLE beacon detected',
+      'ble.beacon',
+      'info',
+      { major: beacon.major, minor: beacon.minor, rssi: beacon.rssi, uuid: beacon.uuid }
+    );
     
     // Show toast for ANY beacon detection to confirm scanning works
     showMessage(
@@ -253,6 +375,14 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
     // Handle attendance-specific beacon detection
     if (isAttendanceBeacon) {
       console.log(`${DEBUG_PREFIX} ✅ Processing as ATTENDANCE beacon`);
+      
+      SentryService.addBreadcrumb(
+        'Attendance beacon detected',
+        'ble.attendance',
+        'info',
+        { orgCode: beacon.major, minor: beacon.minor }
+      );
+      
       showMessage(
         '📍 Attendance Beacon Found!',
         `Org Code: ${beacon.major}, Processing session lookup...`,
@@ -265,6 +395,14 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
         });
       } catch (error) {
         console.error(`${DEBUG_PREFIX} Error handling attendance beacon:`, error);
+        
+        SentryService.addBreadcrumb(
+          'Attendance beacon processing failed',
+          'ble.attendance',
+          'error',
+          { error: error instanceof Error ? error.message : 'Unknown error' }
+        );
+        
         showMessage(
           'Beacon Processing Error',
           `Failed to process attendance beacon: ${error}`,
@@ -449,10 +587,18 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
       // Check Bluetooth readiness
       await ensureBluetoothReady();
       
-      await BLEHelper.startBroadcasting(uuid, major, minor);
+      await BLEHelper.startBroadcasting(major, minor);
       setIsBroadcasting(true);
-      logMessage(`Started broadcasting UUID: ${uuid}, Major: ${major}, Minor: ${minor}`);
-      showMessage('Broadcasting Started', `Broadcasting for meeting "${title}" has started.`, 'success');
+      
+      SentryService.addBreadcrumb(
+        'BLE broadcasting started',
+        'ble.broadcast',
+        'info',
+        { major, minor }
+      );
+      
+      logMessage(`Started broadcasting with Major: ${major}, Minor: ${minor}`);
+      showMessage('Broadcasting Started', `Broadcasting attendance beacon.`, 'success');
       setLastError(null);
     } catch (error: any) {
       console.error(`${DEBUG_PREFIX} Error starting broadcasting:`, error);
@@ -487,6 +633,13 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
     try {
       await BLEHelper.stopBroadcasting();
       setIsBroadcasting(false);
+      
+      SentryService.addBreadcrumb(
+        'BLE broadcasting stopped',
+        'ble.broadcast',
+        'info'
+      );
+      
       logMessage('Stopped broadcasting.');
       showMessage('Stopped Broadcasting', 'Stopped broadcasting beacon.', 'info');
     } catch (error: any) {
@@ -598,9 +751,16 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
 
   const refreshBluetoothState = async (): Promise<void> => {
     try {
+      // Refresh native Bluetooth state (poweredOn/poweredOff/etc)
+      const nativeState = await BLEHelper.getBluetoothState();
+      console.log(`${DEBUG_PREFIX} Refreshed native Bluetooth state: ${nativeState}`);
+      setBluetoothState(nativeState);
+      
+      // Refresh hardware state manager
       const hardwareState = await bluetoothStateManager.getCurrentState();
       setBluetoothHardwareState(hardwareState);
       
+      // Refresh permissions
       const permissions = await checkBLEPermissions();
       setPermissionState(permissions);
       
@@ -656,23 +816,26 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
   };
 
   const startAttendanceSession = async (sessionToken: string, orgCode: number): Promise<void> => {
+    console.log(`${DEBUG_PREFIX} 🎬 startAttendanceSession CALLED`, { sessionToken, orgCode, bluetoothState });
+    
     if (bluetoothState !== 'poweredOn') {
+      console.error(`${DEBUG_PREFIX} ❌ Bluetooth not powered on:`, bluetoothState);
       showMessage('Bluetooth Required', 'Please enable Bluetooth to start attendance session.', 'error');
       return;
     }
 
     try {
-      if (__DEV__) {
-        console.log(`${DEBUG_PREFIX} 🔵 Starting BLE broadcast with:`, {
-          sessionToken,
-          orgCode,
-          APP_UUID,
-          major: orgCode,
-          minor: BLESessionService.encodeSessionToken(sessionToken)
-        });
-      }
+      console.log(`${DEBUG_PREFIX} 🔵 Starting BLE broadcast with:`, {
+        sessionToken,
+        orgCode,
+        APP_UUID,
+        major: orgCode,
+        minor: BLESessionService.encodeSessionToken(sessionToken)
+      });
       
-      await BLEHelper.broadcastAttendanceSession(orgCode, sessionToken);
+      console.log(`${DEBUG_PREFIX} 📞 Calling BLEHelper.broadcastAttendanceSession...`);
+      const result = await BLEHelper.broadcastAttendanceSession(orgCode, sessionToken);
+      console.log(`${DEBUG_PREFIX} ✅ BLEHelper.broadcastAttendanceSession returned:`, result);
       
       // Resolve session to get event details for notification
       const sessionDetails = await BLESessionService.resolveSession(sessionToken);
@@ -708,8 +871,14 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
         console.error('BLE session notification error:', notificationError instanceof Error ? notificationError.message : 'Unknown error');
       }
     } catch (error: any) {
-      console.error(`${DEBUG_PREFIX} Error starting attendance session:`, error);
-      showMessage('Error', 'Failed to start attendance session.', 'error');
+      console.error(`${DEBUG_PREFIX} ❌❌❌ Error starting attendance session:`, error);
+      console.error(`${DEBUG_PREFIX} Error name:`, error?.name);
+      console.error(`${DEBUG_PREFIX} Error message:`, error?.message);
+      console.error(`${DEBUG_PREFIX} Error stack:`, error?.stack);
+      showMessage('Error', `Failed to start attendance session: ${error?.message || 'Unknown error'}`, 'error');
+      
+      // Re-throw to let the caller handle it
+      throw error;
     }
   };
 
@@ -732,34 +901,46 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
     }
   };
 
-  const enableAutoAttendance = async (): Promise<void> => {
-    try {
-      setAutoAttendanceEnabled(true);
-      logMessage('Auto-attendance enabled');
-      showMessage('Auto-Attendance Enabled', 'You will automatically check in to nearby sessions.', 'success');
-    } catch (error: any) {
-      console.error(`${DEBUG_PREFIX} Error enabling auto-attendance:`, error);
-    }
-  };
-
-  const disableAutoAttendance = async (): Promise<void> => {
-    try {
-      setAutoAttendanceEnabled(false);
-      logMessage('Auto-attendance disabled');
-      showMessage('Auto-Attendance Disabled', 'You will need to manually check in to sessions.', 'info');
-    } catch (error: any) {
-      console.error(`${DEBUG_PREFIX} Error disabling auto-attendance:`, error);
-    }
-  };
+  // Auto-attendance feature removed - all check-ins are now manual
 
   const handleAttendanceBeaconDetected = async (beacon: Beacon & { orgCode?: number }): Promise<void> => {
     try {
+      // RATE LIMITING: Check if we recently processed this beacon
+      const beaconKey = `${beacon.major}-${beacon.minor}`;
+      const now = Date.now();
+      const lastProcessed = processedBeaconsCache.current.get(beaconKey);
+      
+      if (lastProcessed && (now - lastProcessed) < BEACON_PROCESS_COOLDOWN_MS) {
+        // Skip - we processed this beacon recently
+        if (__DEV__) {
+          console.log(`${DEBUG_PREFIX} ⏭️ Skipping beacon ${beaconKey} - processed ${Math.round((now - lastProcessed) / 1000)}s ago`);
+        }
+        return;
+      }
+      
+      // Mark as being processed NOW to prevent concurrent processing
+      processedBeaconsCache.current.set(beaconKey, now);
+      
       console.log(`${DEBUG_PREFIX} 📱 ATTENDANCE BEACON DETECTED:`, {
         uuid: beacon.uuid,
         major: beacon.major,
         minor: beacon.minor,
         rssi: beacon.rssi
       });
+      
+      // Check if organization context is available (might still be loading)
+      if (!organizationId) {
+        console.log(`${DEBUG_PREFIX} ⏳ Organization context not yet loaded, caching beacon ${beaconKey} for later processing`);
+        // Cache this beacon for reprocessing when org loads
+        const existingSkipped = skippedBeaconsCache.current.find(b => b.major === beacon.major && b.minor === beacon.minor);
+        if (!existingSkipped) {
+          skippedBeaconsCache.current.push(beacon);
+          console.log(`${DEBUG_PREFIX} 📦 Cached beacon. Total skipped: ${skippedBeaconsCache.current.length}`);
+        }
+        // Don't cache as processed - allow retry once org is loaded
+        processedBeaconsCache.current.delete(beaconKey);
+        return;
+      }
       
       // Get current organization context
       const { orgId, orgSlug, orgCode: userOrgCode } = getCurrentOrgContext();
@@ -820,15 +1001,25 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
         'success'
       );
 
-      // Check if session is still valid (not expired)
-      if (!session.isValid || session.endsAt <= new Date()) {
-        console.log(`${DEBUG_PREFIX} ⏰ Session expired: ${session.sessionToken}`);
+      // Check if session is still valid with grace period
+      const currentTime = new Date();
+      const timeSinceExpiry = currentTime.getTime() - session.endsAt.getTime();
+      const withinGracePeriod = timeSinceExpiry < SESSION_GRACE_PERIOD_MS;
+      
+      if (!session.isValid && !withinGracePeriod) {
+        console.log(`${DEBUG_PREFIX} ⏰ Session expired (outside grace period): ${session.sessionToken}`);
         showMessage(
           'Session Expired',
           `"${session.eventTitle}" has expired`,
           'info'
         );
         return;
+      }
+      
+      // If expired but within grace period, mark as inactive but still detectable
+      const isSessionActive = session.isValid || withinGracePeriod;
+      if (withinGracePeriod && !session.isValid) {
+        console.log(`${DEBUG_PREFIX} ⏰ Session expired but within grace period (${Math.round(timeSinceExpiry / 1000)}s ago): ${session.sessionToken}`);
       }
       
       console.log(`${DEBUG_PREFIX} ✅ Session is VALID and ACTIVE`);
@@ -839,17 +1030,23 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
       );
 
       // Add to detected sessions first
+      const detectionTime = new Date();
       const attendanceSession: AttendanceSession = {
         sessionToken: session.sessionToken,
         orgCode: session.orgCode,
         title: session.eventTitle,
         expiresAt: session.endsAt,
-        isActive: true
+        isActive: isSessionActive && session.isValid, // Only fully active if not expired
+        lastSeen: detectionTime, // Track when beacon was detected
+        createdBy: session.createdBy,
+        createdByName: session.createdByName
       };
 
       setDetectedSessions(prev => {
-        const existing = prev.find(s => s.sessionToken === session.sessionToken);
-        if (!existing) {
+        const existingIndex = prev.findIndex(s => s.sessionToken === session.sessionToken);
+        
+        if (existingIndex === -1) {
+          // New session - add it
           console.log(`${DEBUG_PREFIX} ✅ ADDING SESSION TO DETECTED LIST:`, {
             title: attendanceSession.title,
             token: attendanceSession.sessionToken,
@@ -865,45 +1062,27 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
           );
           
           return newSessions;
+        } else {
+          // Existing session - update lastSeen timestamp
+          const updated = [...prev];
+          updated[existingIndex] = {
+            ...updated[existingIndex],
+            lastSeen: detectionTime
+          };
+          if (__DEV__) {
+            console.log(`${DEBUG_PREFIX} 🔄 Updated lastSeen for session: ${session.sessionToken}`);
+          }
+          return updated;
         }
-        console.log(`${DEBUG_PREFIX} ⚠️ Session already in detected list: ${session.sessionToken}`);
-        return prev;
       });
 
-      // Submit attendance if auto-attendance is enabled
-      if (autoAttendanceEnabled) {
-        const result = await BLESessionService.addAttendance(session.sessionToken);
-        
-        if (result.success) {
-          showMessage('Auto Check-In Successful', `Automatically checked in to ${session.eventTitle}`, 'success');
-          logMessage(`Auto-attendance successful for session: ${session.sessionToken}`);
-        } else {
-          // Handle specific error cases
-          switch (result.error) {
-            case 'session_expired':
-              showMessage('Session Expired', 'The detected session has expired.', 'error');
-              break;
-            case 'already_checked_in':
-              showMessage('Already Checked In', `You're already checked in to ${session.eventTitle}`, 'info');
-              break;
-            case 'organization_mismatch':
-              console.log(`${DEBUG_PREFIX} Organization mismatch for session: ${session.sessionToken}`);
-              // Don't show message for org mismatch - this is expected behavior
-              break;
-            case 'invalid_token':
-              console.error(`${DEBUG_PREFIX} Invalid session token: ${session.sessionToken}`);
-              break;
-            default:
-              showMessage('Check-In Failed', result.message || 'Unable to check in automatically.', 'error');
-          }
-          
-          logMessage(`Auto-attendance failed for session: ${session.sessionToken}, error: ${result.error}`);
-        }
-      } else {
-        // Auto-attendance disabled, just notify about detected session
-        showMessage('Session Detected', `Found ${session.eventTitle}. Enable auto-attendance or check in manually.`, 'info');
-        logMessage(`Session detected but auto-attendance disabled: ${session.sessionToken}`);
-      }
+      // Auto-attendance removed - sessions are added to detected list for manual check-in
+      showMessage(
+        'Session Detected!',
+        `Found "${session.eventTitle}". Tap "Manual Check-In" to record attendance.`,
+        'success'
+      );
+      logMessage(`Session detected and added to list: ${session.sessionToken}`);
     } catch (error: any) {
       console.error(`${DEBUG_PREFIX} Error processing attendance beacon:`, error);
       showMessage('Beacon Processing Error', 'Failed to process detected session.', 'error');
@@ -941,6 +1120,12 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
     }
   };
 
+  // Remove a session from detected sessions (e.g., after successful check-in)
+  const removeDetectedSession = (sessionToken: string) => {
+    console.log(`${DEBUG_PREFIX} 🗑️ Removing session from detected list:`, sessionToken);
+    setDetectedSessions(prev => prev.filter(s => s.sessionToken !== sessionToken));
+  };
+
   const contextValue: AttendanceBLEContextProps & {
     // Enhanced state management
     bluetoothHardwareState: BluetoothState;
@@ -950,6 +1135,7 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
     refreshBluetoothState: () => Promise<void>;
     ensureBluetoothReady: () => Promise<void>;
     requestPermissions: () => Promise<boolean>;
+    removeDetectedSession: (sessionToken: string) => void;
   } = {
     bluetoothState,
     detectedBeacons,
@@ -967,10 +1153,7 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
     createAttendanceSession,
     startAttendanceSession,
     stopAttendanceSession,
-    enableAutoAttendance,
-    disableAutoAttendance,
     currentSession,
-    autoAttendanceEnabled,
     detectedSessions,
     
     // Enhanced state management
@@ -980,7 +1163,8 @@ export const BLEProvider: React.FC<BLEProviderProps> = ({
     getBluetoothStatus,
     refreshBluetoothState,
     ensureBluetoothReady,
-    requestPermissions
+    requestPermissions,
+    removeDetectedSession
   };
 
   return <BLEContext.Provider value={contextValue}>{children}</BLEContext.Provider>;

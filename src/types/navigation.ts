@@ -46,6 +46,7 @@ export type MemberTabParamList = {
   Dashboard: undefined;
   Announcements: undefined;
   Attendance: undefined;
+  MemberBLEAttendance: undefined;
   LogHours: undefined;
   Events: undefined;
 };

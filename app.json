@@ -27,7 +27,7 @@
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "26"
+      "buildNumber": "30"
     },
     "android": {
       "adaptiveIcon": {
@@ -67,7 +67,8 @@
           "project": "nhs-app",
           "organization": "sanjan"
         }
-      ]
+      ],
+      "./plugins/withBeaconBroadcaster.js"
     ],
     "runtimeVersion": {
       "policy": "appVersion"

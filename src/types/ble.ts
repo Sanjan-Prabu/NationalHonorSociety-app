@@ -23,6 +23,9 @@ export interface AttendanceSession {
   title: string;
   expiresAt: Date;
   isActive: boolean;
+  lastSeen?: Date; // Track when beacon was last detected
+  createdBy?: string; // User ID of creator
+  createdByName?: string; // Display name of creator
 }
 
 export interface BLEContextProps {
@@ -45,13 +48,8 @@ export interface AttendanceBLEContextProps extends BLEContextProps {
   startAttendanceSession: (sessionToken: string, orgCode: number) => Promise<void>;
   stopAttendanceSession: (orgCode: number) => Promise<void>;
   
-  // Member functionality
-  enableAutoAttendance: () => Promise<void>;
-  disableAutoAttendance: () => Promise<void>;
-  
   // Status
   currentSession: AttendanceSession | null;
-  autoAttendanceEnabled: boolean;
   detectedSessions: AttendanceSession[];
 }
 
@@ -120,7 +118,6 @@ export interface BLESessionState {
   
   // Member state
   scanningStatus: 'idle' | 'scanning' | 'detected' | 'submitted' | 'error';
-  autoAttendanceEnabled: boolean;
   detectedSessions: AttendanceSession[];
   
   // Shared state

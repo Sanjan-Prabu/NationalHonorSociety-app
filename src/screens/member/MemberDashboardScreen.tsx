@@ -454,7 +454,7 @@ const styles = StyleSheet.create({
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',  // Changed from center to align with date text
+    alignItems: 'center',
     marginBottom: verticalScale(12),
   },
   sectionTitle: {
@@ -484,7 +484,6 @@ const styles = StyleSheet.create({
   viewAllButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: verticalScale(18),  // Push down to align with date text
   },
   viewAllText: {
     fontSize: moderateScale(14),

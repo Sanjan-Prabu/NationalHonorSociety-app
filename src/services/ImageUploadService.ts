@@ -4,6 +4,7 @@ import { Buffer } from 'buffer';
 import R2ConfigService from './R2ConfigService';
 import { networkErrorHandler } from './NetworkErrorHandler';
 import { useNetworkConnectivity } from '../hooks/useNetworkConnectivity';
+import SentryService from './SentryService';
 
 /**
  * Image validation result interface
@@ -132,6 +133,12 @@ class ImageUploadService {
   async validateImage(imageUri: string): Promise<ValidationResult> {
     try {
       console.log('[ImageUpload] Starting iOS-optimized validation for:', imageUri);
+      SentryService.addBreadcrumb(
+        'Image validation started',
+        'image.validation',
+        'info',
+        { imageUri }
+      );
 
       // Input validation
       if (!imageUri || typeof imageUri !== 'string') {
@@ -181,6 +188,13 @@ class ImageUploadService {
       }
 
       console.log('[ImageUpload] Validation successful - Extension:', extension, 'MIME:', mimeType);
+      
+      SentryService.addBreadcrumb(
+        'Image validation successful',
+        'image.validation',
+        'info',
+        { extension, mimeType }
+      );
 
       // Return success without file system checks that cause issues on iOS
       return {
@@ -190,6 +204,13 @@ class ImageUploadService {
       };
     } catch (error) {
       console.error('[ImageUpload] Validation error:', error);
+      
+      SentryService.addBreadcrumb(
+        'Image validation failed',
+        'image.validation',
+        'error',
+        { error: error instanceof Error ? error.message : 'Unknown error' }
+      );
       
       if (error instanceof ImageUploadErrorClass) {
         return {
@@ -267,6 +288,13 @@ class ImageUploadService {
     
     try {
       console.log('[ImageUpload] Starting public image upload:', context);
+      
+      SentryService.addBreadcrumb(
+        `Starting ${type} image upload`,
+        'image.upload',
+        'info',
+        { type, orgId }
+      );
       // Check network connectivity first
       const connectivityCheck = await this.checkNetworkConnectivity();
       if (!connectivityCheck.canUpload) {
@@ -450,6 +478,13 @@ class ImageUploadService {
             const publicUrl = `${publicBaseUrl}/${key}`;
             console.log('[ImageUpload] ✅ Generated public URL:', publicUrl);
             
+            SentryService.addBreadcrumb(
+              `${type} image upload successful`,
+              'image.upload',
+              'info',
+              { type, orgId, key, publicUrl }
+            );
+            
             // Validate the generated URL format
             if (!publicUrl.startsWith('https://')) {
               throw new ImageUploadErrorClass(
@@ -495,6 +530,20 @@ class ImageUploadService {
     } catch (error) {
       if (error instanceof ImageUploadErrorClass) {
         console.error('Public image upload error:', error.message, error.context);
+        
+        SentryService.addBreadcrumb(
+          `${type} image upload failed`,
+          'image.upload',
+          'error',
+          { 
+            type, 
+            orgId, 
+            errorType: error.type,
+            errorMessage: error.message,
+            isRetryable: error.isRetryable
+          }
+        );
+        
         throw error;
       }
       
@@ -503,6 +552,14 @@ class ImageUploadService {
         stack: error instanceof Error ? error.stack : undefined,
         context
       });
+      
+      SentryService.addBreadcrumb(
+        `${type} image upload unexpected error`,
+        'image.upload',
+        'error',
+        { type, orgId, error: error instanceof Error ? error.message : 'Unknown error' }
+      );
+      
       throw new ImageUploadErrorClass(
         ImageUploadErrorType.UNKNOWN_ERROR,
         'Unexpected upload error',

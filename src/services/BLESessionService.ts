@@ -5,6 +5,7 @@
 
 import { supabase } from '../lib/supabaseClient';
 import BLESecurityService from './BLESecurityService';
+import SentryService from './SentryService';
 
 // Organization code mapping for BLE beacon Major field
 export const ORG_CODES = {
@@ -28,6 +29,8 @@ export interface BLESession {
   isValid: boolean;
   attendeeCount: number;
   orgCode: number;
+  createdBy?: string;
+  createdByName?: string;
 }
 
 export interface AttendanceResult {
@@ -54,6 +57,13 @@ export class BLESessionService {
     title: string,
     ttlSeconds: number = 3600
   ): Promise<string> {
+    SentryService.addBreadcrumb(
+      'BLE session creation started',
+      'ble.session',
+      'info',
+      { orgId, title, ttlSeconds }
+    );
+    
     if (!orgId || !title.trim()) {
       throw new Error('Organization ID and title are required');
     }
@@ -72,6 +82,14 @@ export class BLESessionService {
 
     if (error) {
       console.error('Failed to create secure BLE session:', error);
+      
+      SentryService.addBreadcrumb(
+        'BLE session creation failed',
+        'ble.session',
+        'error',
+        { orgId, title, error: error.message }
+      );
+      
       throw new Error(`Failed to create session: ${error.message}`);
     }
 
@@ -100,6 +118,19 @@ export class BLESessionService {
         expiresAt: data.expires_at
       });
     }
+    
+    SentryService.addBreadcrumb(
+      'BLE session created successfully',
+      'ble.session',
+      'info',
+      { 
+        orgId, 
+        title, 
+        eventId: data.event_id,
+        securityLevel: data.security_level,
+        expiresAt: data.expires_at
+      }
+    );
 
     return sessionToken;
   }
@@ -144,9 +175,37 @@ export class BLESessionService {
    * Records attendance using a session token with enhanced security validation
    */
   static async addAttendance(sessionToken: string): Promise<AttendanceResult> {
+    console.log('[BLESessionService.addAttendance] 🎫 Starting attendance recording:', {
+      rawToken: sessionToken,
+      rawTokenLength: sessionToken?.length,
+      rawTokenType: typeof sessionToken,
+    });
+
+    SentryService.addBreadcrumb(
+      'BLE attendance recording started',
+      'ble.attendance',
+      'info',
+      { tokenLength: sessionToken?.length }
+    );
+    
     // Sanitize and validate token format
     const sanitizedToken = BLESecurityService.sanitizeToken(sessionToken);
+    
+    console.log('[BLESessionService.addAttendance] 🧹 After sanitization:', {
+      sanitizedToken,
+      sanitizedTokenLength: sanitizedToken?.length,
+      wasModified: sanitizedToken !== sessionToken,
+    });
+
     if (!sanitizedToken) {
+      console.error('[BLESessionService.addAttendance] ❌ Token sanitization failed - token is null or invalid format');
+      SentryService.addBreadcrumb(
+        'BLE attendance failed - invalid token format',
+        'ble.attendance',
+        'warning',
+        { error: 'invalid_token' }
+      );
+      
       return {
         success: false,
         error: 'invalid_token',
@@ -155,8 +214,21 @@ export class BLESessionService {
     }
 
     // Validate token security properties
+    console.log('[BLESessionService.addAttendance] 🔒 Validating token security...');
     const validation = BLESecurityService.validateTokenSecurity(sanitizedToken);
+    
+    console.log('[BLESessionService.addAttendance] 🔍 Token validation result:', {
+      isValid: validation.isValid,
+      error: validation.error,
+      tokenLength: sanitizedToken.length,
+    });
+
     if (!validation.isValid) {
+      console.error('[BLESessionService.addAttendance] ❌ Token security validation failed:', {
+        token: sanitizedToken,
+        tokenLength: sanitizedToken.length,
+        error: validation.error,
+      });
       return {
         success: false,
         error: 'invalid_token_security',
@@ -182,6 +254,14 @@ export class BLESessionService {
 
     if (error) {
       console.error('Failed to add secure attendance:', error);
+      
+      SentryService.addBreadcrumb(
+        'BLE attendance failed - network error',
+        'ble.attendance',
+        'error',
+        { error: error.message }
+      );
+      
       return {
         success: false,
         error: 'network_error',
@@ -217,9 +297,28 @@ export class BLESessionService {
             timeRemaining: result.time_remaining_seconds
           });
         }
+        
+        SentryService.addBreadcrumb(
+          'BLE attendance recorded successfully',
+          'ble.attendance',
+          'info',
+          { 
+            eventId: result.event_id,
+            eventTitle: result.event_title,
+            orgSlug: result.org_slug,
+            attendanceId: result.attendance_id
+          }
+        );
 
         return attendanceResult;
       } else {
+        SentryService.addBreadcrumb(
+          'BLE attendance failed - server error',
+          'ble.attendance',
+          'error',
+          { error: result.error, message: result.message }
+        );
+        
         return {
           success: false,
           error: result.error || 'unknown_error',
@@ -257,18 +356,65 @@ export class BLESessionService {
       return [];
     }
 
-    return data.map((session: any) => ({
-      sessionToken: session.session_token,
-      eventId: session.event_id,
-      eventTitle: session.event_title,
-      orgId,
-      orgSlug: '', // Will be populated if needed
-      startsAt: new Date(session.starts_at),
-      endsAt: new Date(session.ends_at),
-      isValid: true, // Active sessions are valid by definition
-      attendeeCount: parseInt(session.attendee_count) || 0,
-      orgCode: session.org_code,
-    }));
+    console.log(`[BLESessionService] 📋 Received ${data.length} sessions from database`);
+
+    // Filter and validate sessions
+    const validSessions = data
+      .filter((session: any) => {
+        const token = session.session_token;
+        
+        // Log each session for debugging
+        console.log(`[BLESessionService] 🔍 Validating session:`, {
+          title: session.event_title,
+          token,
+          tokenLength: token?.length,
+          tokenType: typeof token,
+          isValid: this.isValidSessionToken(token)
+        });
+
+        // Filter out sessions with invalid tokens
+        if (!token || typeof token !== 'string') {
+          console.warn(`[BLESessionService] ⚠️ Session "${session.event_title}" has null/invalid token`);
+          return false;
+        }
+
+        if (!this.isValidSessionToken(token)) {
+          console.warn(`[BLESessionService] ⚠️ Session "${session.event_title}" has invalid token format: "${token}" (length: ${token.length})`);
+          return false;
+        }
+
+        return true;
+      })
+      .map((session: any) => {
+        const mapped = {
+          sessionToken: session.session_token,
+          eventId: session.event_id,
+          eventTitle: session.event_title,
+          orgId,
+          orgSlug: '', // Will be populated if needed
+          startsAt: new Date(session.starts_at),
+          endsAt: new Date(session.ends_at),
+          isValid: true, // Active sessions are valid by definition
+          attendeeCount: parseInt(session.attendee_count) || 0,
+          orgCode: session.org_code,
+          createdBy: session.created_by,
+          createdByName: session.created_by_name || session.creator_name,
+        };
+        
+        if (__DEV__) {
+          console.log('[BLESessionService] 📧 Mapped session with creator:', {
+            title: mapped.eventTitle,
+            createdByName: mapped.createdByName,
+            createdBy: mapped.createdBy
+          });
+        }
+        
+        return mapped;
+      });
+
+    console.log(`[BLESessionService] ✅ Returning ${validSessions.length} valid sessions (filtered from ${data.length} total)`);
+    
+    return validSessions;
   }
 
   /**
@@ -652,6 +798,66 @@ export class BLESessionService {
         success: false,
         error: 'exception',
       };
+    }
+  }
+
+  /**
+   * Validates multiple session tokens to check if they're still active
+   * Returns array of tokens that are still valid
+   */
+  static async validateSessions(sessionTokens: string[]): Promise<string[]> {
+    if (!sessionTokens || sessionTokens.length === 0) {
+      return [];
+    }
+
+    try {
+      // Sanitize all tokens
+      const sanitizedTokens = sessionTokens
+        .map(token => BLESecurityService.sanitizeToken(token))
+        .filter(token => token !== null) as string[];
+
+      if (sanitizedTokens.length === 0) {
+        return [];
+      }
+
+      // Query database to check which sessions are still active
+      const { data, error } = await supabase
+        .from('events')
+        .select('description')
+        .gte('ends_at', new Date().toISOString())
+        .eq('event_type', 'meeting');
+
+      if (error) {
+        console.error('[BLESessionService] Failed to validate sessions:', error);
+        return sanitizedTokens; // Return all tokens on error to avoid false removals
+      }
+
+      if (!data || data.length === 0) {
+        return []; // No active sessions
+      }
+
+      // Extract session tokens from active events
+      const activeTokens = new Set<string>();
+      for (const event of data) {
+        try {
+          const description = typeof event.description === 'string' 
+            ? JSON.parse(event.description) 
+            : event.description;
+          
+          if (description?.session_token && description?.attendance_method === 'ble') {
+            activeTokens.add(description.session_token);
+          }
+        } catch (e) {
+          // Skip events with invalid JSON
+          continue;
+        }
+      }
+
+      // Return only tokens that are still active
+      return sanitizedTokens.filter(token => activeTokens.has(token));
+    } catch (error) {
+      console.error('[BLESessionService] Error validating sessions:', error);
+      return sessionTokens; // Return all tokens on error to avoid false removals
     }
   }
 

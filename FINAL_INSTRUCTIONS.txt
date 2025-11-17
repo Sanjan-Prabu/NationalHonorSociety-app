@@ -1,0 +1,61 @@
+BLE FIX - FINAL INSTRUCTIONS
+============================
+
+STEP 1: Fix Database
+--------------------
+Run this command:
+
+psql $DATABASE_URL < fix-ble-rls-simple.sql
+
+This fixes RLS policies so members can insert attendance.
+
+
+STEP 2: Rebuild App
+-------------------
+npm run ios -- --reset-cache
+
+
+STEP 3: Test
+------------
+Officer:
+1. Login -> Officer Attendance
+2. Enter title + duration
+3. Tap "Start BLE Session"
+4. Watch attendee count
+
+Member:
+1. Login -> BLE Attendance
+2. Tap "Scan for Sessions"
+3. Tap "Check In Now"
+4. Verify success
+
+
+WHAT WAS FIXED
+--------------
+1. Removed auto-attendance feature
+2. Manual check-in button always visible
+3. Real-time attendee count (updates every 10 seconds)
+4. Database RLS policies fixed
+
+
+FILES CHANGED
+-------------
+- modules/BLE/BLEContext.tsx
+- src/screens/member/MemberBLEAttendanceScreen.tsx
+- src/screens/officer/OfficerAttendanceScreen.tsx
+- src/types/ble.ts
+
+
+TROUBLESHOOTING
+---------------
+If check-in fails:
+  - Re-run the SQL script
+  - Check console for errors
+
+If sessions don't appear:
+  - Check Bluetooth enabled
+  - Check location permission
+  - Check same organization
+
+
+That's it! The code is ready and compiles without errors.

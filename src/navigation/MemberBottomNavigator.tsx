@@ -1,5 +1,6 @@
 import React from 'react';
 import { MaterialIcons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { MemberTabParamList } from '../types/navigation';
 import FallbackTabNavigator from './FallbackTabNavigator';
 
@@ -7,6 +8,7 @@ import FallbackTabNavigator from './FallbackTabNavigator';
 import MemberDashboardScreen from '../screens/member/MemberDashboardScreen';
 import MemberAnnouncementsScreen from '../screens/member/MemberAnnouncementsScreen';
 import MemberAttendanceScreen from '../screens/member/MemberAttendanceScreen';
+import MemberBLEAttendanceScreen from '../screens/member/MemberBLEAttendanceScreen';
 import MemberLogHoursStack from './MemberLogHoursStack';
 import MemberEventsScreen from '../screens/member/MemberEventsScreen';
 
@@ -27,6 +29,8 @@ const getTabBarIcon = (routeName: keyof MemberTabParamList): keyof typeof Materi
       return 'announcement';
     case 'Attendance':
       return 'event-available';
+    case 'MemberBLEAttendance':
+      return 'bluetooth';
     case 'LogHours':
       return 'schedule';
     case 'Events':
@@ -38,6 +42,7 @@ const getTabBarIcon = (routeName: keyof MemberTabParamList): keyof typeof Materi
 
 export default function MemberBottomNavigator() {
   // Define member tab screens with role-based components
+  // BLE functionality is now integrated into the main Attendance screen
   const screens = [
     {
       name: 'Dashboard',

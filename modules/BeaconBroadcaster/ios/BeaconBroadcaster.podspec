@@ -12,5 +12,5 @@ Pod::Spec.new do |spec|
   
     spec.dependency 'React-Core'
   
-    spec.source_files = 'BeaconBroadcaster.swift', 'BeaconBroadcasterBridge.m'
+    spec.source_files = 'BeaconBroadcaster.swift', 'BeaconBroadcaster.m'
   end

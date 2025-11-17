@@ -2,16 +2,21 @@ import Foundation
 import CoreBluetooth
 import CoreLocation
 import React
+import os.log
 
 @objc(BeaconBroadcaster)
 class BeaconBroadcaster: RCTEventEmitter {
     private var peripheralManager: CBPeripheralManager?
+    private var centralManager: CBCentralManager?  // ✅ ADD CENTRAL MANAGER FOR SCANNING
     private var beaconRegion: CLBeaconRegion?
     private var locationManager = CLLocationManager()
     private var detectedBeacons = [[String: Any]]()
     private var pendingBeaconData: [String: Any]?
     private var activeAttendanceSessions: [Int: String] = [:] // orgCode -> sessionToken mapping
+    private var isScanning = false
     
+    // Native logging for macOS Console app
+    private let log = OSLog(subsystem: "com.sanjanprabu.nationalhonorsociety", category: "BLE")
     private let DEBUG_PREFIX = "[BeaconBroadcaster]"
     
     // Define event names
@@ -24,10 +29,13 @@ class BeaconBroadcaster: RCTEventEmitter {
     
     override init() {
         super.init()
-        print("\(DEBUG_PREFIX) Initializing BeaconBroadcaster.")
+        os_log("%{public}@ Initializing BeaconBroadcaster.", log: log, type: .info, DEBUG_PREFIX)
         
         locationManager.delegate = self
         peripheralManager = CBPeripheralManager(delegate: self, queue: nil, options: nil)
+        centralManager = CBCentralManager(delegate: self, queue: nil, options: [CBCentralManagerOptionShowPowerAlertKey: true])  // ✅ INITIALIZE CENTRAL MANAGER
+        
+        os_log("%{public}@ ✅ Both Peripheral (broadcaster) and Central (scanner) managers initialized", log: log, type: .info, DEBUG_PREFIX)
     }
   
   override func startObserving() {
@@ -75,19 +83,20 @@ class BeaconBroadcaster: RCTEventEmitter {
     }
     
     @objc func getDetectedBeacons(_ resolver: @escaping RCTPromiseResolveBlock, rejecter: @escaping RCTPromiseRejectBlock) {
-        print("\(DEBUG_PREFIX) Fetching detected beacons: \(detectedBeacons)")
+        os_log("%{public}@ Fetching detected beacons: %{public}@", log: log, type: .debug, DEBUG_PREFIX, String(describing: detectedBeacons))
         resolver(detectedBeacons)
     }
 
     @objc func getBluetoothState(_ resolver: @escaping RCTPromiseResolveBlock, rejecter: @escaping RCTPromiseRejectBlock) {
         let state = getCurrentStateString()
-        print("\(DEBUG_PREFIX) Fetching Bluetooth state: \(state)")
+        os_log("%{public}@ Fetching Bluetooth state: %{public}@", log: log, type: .debug, DEBUG_PREFIX, state)
         resolver(state)
     }
     
     @objc func requestLocationPermission(_ resolver: @escaping RCTPromiseResolveBlock, rejecter: @escaping RCTPromiseRejectBlock) {
-        print("\(DEBUG_PREFIX) Requesting location permission")
-        locationManager.requestWhenInUseAuthorization()
+        os_log("%{public}@ Requesting location permission", log: log, type: .info, DEBUG_PREFIX)
+        // Request Always authorization for beacon ranging to work in background
+        locationManager.requestAlwaysAuthorization()
         
         // Check current authorization status
         let status = locationManager.authorizationStatus
@@ -108,7 +117,7 @@ class BeaconBroadcaster: RCTEventEmitter {
             statusString = "unknown"
         }
         
-        print("\(DEBUG_PREFIX) Location authorization status: \(statusString)")
+        os_log("%{public}@ Location authorization status: %{public}@", log: log, type: .info, DEBUG_PREFIX, statusString)
         resolver(statusString)
     }
     
@@ -131,7 +140,7 @@ class BeaconBroadcaster: RCTEventEmitter {
             statusString = "unknown"
         }
         
-        print("\(DEBUG_PREFIX) Location authorization status: \(statusString)")
+        os_log("%{public}@ Location authorization status: %{public}@", log: log, type: .debug, DEBUG_PREFIX, statusString)
         resolver(statusString)
     }
 
@@ -144,16 +153,16 @@ class BeaconBroadcaster: RCTEventEmitter {
     ) {
         // Check if Bluetooth is not powered on, error
         if peripheralManager?.state != .poweredOn {
-            print("\(DEBUG_PREFIX) Bluetooth is not powered on.")
+            os_log("%{public}@ Bluetooth is not powered on.", log: log, type: .error, DEBUG_PREFIX)
             rejecter("bluetooth_not_powered_on", "Bluetooth is not powered on", nil)
             emitBluetoothStateChange(state: "poweredOff")
             return
         }
         
-        print("\(DEBUG_PREFIX) Attempting to start broadcasting with UUID: \(uuidString), Major: \(major), Minor: \(minor)")
+        os_log("%{public}@ Attempting to start broadcasting with UUID: %{public}@, Major: %{public}d, Minor: %{public}d", log: log, type: .info, DEBUG_PREFIX, uuidString, major.intValue, minor.intValue)
 
         guard let uuid = UUID(uuidString: uuidString) else {
-            print("\(DEBUG_PREFIX) Invalid UUID format")
+            os_log("%{public}@ Invalid UUID format", log: log, type: .error, DEBUG_PREFIX)
             rejecter("invalid_uuid", "Invalid UUID format", nil)
             return
         }
@@ -163,22 +172,22 @@ class BeaconBroadcaster: RCTEventEmitter {
         beaconRegion = CLBeaconRegion(beaconIdentityConstraint: constraint, identifier: bundleURL)
 
         guard let beaconData = beaconRegion?.peripheralData(withMeasuredPower: nil) as? [String: Any] else {
-            print("\(DEBUG_PREFIX) Could not create beacon data")
+            os_log("%{public}@ Could not create beacon data", log: log, type: .error, DEBUG_PREFIX)
             rejecter("beacon_data_error", "Could not create beacon data", nil)
             return
         }
 
         pendingBeaconData = beaconData
-        print("\(DEBUG_PREFIX) Beacon data created.")
+        os_log("%{public}@ Beacon data created.", log: log, type: .debug, DEBUG_PREFIX)
 
         if peripheralManager?.state == .poweredOn {
             peripheralManager?.startAdvertising(beaconData)
-            print("\(DEBUG_PREFIX) isAdvertising after startAdvertising: \(peripheralManager?.isAdvertising ?? false)")
+            os_log("%{public}@ isAdvertising after startAdvertising: %{public}d", log: log, type: .info, DEBUG_PREFIX, peripheralManager?.isAdvertising ?? false)
             resolver("Beacon broadcasting started successfully")
             emitEvent(name: BeaconBroadcaster.BeaconBroadcastingStarted, body: nil)
-            print("\(DEBUG_PREFIX) Beacon broadcasting started successfully.")
+            os_log("%{public}@ Beacon broadcasting started successfully.", log: log, type: .info, DEBUG_PREFIX)
         } else {
-            print("\(DEBUG_PREFIX) Bluetooth is not powered on. Waiting to start advertising.")
+            os_log("%{public}@ Bluetooth is not powered on. Waiting to start advertising.", log: log, type: .default, DEBUG_PREFIX)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 resolver("Beacon broadcasting will start once Bluetooth is powered on")
             }
@@ -189,14 +198,14 @@ class BeaconBroadcaster: RCTEventEmitter {
         _ resolver: @escaping RCTPromiseResolveBlock,
         rejecter: @escaping RCTPromiseRejectBlock
     ) {
-        print("\(DEBUG_PREFIX) Attempting to stop broadcasting.")
+        os_log("%{public}@ Attempting to stop broadcasting.", log: log, type: .info, DEBUG_PREFIX)
         if let manager = peripheralManager, manager.isAdvertising {
             manager.stopAdvertising()
             resolver("Beacon broadcasting stopped")
             emitEvent(name: BeaconBroadcaster.BeaconBroadcastingStopped, body: nil)
-            print("\(DEBUG_PREFIX) Beacon broadcasting stopped.")
+            os_log("%{public}@ Beacon broadcasting stopped.", log: log, type: .info, DEBUG_PREFIX)
         } else {
-            print("\(DEBUG_PREFIX) No active beacon broadcast to stop.")
+            os_log("%{public}@ No active beacon broadcast to stop.", log: log, type: .default, DEBUG_PREFIX)
             rejecter("not_broadcasting", "No active beacon broadcast to stop", nil)
         }
     }
@@ -206,39 +215,90 @@ class BeaconBroadcaster: RCTEventEmitter {
         resolver: @escaping RCTPromiseResolveBlock,
         rejecter: @escaping RCTPromiseRejectBlock
     ) {
-        print("\(DEBUG_PREFIX) Requesting location authorization and starting beacon listening for UUID: \(uuidString)")
-        locationManager.requestWhenInUseAuthorization()
+        os_log("%{public}@ 🎧 STARTING LISTENING (CENTRAL ROLE)", log: log, type: .info, DEBUG_PREFIX)
+        os_log("%{public}@ UUID: %{public}@", log: log, type: .info, DEBUG_PREFIX, uuidString)
+        os_log("%{public}@ Central Manager State: %{public}d", log: log, type: .debug, DEBUG_PREFIX, centralManager?.state.rawValue ?? -1)
+        
+        // Check if central manager is powered on
+        guard let central = centralManager, central.state == .poweredOn else {
+            os_log("%{public}@ ❌ Central manager not ready. State: %{public}d", log: log, type: .error, DEBUG_PREFIX, centralManager?.state.rawValue ?? -1)
+            if centralManager?.state == .poweredOff {
+                rejecter("bluetooth_off", "Bluetooth is powered off", nil)
+            } else {
+                rejecter("bluetooth_not_ready", "Bluetooth central manager not ready", nil)
+            }
+            return
+        }
+        
+        os_log("%{public}@ ✅ Central manager is powered on", log: log, type: .info, DEBUG_PREFIX)
+        
+        // Request Always authorization for beacon ranging
+        locationManager.requestAlwaysAuthorization()
+        
+        // Check location authorization status
+        let authStatus = locationManager.authorizationStatus
+        os_log("%{public}@ 📍 Location authorization status: %{public}d", log: log, type: .info, DEBUG_PREFIX, authStatus.rawValue)
+        os_log("%{public}@ 📍 Status meanings: 0=notDetermined, 1=restricted, 2=denied, 3=authorizedAlways, 4=authorizedWhenInUse", log: log, type: .debug, DEBUG_PREFIX)
+        
+        if authStatus == .denied || authStatus == .restricted {
+            os_log("%{public}@ ❌ Location permission denied or restricted", log: log, type: .error, DEBUG_PREFIX)
+            rejecter("location_denied", "Location permission is required for beacon detection", nil)
+            return
+        }
+        
+        if authStatus == .notDetermined {
+            os_log("%{public}@ ⚠️ Location permission not determined - requesting now", log: log, type: .default, DEBUG_PREFIX)
+            // Permission will be requested, but we'll continue anyway
+        }
 
         guard let uuid = UUID(uuidString: uuidString) else {
-            print("\(DEBUG_PREFIX) Invalid UUID format")
+            os_log("%{public}@ ❌ Invalid UUID format: %{public}@", log: log, type: .error, DEBUG_PREFIX, uuidString)
             rejecter("invalid_uuid", "Invalid UUID format", nil)
             return
         }
+        
+        os_log("%{public}@ ✅ UUID parsed successfully: %{public}@", log: log, type: .info, DEBUG_PREFIX, uuid.uuidString)
 
         let constraint = CLBeaconIdentityConstraint(uuid: uuid)
         beaconRegion = CLBeaconRegion(beaconIdentityConstraint: constraint, identifier: uuid.uuidString)
+        beaconRegion?.notifyEntryStateOnDisplay = true
+        beaconRegion?.notifyOnEntry = true
+        beaconRegion?.notifyOnExit = true
         
+        os_log("%{public}@ 📡 Starting monitoring and ranging for beacons...", log: log, type: .info, DEBUG_PREFIX)
+        os_log("%{public}@ 📡 Region identifier: %{public}@", log: log, type: .debug, DEBUG_PREFIX, uuid.uuidString)
+        os_log("%{public}@ 📡 Location manager delegate: %{public}@", log: log, type: .debug, DEBUG_PREFIX, locationManager.delegate != nil ? "SET" : "NOT SET")
+        
+        // Start monitoring first
         locationManager.startMonitoring(for: beaconRegion!)
+        os_log("%{public}@ ✅ Monitoring started", log: log, type: .info, DEBUG_PREFIX)
+        
+        // Start ranging
         locationManager.startRangingBeacons(satisfying: constraint)
+        os_log("%{public}@ ✅ Ranging started", log: log, type: .info, DEBUG_PREFIX)
+        
+        isScanning = true
 
         resolver("Beacon listening started")
         emitEvent(name: BeaconBroadcaster.BeaconListeningStarted, body: nil)
-        print("\(DEBUG_PREFIX) Beacon listening started.")
+        os_log("%{public}@ ✅✅✅ Beacon listening FULLY ACTIVE (CENTRAL SESSION ACTIVE)", log: log, type: .info, DEBUG_PREFIX)
+        os_log("%{public}@ 👂 Now listening for beacons with UUID: %{public}@", log: log, type: .info, DEBUG_PREFIX, uuid.uuidString)
     }
 
     @objc func stopListening(
         _ resolver: @escaping RCTPromiseResolveBlock,
         rejecter: @escaping RCTPromiseRejectBlock
     ) {
-        print("\(DEBUG_PREFIX) Attempting to stop listening for beacons.")
+        os_log("%{public}@ Attempting to stop listening for beacons.", log: log, type: .info, DEBUG_PREFIX)
         if let beaconRegion = beaconRegion {
             locationManager.stopMonitoring(for: beaconRegion)
             locationManager.stopRangingBeacons(satisfying: beaconRegion.beaconIdentityConstraint)
+            isScanning = false
             resolver("Beacon listening stopped")
             emitEvent(name: BeaconBroadcaster.BeaconListeningStopped, body: nil)
-            print("\(DEBUG_PREFIX) Beacon listening stopped.")
+            os_log("%{public}@ ✅ Beacon listening stopped (CENTRAL SESSION ENDED)", log: log, type: .info, DEBUG_PREFIX)
         } else {
-            print("\(DEBUG_PREFIX) No active beacon listening to stop.")
+            os_log("%{public}@ No active beacon listening to stop.", log: log, type: .default, DEBUG_PREFIX)
             rejecter("not_listening", "No active beacon listening to stop", nil)
         }
     }
@@ -298,17 +358,11 @@ class BeaconBroadcaster: RCTEventEmitter {
     }
     
     /**
-     * Gets organization code from UUID
-     * Since we now use single APP_UUID, we cannot determine org from UUID alone
-     * Organization code must come from the beacon's Major field
+     * Checks if UUID is valid APP_UUID
+     * Since we now use single APP_UUID, organization code comes from Major field
      */
-    private func getOrgCodeFromUUID(_ uuid: UUID) -> Int {
-        // Check if this is our APP_UUID
-        if uuid.uuidString.uppercased() == "A495BB60-C5B6-466E-B5D2-DF4D449B0F03" {
-            // Return 0 to indicate valid APP_UUID but org code must come from Major field
-            return 0
-        }
-        return 0 // Unknown/invalid
+    private func isValidAppUUID(_ uuid: UUID) -> Bool {
+        return uuid.uuidString.uppercased() == "A495BB60-C5B6-466E-B5D2-DF4D449B0F03"
     }
 }
 
@@ -317,13 +371,19 @@ class BeaconBroadcaster: RCTEventEmitter {
 extension BeaconBroadcaster: CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didRange beacons: [CLBeacon], satisfying constraint: CLBeaconIdentityConstraint) {
-        print("\(DEBUG_PREFIX) Ranging beacons: \(beacons.count) found.")
+        os_log("%{public}@ 🔔🔔🔔 RANGING CALLBACK FIRED - Beacons found: %{public}d", log: log, type: .info, DEBUG_PREFIX, beacons.count)
+        os_log("%{public}@ 🔔 Constraint UUID: %{public}@", log: log, type: .debug, DEBUG_PREFIX, constraint.uuid.uuidString)
+        os_log("%{public}@ 🔔 Timestamp: %{public}@", log: log, type: .debug, DEBUG_PREFIX, Date().description)
         
         // Check if null, or empty
-        print(beacons)
         if beacons.isEmpty {
-            print("\(DEBUG_PREFIX) No beacons found.")
+            os_log("%{public}@ ⚠️ Ranging callback fired but NO beacons in range", log: log, type: .default, DEBUG_PREFIX)
             return
+        }
+        
+        os_log("%{public}@ 📊 Beacon details:", log: log, type: .debug, DEBUG_PREFIX)
+        for (index, beacon) in beacons.enumerated() {
+            os_log("%{public}@   [%{public}d] UUID: %{public}@, Major: %{public}d, Minor: %{public}d, RSSI: %{public}d", log: log, type: .debug, DEBUG_PREFIX, index, beacon.uuid.uuidString, beacon.major.intValue, beacon.minor.intValue, beacon.rssi)
         }
 
         // detectedBeacons = beacons.map {
@@ -341,8 +401,10 @@ extension BeaconBroadcaster: CLLocationManagerDelegate {
         // For each beacon, emit an event
         for beacon: CLBeacon in beacons {
             // Check if this is an attendance beacon
-            let orgCode = getOrgCodeFromUUID(beacon.uuid)
-            let isAttendanceBeacon = orgCode > 0 && validateBeaconPayload(major: beacon.major.intValue, minor: beacon.minor.intValue, orgCode: orgCode)
+            // Organization code comes from Major field (1=NHS, 2=NHSA)
+            let orgCode = beacon.major.intValue
+            let isValidUUID = isValidAppUUID(beacon.uuid)
+            let isAttendanceBeacon = isValidUUID && validateBeaconPayload(major: beacon.major.intValue, minor: beacon.minor.intValue, orgCode: orgCode)
             
             let beaconDict: [String : Any] = [
                 "uuid": beacon.uuid.uuidString,
@@ -357,7 +419,11 @@ extension BeaconBroadcaster: CLLocationManagerDelegate {
             ]
             
             if isAttendanceBeacon {
-                print("\(DEBUG_PREFIX) Detected attendance beacon - OrgCode: \(orgCode), Major: \(beacon.major), Minor: \(beacon.minor)")
+                os_log("%{public}@ ✅ Detected attendance beacon - OrgCode: %{public}d, Major: %{public}d, Minor: %{public}d, RSSI: %{public}d", log: log, type: .info, DEBUG_PREFIX, orgCode, beacon.major.intValue, beacon.minor.intValue, beacon.rssi)
+            } else if isValidUUID {
+                os_log("%{public}@ ⚠️ Valid APP_UUID but failed validation - OrgCode: %{public}d, Major: %{public}d, Minor: %{public}d", log: log, type: .default, DEBUG_PREFIX, orgCode, beacon.major.intValue, beacon.minor.intValue)
+            } else {
+                os_log("%{public}@ 🔵 Non-attendance beacon detected - UUID: %{public}@", log: log, type: .debug, DEBUG_PREFIX, beacon.uuid.uuidString)
             }
             
             emitEvent(name: BeaconBroadcaster.BeaconDetected, body: beaconDict)
@@ -366,16 +432,47 @@ extension BeaconBroadcaster: CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
         if let beaconRegion = region as? CLBeaconRegion {
-            print("\(DEBUG_PREFIX) Entered beacon region: \(beaconRegion.identifier)")
+            os_log("%{public}@ Entered beacon region: %{public}@", log: log, type: .info, DEBUG_PREFIX, beaconRegion.identifier)
             locationManager.startRangingBeacons(satisfying: beaconRegion.beaconIdentityConstraint)
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didExitRegion region: CLRegion) {
         if let beaconRegion = region as? CLBeaconRegion {
-            print("\(DEBUG_PREFIX) Exited beacon region: \(beaconRegion.identifier)")
+            os_log("%{public}@ Exited beacon region: %{public}@", log: log, type: .info, DEBUG_PREFIX, beaconRegion.identifier)
             locationManager.stopRangingBeacons(satisfying: beaconRegion.beaconIdentityConstraint)
         }
+    }
+    
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let status = manager.authorizationStatus
+        os_log("%{public}@ 📍📍📍 LOCATION AUTHORIZATION CHANGED", log: log, type: .info, DEBUG_PREFIX)
+        os_log("%{public}@ 📍 New status: %{public}d", log: log, type: .info, DEBUG_PREFIX, status.rawValue)
+        os_log("%{public}@ 📍 Status meanings: 0=notDetermined, 1=restricted, 2=denied, 3=authorizedAlways, 4=authorizedWhenInUse", log: log, type: .debug, DEBUG_PREFIX)
+        
+        switch status {
+        case .authorizedAlways:
+            os_log("%{public}@ ✅ Location permission: ALWAYS (BEST for beacon ranging)", log: log, type: .info, DEBUG_PREFIX)
+        case .authorizedWhenInUse:
+            os_log("%{public}@ ⚠️ Location permission: WHEN IN USE (may limit beacon detection)", log: log, type: .default, DEBUG_PREFIX)
+        case .denied:
+            os_log("%{public}@ ❌ Location permission: DENIED", log: log, type: .error, DEBUG_PREFIX)
+        case .restricted:
+            os_log("%{public}@ ❌ Location permission: RESTRICTED", log: log, type: .error, DEBUG_PREFIX)
+        case .notDetermined:
+            os_log("%{public}@ ⚠️ Location permission: NOT DETERMINED", log: log, type: .default, DEBUG_PREFIX)
+        @unknown default:
+            os_log("%{public}@ ⚠️ Location permission: UNKNOWN", log: log, type: .default, DEBUG_PREFIX)
+        }
+    }
+    
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        os_log("%{public}@ ❌❌❌ Location manager error: %{public}@", log: log, type: .error, DEBUG_PREFIX, error.localizedDescription)
+    }
+    
+    func locationManager(_ manager: CLLocationManager, didFailRangingFor constraint: CLBeaconIdentityConstraint, error: Error) {
+        os_log("%{public}@ ❌❌❌ Ranging failed for UUID %{public}@", log: log, type: .error, DEBUG_PREFIX, constraint.uuid.uuidString)
+        os_log("%{public}@ ❌ Error: %{public}@", log: log, type: .error, DEBUG_PREFIX, error.localizedDescription)
     }
 }
 
@@ -387,31 +484,31 @@ extension BeaconBroadcaster: CBPeripheralManagerDelegate {
         switch peripheral.state {
         case .poweredOn:
             stateString = "poweredOn"
-            print("\(DEBUG_PREFIX) Bluetooth is powered on.")
+            os_log("%{public}@ Bluetooth is powered on.", log: log, type: .info, DEBUG_PREFIX)
             if let beaconData = pendingBeaconData {
                 peripheralManager?.startAdvertising(beaconData)
                 pendingBeaconData = nil
-                print("\(DEBUG_PREFIX) Started broadcasting pending beacon data.")
+                os_log("%{public}@ Started broadcasting pending beacon data.", log: log, type: .info, DEBUG_PREFIX)
                 emitEvent(name: BeaconBroadcaster.BluetoothStateChanged, body: ["state": stateString])
             }
         case .poweredOff:
             stateString = "poweredOff"
-            print("\(DEBUG_PREFIX) Bluetooth is powered off.")
+            os_log("%{public}@ Bluetooth is powered off.", log: log, type: .error, DEBUG_PREFIX)
         case .resetting:
             stateString = "resetting"
-            print("\(DEBUG_PREFIX) Bluetooth is resetting.")
+            os_log("%{public}@ Bluetooth is resetting.", log: log, type: .default, DEBUG_PREFIX)
         case .unauthorized:
             stateString = "unauthorized"
-            print("\(DEBUG_PREFIX) Bluetooth unauthorized.")
+            os_log("%{public}@ Bluetooth unauthorized.", log: log, type: .error, DEBUG_PREFIX)
         case .unsupported:
             stateString = "unsupported"
-            print("\(DEBUG_PREFIX) Bluetooth unsupported on this device.")
+            os_log("%{public}@ Bluetooth unsupported on this device.", log: log, type: .error, DEBUG_PREFIX)
         case .unknown:
             stateString = "unknown"
-            print("\(DEBUG_PREFIX) Bluetooth state unknown.")
+            os_log("%{public}@ Bluetooth state unknown.", log: log, type: .default, DEBUG_PREFIX)
         @unknown default:
             stateString = "unknown"
-            print("\(DEBUG_PREFIX) Bluetooth state unknown (future case).")
+            os_log("%{public}@ Bluetooth state unknown (future case).", log: log, type: .default, DEBUG_PREFIX)
         }
         
         // Emit Bluetooth state change event
@@ -426,117 +523,117 @@ extension BeaconBroadcaster: CBPeripheralManagerDelegate {
         resolver: @escaping RCTPromiseResolveBlock,
         rejecter: @escaping RCTPromiseRejectBlock
     ) {
-        print("🔴 SWIFT: broadcastAttendanceSession CALLED")
-        print("🔴 SWIFT: orgCode = \(orgCode)")
-        print("🔴 SWIFT: sessionToken = \(sessionToken)")
+        os_log("🔴 SWIFT: broadcastAttendanceSession CALLED", log: log, type: .info)
+        os_log("🔴 SWIFT: orgCode = %{public}@", log: log, type: .info, orgCode.description)
+        os_log("🔴 SWIFT: sessionToken = %{public}@", log: log, type: .info, sessionToken)
         
         let orgCodeInt = orgCode.intValue
-        print("🔴 SWIFT: orgCodeInt = \(orgCodeInt)")
+        os_log("🔴 SWIFT: orgCodeInt = %{public}d", log: log, type: .info, orgCodeInt)
         
         // Validate session token format
         guard isValidSessionToken(sessionToken) else {
-            print("❌ SWIFT: Invalid session token format: \(sessionToken)")
+            os_log("❌ SWIFT: Invalid session token format: %{public}@", log: log, type: .error, sessionToken)
             rejecter("invalid_session_token", "Invalid session token format. Must be 12 alphanumeric characters.", nil)
             return
         }
-        print("🟢 SWIFT: Session token format valid")
+        os_log("🟢 SWIFT: Session token format valid", log: log, type: .info)
         
         // Validate organization code
         guard orgCodeInt >= 1 && orgCodeInt <= 2 else {
-            print("❌ SWIFT: Invalid organization code: \(orgCodeInt)")
+            os_log("❌ SWIFT: Invalid organization code: %{public}d", log: log, type: .error, orgCodeInt)
             rejecter("invalid_org_code", "Invalid organization code. Must be 1 (NHS) or 2 (NHSA).", nil)
             return
         }
-        print("🟢 SWIFT: Organization code valid")
+        os_log("🟢 SWIFT: Organization code valid", log: log, type: .info)
         
         // Get UUID for organization
         guard let uuid = getOrgUUID(orgCodeInt) else {
-            print("❌ SWIFT: Could not get UUID for org code: \(orgCodeInt)")
+            os_log("❌ SWIFT: Could not get UUID for org code: %{public}d", log: log, type: .error, orgCodeInt)
             rejecter("uuid_error", "Could not get UUID for organization code", nil)
             return
         }
-        print("🟢 SWIFT: UUID = \(uuid.uuidString)")
+        os_log("🟢 SWIFT: UUID = %{public}@", log: log, type: .info, uuid.uuidString)
         
         // Encode session token to minor field
         let minor = encodeSessionToken(sessionToken)
-        print("🔴 SWIFT: minor = \(minor)")
+        os_log("🔴 SWIFT: minor = %{public}d", log: log, type: .info, minor)
         
         let major = CLBeaconMajorValue(orgCodeInt)
-        print("🔴 SWIFT: major = \(major)")
+        os_log("🔴 SWIFT: major = %{public}d", log: log, type: .info, major)
         
-        print("🔴 SWIFT: Broadcasting attendance session - OrgCode: \(orgCodeInt), SessionToken: \(sessionToken), Minor: \(minor)")
+        os_log("🔴 SWIFT: Broadcasting attendance session - OrgCode: %{public}d, SessionToken: %{public}@, Minor: %{public}d", log: log, type: .info, orgCodeInt, sessionToken, minor)
         
         // Check Bluetooth permission state
         let authState = CBPeripheralManager.authorization
-        print("🔴 SWIFT: Bluetooth permission state: \(authState.rawValue)")
+        os_log("🔴 SWIFT: Bluetooth permission state: %{public}d", log: log, type: .info, authState.rawValue)
         // 0 = notDetermined, 1 = restricted, 2 = denied, 3 = allowedAlways
         
         if authState != .allowedAlways {
-            print("❌ SWIFT: Bluetooth NOT AUTHORIZED (state: \(authState.rawValue))")
+            os_log("❌ SWIFT: Bluetooth NOT AUTHORIZED (state: %{public}d)", log: log, type: .error, authState.rawValue)
             rejecter("permission_denied", "Bluetooth permission not granted", nil)
             return
         }
-        print("🟢 SWIFT: Bluetooth permission authorized")
+        os_log("🟢 SWIFT: Bluetooth permission authorized", log: log, type: .info)
         
         // Check if Bluetooth is not powered on
         guard let manager = peripheralManager else {
-            print("❌ SWIFT: peripheralManager is nil!")
+            os_log("❌ SWIFT: peripheralManager is nil!", log: log, type: .error)
             rejecter("manager_error", "Peripheral manager not initialized", nil)
             return
         }
         
-        print("🔴 SWIFT: CBPeripheralManager state: \(manager.state.rawValue)")
+        os_log("🔴 SWIFT: CBPeripheralManager state: %{public}d", log: log, type: .info, manager.state.rawValue)
         // 0 = unknown, 1 = resetting, 2 = unsupported, 3 = unauthorized, 4 = poweredOff, 5 = poweredOn
         
         if manager.state != .poweredOn {
-            print("❌ SWIFT: Bluetooth is not powered on (state: \(manager.state.rawValue))")
+            os_log("❌ SWIFT: Bluetooth is not powered on (state: %{public}d)", log: log, type: .error, manager.state.rawValue)
             rejecter("bluetooth_not_powered_on", "Bluetooth is not powered on", nil)
             return
         }
-        print("🟢 SWIFT: Bluetooth is powered on")
+        os_log("🟢 SWIFT: Bluetooth is powered on", log: log, type: .info)
         
         // Stop any existing attendance session for this org
         if activeAttendanceSessions[orgCodeInt] != nil {
-            print("\(DEBUG_PREFIX) Stopping existing attendance session for org code: \(orgCodeInt)")
+            os_log("%{public}@ Stopping existing attendance session for org code: %{public}d", log: log, type: .info, DEBUG_PREFIX, orgCodeInt)
             // The actual stopping will be handled by the new session starting
         }
         
-        print("🔴 SWIFT: Creating CLBeaconRegion...")
+        os_log("🔴 SWIFT: Creating CLBeaconRegion...", log: log, type: .debug)
         let bundleURL = Bundle.main.bundleIdentifier!
-        print("🔴 SWIFT: Bundle identifier: \(bundleURL)")
+        os_log("🔴 SWIFT: Bundle identifier: %{public}@", log: log, type: .debug, bundleURL)
         
         let constraint = CLBeaconIdentityConstraint(uuid: uuid, major: CLBeaconMajorValue(orgCodeInt), minor: CLBeaconMinorValue(minor))
-        print("🔴 SWIFT: CLBeaconIdentityConstraint created")
+        os_log("🔴 SWIFT: CLBeaconIdentityConstraint created", log: log, type: .debug)
         
         beaconRegion = CLBeaconRegion(beaconIdentityConstraint: constraint, identifier: bundleURL)
-        print("🔴 SWIFT: CLBeaconRegion created")
+        os_log("🔴 SWIFT: CLBeaconRegion created", log: log, type: .debug)
 
         guard let beaconData = beaconRegion?.peripheralData(withMeasuredPower: nil) as? [String: Any] else {
-            print("❌ SWIFT: Could not create attendance beacon data")
+            os_log("❌ SWIFT: Could not create attendance beacon data", log: log, type: .error)
             rejecter("beacon_data_error", "Could not create attendance beacon data", nil)
             return
         }
-        print("🟢 SWIFT: Beacon data created successfully")
-        print("🔴 SWIFT: Beacon data keys: \(beaconData.keys)")
+        os_log("🟢 SWIFT: Beacon data created successfully", log: log, type: .info)
+        os_log("🔴 SWIFT: Beacon data keys: %{public}@", log: log, type: .debug, beaconData.keys.description)
 
         pendingBeaconData = beaconData
         activeAttendanceSessions[orgCodeInt] = sessionToken
-        print("🔴 SWIFT: Attendance beacon data stored for org: \(orgCodeInt)")
+        os_log("🔴 SWIFT: Attendance beacon data stored for org: %{public}d", log: log, type: .info, orgCodeInt)
 
         if peripheralManager?.state == .poweredOn {
-            print("🔴 SWIFT: Starting advertising...")
+            os_log("🔴 SWIFT: Starting advertising...", log: log, type: .info)
             peripheralManager?.startAdvertising(beaconData)
             
             // Wait a moment for advertising to start
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 let isAdvertising = self.peripheralManager?.isAdvertising ?? false
-                print("🔴 SWIFT: isAdvertising after startAdvertising: \(isAdvertising)")
+                os_log("🔴 SWIFT: isAdvertising after startAdvertising: %{public}d", log: self.log, type: .info, isAdvertising)
                 
                 if isAdvertising {
-                    print("🟢 SWIFT: ✅ ADVERTISING CONFIRMED - Bluetooth signal IS being transmitted!")
+                    os_log("🟢 SWIFT: ✅ ADVERTISING CONFIRMED - Bluetooth signal IS being transmitted!", log: self.log, type: .info)
                 } else {
-                    print("❌ SWIFT: ⚠️ NOT ADVERTISING - startAdvertising was called but isAdvertising = false")
-                    print("❌ SWIFT: This means iOS rejected the advertising request")
+                    os_log("❌ SWIFT: ⚠️ NOT ADVERTISING - startAdvertising was called but isAdvertising = false", log: self.log, type: .error)
+                    os_log("❌ SWIFT: This means iOS rejected the advertising request", log: self.log, type: .error)
                 }
             }
             
@@ -546,9 +643,9 @@ extension BeaconBroadcaster: CBPeripheralManagerDelegate {
                 "sessionToken": sessionToken,
                 "minor": minor
             ])
-            print("🟢 SWIFT: Attendance session broadcasting started successfully.")
+            os_log("🟢 SWIFT: Attendance session broadcasting started successfully.", log: log, type: .info)
         } else {
-            print("❌ SWIFT: Bluetooth is not powered on. Waiting to start advertising.")
+            os_log("❌ SWIFT: Bluetooth is not powered on. Waiting to start advertising.", log: log, type: .error)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 resolver("Attendance session broadcasting will start once Bluetooth is powered on")
             }
@@ -562,10 +659,10 @@ extension BeaconBroadcaster: CBPeripheralManagerDelegate {
     ) {
         let orgCodeInt = orgCode.intValue
         
-        print("\(DEBUG_PREFIX) Attempting to stop attendance session for org code: \(orgCodeInt)")
+        os_log("%{public}@ Attempting to stop attendance session for org code: %{public}d", log: log, type: .info, DEBUG_PREFIX, orgCodeInt)
         
         guard let sessionToken = activeAttendanceSessions[orgCodeInt] else {
-            print("\(DEBUG_PREFIX) No active attendance session found for org code: \(orgCodeInt)")
+            os_log("%{public}@ No active attendance session found for org code: %{public}d", log: log, type: .default, DEBUG_PREFIX, orgCodeInt)
             rejecter("not_broadcasting", "No active attendance session found for org code: \(orgCodeInt)", nil)
             return
         }
@@ -578,9 +675,9 @@ extension BeaconBroadcaster: CBPeripheralManagerDelegate {
                 "orgCode": orgCodeInt,
                 "sessionToken": sessionToken
             ])
-            print("\(DEBUG_PREFIX) Attendance session stopped for org code: \(orgCodeInt)")
+            os_log("%{public}@ Attendance session stopped for org code: %{public}d", log: log, type: .info, DEBUG_PREFIX, orgCodeInt)
         } else {
-            print("\(DEBUG_PREFIX) No active beacon broadcast to stop for org code: \(orgCodeInt)")
+            os_log("%{public}@ No active beacon broadcast to stop for org code: %{public}d", log: log, type: .default, DEBUG_PREFIX, orgCodeInt)
             activeAttendanceSessions.removeValue(forKey: orgCodeInt)
             rejecter("not_broadcasting", "No active beacon broadcast to stop for org code: \(orgCodeInt)", nil)
         }
@@ -599,14 +696,91 @@ extension BeaconBroadcaster: CBPeripheralManagerDelegate {
             return
         }
         
-        let orgCodeFromUUID = getOrgCodeFromUUID(beaconUUID)
+        let isValidUUID = isValidAppUUID(beaconUUID)
         let expectedOrgCodeInt = expectedOrgCode.intValue
         let majorInt = major.intValue
         let minorInt = minor.intValue
         
-        let isValid = validateBeaconPayload(major: majorInt, minor: minorInt, orgCode: expectedOrgCodeInt) && 
-                     orgCodeFromUUID == expectedOrgCodeInt
+        // Validate: Must have valid APP_UUID and beacon payload must match expected org code
+        let isValid = isValidUUID && validateBeaconPayload(major: majorInt, minor: minorInt, orgCode: expectedOrgCodeInt)
         
         resolver(isValid)
+    }
+    
+    /**
+     * Bridge method to allow JavaScript to log to native Console app
+     * JavaScript logs will now appear in macOS Console alongside native logs
+     */
+    @objc func logToNativeConsole(
+        _ level: String,
+        category: String,
+        message: String,
+        data: NSDictionary?
+    ) {
+        let logType: OSLogType
+        let emoji: String
+        
+        switch level.lowercased() {
+        case "debug":
+            logType = .debug
+            emoji = "🔍"
+        case "info":
+            logType = .info
+            emoji = "ℹ️"
+        case "warn":
+            logType = .default
+            emoji = "⚠️"
+        case "error":
+            logType = .error
+            emoji = "❌"
+        case "fatal":
+            logType = .fault
+            emoji = "💥"
+        default:
+            logType = .default
+            emoji = "📝"
+        }
+        
+        // Log the message
+        os_log("%{public}@ [JS-%{public}@] [%{public}@] %{public}@", log: log, type: logType, emoji, level.uppercased(), category, message)
+        
+        // If there's additional data, log it too
+        if let data = data, data.count > 0 {
+            os_log("%{public}@ [JS-DATA] %{public}@", log: log, type: logType, emoji, data.description)
+        }
+    }
+}
+
+// MARK: - CBCentralManagerDelegate
+
+extension BeaconBroadcaster: CBCentralManagerDelegate {
+    func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        var stateString = ""
+        switch central.state {
+        case .poweredOn:
+            stateString = "poweredOn"
+            os_log("%{public}@ 🟢 Central Manager (Scanner) is powered on - READY TO SCAN", log: log, type: .info, DEBUG_PREFIX)
+        case .poweredOff:
+            stateString = "poweredOff"
+            os_log("%{public}@ 🔴 Central Manager (Scanner) is powered off", log: log, type: .error, DEBUG_PREFIX)
+        case .resetting:
+            stateString = "resetting"
+            os_log("%{public}@ 🟡 Central Manager (Scanner) is resetting", log: log, type: .default, DEBUG_PREFIX)
+        case .unauthorized:
+            stateString = "unauthorized"
+            os_log("%{public}@ 🔴 Central Manager (Scanner) unauthorized", log: log, type: .error, DEBUG_PREFIX)
+        case .unsupported:
+            stateString = "unsupported"
+            os_log("%{public}@ 🔴 Central Manager (Scanner) unsupported on this device", log: log, type: .error, DEBUG_PREFIX)
+        case .unknown:
+            stateString = "unknown"
+            os_log("%{public}@ ⚪ Central Manager (Scanner) state unknown", log: log, type: .default, DEBUG_PREFIX)
+        @unknown default:
+            stateString = "unknown"
+            os_log("%{public}@ ⚪ Central Manager (Scanner) state unknown (future case)", log: log, type: .default, DEBUG_PREFIX)
+        }
+        
+        // Emit state change event
+        emitBluetoothStateChange(state: stateString)
     }
 }

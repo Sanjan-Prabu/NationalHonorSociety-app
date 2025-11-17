@@ -11,6 +11,7 @@ import {
 } from '../types/dataService';
 import { UUID } from '../types/database';
 import { notificationService } from './NotificationService';
+import SentryService from './SentryService';
 
 // =============================================================================
 // EVENT INTERFACES
@@ -91,6 +92,19 @@ export class EventService extends BaseDataService {
     try {
       const userId = await this.getCurrentUserId();
       const organizationId = await this.getCurrentOrganizationId();
+      
+      SentryService.addBreadcrumb(
+        'Creating event',
+        'event.create',
+        'info',
+        { 
+          title: eventData.title, 
+          orgId: organizationId, 
+          hasImage: !!eventData.image_url,
+          category: eventData.category,
+          eventDate: eventData.event_date
+        }
+      );
 
       // Validate required fields
       this.validateRequiredFields(eventData, ['title']);
@@ -168,6 +182,19 @@ export class EventService extends BaseDataService {
           title: transformedEvent.title,
           orgId: organizationId 
         });
+        
+        SentryService.addBreadcrumb(
+          'Event created successfully',
+          'event.create',
+          'info',
+          { 
+            eventId: transformedEvent.id,
+            title: transformedEvent.title,
+            orgId: organizationId,
+            hasImage: !!transformedEvent.image_url,
+            category: transformedEvent.category
+          }
+        );
 
         // Send push notification to all organization members
         try {
@@ -204,6 +231,14 @@ export class EventService extends BaseDataService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.log('error', 'Failed to create event', { eventData, error: errorMessage });
+      
+      SentryService.addBreadcrumb(
+        'Event creation failed',
+        'event.create',
+        'error',
+        { title: eventData.title, error: errorMessage }
+      );
+      
       return {
         data: null,
         error: errorMessage,

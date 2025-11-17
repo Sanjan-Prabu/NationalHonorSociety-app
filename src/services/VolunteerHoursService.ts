@@ -154,40 +154,29 @@ export class VolunteerHoursService extends BaseDataService {
 
         // Send push notifications via Edge Function (like announcements)
         try {
-          const { data: { session } } = await supabase.auth.getSession();
+          console.log('🔔 Sending volunteer hours notification via Edge Function...');
           
-          if (session?.access_token) {
-            console.log('🔔 Sending volunteer hours notification via Edge Function...');
-            
-            const response = await fetch('https://lncrggkgvstvlmrlykpi.supabase.co/functions/v1/send-volunteer-hours-notification', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${session.access_token}`
+          const { data, error } = await supabase.functions.invoke('send-volunteer-hours-notification', {
+            body: {
+              type: 'INSERT',
+              table: 'volunteer_hours',
+              record: {
+                id: transformedHour.id,
+                org_id: transformedHour.org_id,
+                member_id: transformedHour.member_id,
+                hours: transformedHour.hours,
+                description: transformedHour.description,
+                activity_date: transformedHour.activity_date,
+                submitted_at: transformedHour.submitted_at
               },
-              body: JSON.stringify({
-                type: 'INSERT',
-                table: 'volunteer_hours',
-                record: {
-                  id: transformedHour.id,
-                  org_id: transformedHour.org_id,
-                  member_id: transformedHour.member_id,
-                  hours: transformedHour.hours,
-                  description: transformedHour.description,
-                  activity_date: transformedHour.activity_date,
-                  submitted_at: transformedHour.submitted_at
-                },
-                schema: 'public'
-              })
-            });
-
-            if (response.ok) {
-              const result = await response.json();
-              console.log('✅ Volunteer hours notification sent:', result);
-            } else {
-              const error = await response.text();
-              console.error('❌ Volunteer hours notification failed:', response.status, error);
+              schema: 'public'
             }
+          });
+
+          if (error) {
+            console.error('❌ Volunteer hours notification failed:', error);
+          } else {
+            console.log('✅ Volunteer hours notification sent:', data);
           }
         } catch (error) {
           console.error('❌ Volunteer hours notification error:', error);

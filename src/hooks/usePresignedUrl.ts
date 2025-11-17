@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabaseClient';
 import { networkErrorHandler } from '../services/NetworkErrorHandler';
 import ImagePerformanceMonitor from '../utils/imagePerformanceMonitor';
 import Constants from 'expo-constants';
+import SentryService from '../services/SentryService';
 
 interface CachedUrl {
   url: string;
@@ -395,6 +396,13 @@ export const usePresignedUrl = (): UsePresignedUrlResult => {
 
             // Track successful generation
             performanceMonitor.trackCacheOperation('generate', imagePath);
+            
+            SentryService.addBreadcrumb(
+              'Presigned URL generated successfully',
+              'image.render',
+              'info',
+              { imagePath }
+            );
 
             return data.presignedUrl;
           } catch (error) {
@@ -448,10 +456,26 @@ export const usePresignedUrl = (): UsePresignedUrlResult => {
     } catch (error) {
       if (error instanceof PresignedUrlErrorClass) {
         console.error('Presigned URL generation error:', error.message, error.context);
+        
+        SentryService.addBreadcrumb(
+          'Presigned URL generation failed',
+          'image.render',
+          'error',
+          { imagePath, errorType: error.type, errorMessage: error.message }
+        );
+        
         throw error;
       }
 
       console.error('Unexpected presigned URL error:', error);
+      
+      SentryService.addBreadcrumb(
+        'Presigned URL unexpected error',
+        'image.render',
+        'error',
+        { imagePath, error: error instanceof Error ? error.message : 'Unknown error' }
+      );
+      
       throw new PresignedUrlErrorClass(
         PresignedUrlErrorType.UNKNOWN_ERROR,
         'Unexpected error',

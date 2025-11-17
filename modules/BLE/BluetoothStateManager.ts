@@ -69,6 +69,7 @@ export class BluetoothStateManager {
     switch (state) {
       case 'on':
       case 'powered_on':
+      case 'poweredon':    // iOS native returns "poweredOn"
       case 'enabled':
         return {
           isEnabled: true,
@@ -79,6 +80,7 @@ export class BluetoothStateManager {
       
       case 'off':
       case 'powered_off':
+      case 'poweredoff':   // iOS native returns "poweredOff"
       case 'disabled':
         return {
           isEnabled: false,

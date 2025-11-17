@@ -137,10 +137,9 @@ const styles = StyleSheet.create({
     // Additional styling for active tab if needed
   },
   tabText: {
-    fontSize: 8,
+    fontSize: 10,
     marginTop: 2,
     textAlign: 'center',
-   
   },
   activeTabText: {
     fontWeight: '600',

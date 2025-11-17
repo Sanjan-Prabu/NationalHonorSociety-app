@@ -1,5 +1,6 @@
 import {
   NativeModules,
+  NativeEventEmitter,
   Platform,
   PermissionsAndroid,
   Alert,
@@ -14,49 +15,36 @@ interface Subscription {
   remove: () => void;
 }
 
-// Import native modules - ALWAYS attempt to load them
-let BLEBeaconManager: any = null;
-let emitter: any = null;
+// Import native modules using the EXACT pattern from nautilus-frontend
+import { requireNativeModule } from "expo-modules-core";
 
-// Initialize native modules
-try {
-  const expoModules = require("expo-modules-core");
-  if (expoModules && expoModules.requireNativeModule && expoModules.EventEmitter) {
-    const { requireNativeModule, EventEmitter } = expoModules;
-    
-    // Try to get native module based on platform
-    if (Platform.OS === "android") {
-      try {
-        BLEBeaconManager = requireNativeModule("BLEBeaconManager");
-        console.log("[BLEHelper] ✅ Android BLEBeaconManager loaded successfully");
-      } catch (e) {
-        console.error("[BLEHelper] ❌ BLEBeaconManager not available on Android:", e);
-      }
-    }
-    
-    // Try to create emitter based on available native module
-    let nativeModule = null;
-    if (Platform.OS === "ios" && NativeModules.BeaconBroadcaster) {
-      nativeModule = NativeModules.BeaconBroadcaster;
-      console.log("[BLEHelper] ✅ iOS BeaconBroadcaster loaded successfully");
-    } else if (Platform.OS === "android" && BLEBeaconManager) {
-      nativeModule = BLEBeaconManager;
-    }
-    
-    if (nativeModule) {
-      emitter = new EventEmitter(nativeModule);
-      console.log("[BLEHelper] ✅ EventEmitter created successfully");
-    } else {
-      console.error("[BLEHelper] ❌ No native BLE module available for EventEmitter");
-      console.error("[BLEHelper] ❌ This means BLE will NOT work. You must use a development build, not Expo Go.");
-    }
-  } else {
-    console.error("[BLEHelper] ❌ expo-modules-core not properly configured");
+const BLEBeaconManager =
+  Platform.OS !== "android" ? null : requireNativeModule("BLEBeaconManager");
+
+// Create emitter with null safety - native modules don't work in iOS simulator
+const getNativeModule = () => {
+  if (Platform.OS === "ios") {
+    return NativeModules.BeaconBroadcaster || null;
   }
-} catch (error) {
-  console.error("[BLEHelper] ❌ BLE modules initialization failed:", error);
-  console.error("[BLEHelper] ❌ BLE functionality will NOT be available");
-}
+  return BLEBeaconManager;
+};
+
+const nativeModule = getNativeModule();
+// CRITICAL FIX: Use NativeEventEmitter for React Native bridge modules (iOS)
+// and expo-modules EventEmitter for Android
+const getEmitter = () => {
+  if (!nativeModule) return null;
+  
+  if (Platform.OS === "ios") {
+    // BeaconBroadcaster is a React Native bridge module (RCTEventEmitter)
+    return new NativeEventEmitter(nativeModule);
+  } else {
+    // Android uses Expo module, which has its own event system
+    return nativeModule;
+  }
+};
+
+const emitter: any = getEmitter();
 
 export const checkAndRequestPermissions = async (): Promise<boolean> => {
   if (Platform.OS !== "android") {
@@ -263,29 +251,25 @@ const BLEHelper: BLEHelperType = {
     callback: (event: { state: string }) => void
   ): Subscription => {
     if (!emitter) {
-      console.warn("BLE emitter not available - returning mock subscription");
-      return { remove: () => {} } as any;
+      console.warn('[BLEHelper] Native module not available - cannot add Bluetooth state listener');
+      return { remove: () => {} };
     }
     return emitter.addListener("BluetoothStateChanged", callback);
   },
   removeBluetoothStateListener: (subscription: Subscription): void => {
-    if (subscription && subscription.remove) {
-      subscription.remove();
-    }
+    subscription.remove();
   },
   addBeaconDetectedListener: (
     listener: (event: Beacon) => void
   ): Subscription => {
     if (!emitter) {
-      console.warn("BLE emitter not available - returning mock subscription");
-      return { remove: () => {} } as any;
+      console.warn('[BLEHelper] Native module not available - cannot add beacon detected listener');
+      return { remove: () => {} };
     }
     return emitter.addListener("BeaconDetected", listener);
   },
   removeBeaconDetectedListener: (subscription: Subscription): void => {
-    if (subscription && subscription.remove) {
-      subscription.remove();
-    }
+    subscription.remove();
   },
   getBluetoothState: async (): Promise<string> => {
     if (Platform.OS === "ios") {
@@ -330,27 +314,26 @@ const BLEHelper: BLEHelperType = {
     advertiseMode: number = 2,
     txPowerLevel: number = 3
   ): Promise<void> => {
-    console.log("🔴 BLEHelper.broadcastAttendanceSession CALLED");
+    console.log("🔴🔴🔴 BLEHelper.broadcastAttendanceSession CALLED 🔴🔴🔴");
     console.log("🔴 Platform:", Platform.OS);
-    console.log("🔴 OrgCode:", orgCode);
-    console.log("🔴 SessionToken:", sessionToken);
-    console.log("🔴 Title:", title);
+    console.log("🔴 OrgCode:", orgCode, "Type:", typeof orgCode);
+    console.log("🔴 SessionToken:", sessionToken, "Type:", typeof sessionToken);
+    console.log("🔴 NativeModules exists:", !!NativeModules);
     
     if (Platform.OS === "ios") {
-      console.log("🔴 Calling iOS NativeModules.BeaconBroadcaster");
-      console.log("🔴 NativeModules object keys:", Object.keys(NativeModules).slice(0, 10));
-      console.log("🔴 BeaconBroadcaster exists?", NativeModules.BeaconBroadcaster ? "YES" : "NO");
+      console.log("🔴 iOS platform detected, checking native module...");
+      console.log("🔴 BeaconBroadcaster exists:", !!NativeModules.BeaconBroadcaster);
       
       if (!NativeModules.BeaconBroadcaster) {
-        console.error("❌ BeaconBroadcaster module is UNDEFINED!");
-        console.error("❌ This means the native module is NOT compiled into the build!");
-        console.error("❌ Check: 1) package.json exists in module folder, 2) Run npx expo-modules-autolinking resolve");
+        console.error("❌ BeaconBroadcaster module not found!");
+        console.error("❌ Available modules:", Object.keys(NativeModules).filter(k => k.includes('Beacon')));
         throw new Error(
-          "BeaconBroadcaster native module is not available - module not linked"
+          "BeaconBroadcaster native module is not available"
         );
       }
       
       console.log("🔴 Available methods:", Object.keys(NativeModules.BeaconBroadcaster));
+      console.log("🔴 broadcastAttendanceSession exists:", !!NativeModules.BeaconBroadcaster.broadcastAttendanceSession);
       
       if (!NativeModules.BeaconBroadcaster.broadcastAttendanceSession) {
         console.error("❌ broadcastAttendanceSession method not found!");
@@ -360,15 +343,21 @@ const BLEHelper: BLEHelperType = {
       }
       
       try {
-        console.log("🔴 Calling broadcastAttendanceSession...");
+        console.log("🔴🔴🔴 Calling NativeModules.BeaconBroadcaster.broadcastAttendanceSession...");
+        console.log("🔴 Args: orgCode=%d, sessionToken=%s", orgCode, sessionToken);
+        
         const result = await NativeModules.BeaconBroadcaster.broadcastAttendanceSession(
           orgCode,
           sessionToken
         );
-        console.log("🟢 iOS broadcast SUCCESS:", result);
+        
+        console.log("🟢🟢🟢 broadcastAttendanceSession SUCCESS:", result);
         return result;
-      } catch (error) {
-        console.error("❌ iOS broadcast FAILED:", error);
+      } catch (error: any) {
+        console.error("❌❌❌ broadcastAttendanceSession FAILED:", error);
+        console.error("❌ Error name:", error?.name);
+        console.error("❌ Error message:", error?.message);
+        console.error("❌ Error code:", error?.code);
         throw error;
       }
     } else if (Platform.OS === "android") {
@@ -423,14 +412,5 @@ const BLEHelper: BLEHelperType = {
     }
   }
 };
-
-// CRITICAL: Always export the REAL BLE implementation
-// If native modules aren't available, methods will throw errors with clear messages
-// This ensures we never silently fail with mock implementation
-if (!emitter) {
-  console.error("[BLEHelper] ⚠️ WARNING: BLE native modules not loaded!");
-  console.error("[BLEHelper] ⚠️ BLE functionality will throw errors when used.");
-  console.error("[BLEHelper] ⚠️ Make sure you're using a development build, NOT Expo Go.");
-}
 
 export default BLEHelper;
